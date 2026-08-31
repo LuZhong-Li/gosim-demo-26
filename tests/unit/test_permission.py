@@ -19,6 +19,8 @@ from gx.domain.repositories import (
     RoleRepo,
     TeamRepo,
 )
+from gx.services.audit.interceptor import AuditInterceptor
+from gx.services.audit.trace import TraceWriter
 from gx.services.perms.permission import PermissionService, require_permission
 from gx.storage.xlsx import LocalXlsxStorage
 
@@ -41,7 +43,9 @@ def service(tmp_path):
     member_repo = MemberRepo(storage)
     team_repo = TeamRepo(storage)
     role_repo = RoleRepo(storage)
-    audit_repo = AuditRepo(storage)
+    interceptor = AuditInterceptor(
+        AuditRepo(storage), TraceWriter(str(tmp_path / "trace.jsonl"))
+    )
 
     _seed_role(role_repo, RoleEnum.OWNER, ["read", "write", "admin"])
     _seed_role(role_repo, RoleEnum.ADMIN, ["read", "write", "admin"])
@@ -63,7 +67,7 @@ def service(tmp_path):
         Member(id=6, name="admin2", role=RoleEnum.ADMIN, team_id=1, created_at=_ts())
     )
 
-    return PermissionService(member_repo, team_repo, role_repo, audit_repo)
+    return PermissionService(member_repo, team_repo, role_repo, interceptor)
 
 
 def test_owner_global_permission(service):

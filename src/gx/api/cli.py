@@ -9,13 +9,13 @@ from typing import Any, Callable
 
 import typer
 
-from config import CLI_ACTOR_ID, SEED_WORKBOOK_PATH
+from config import CLI_ACTOR_ID, SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from constants import TEAMS
 from errors import GXError
 from gx.domain.enums import Action, Role as RoleEnum
 from gx.domain.models import Member, Team
-from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
-from gx.services.perms.permission import PermissionService, require_permission
+from gx.core.service_bus import ServiceBus
+from gx.services.perms.permission import require_permission
 from gx.storage.xlsx import LocalXlsxStorage
 
 cli = typer.Typer(
@@ -24,24 +24,25 @@ cli = typer.Typer(
 member_app = typer.Typer(help="成员管理")
 team_app = typer.Typer(help="团队管理")
 role_app = typer.Typer(help="角色管理")
+pr_app = typer.Typer(help="PR 模拟管理")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
+cli.add_typer(pr_app, name="pr")
 
 
 class GxCli:
     """CLI 业务门面：封装仓储与权限服务。"""
 
-    def __init__(self, workbook_path: str, actor: int) -> None:
+    def __init__(
+        self, workbook_path: str, actor: int, trace_path: str = TRACE_OUTPUT_PATH
+    ) -> None:
         self.actor = actor
         storage = LocalXlsxStorage(workbook_path)
-        self.member_repo = MemberRepo(storage)
-        self.team_repo = TeamRepo(storage)
-        role_repo = RoleRepo(storage)
-        audit_repo = AuditRepo(storage)
-        self.permissions = PermissionService(
-            self.member_repo, self.team_repo, role_repo, audit_repo
-        )
+        self.bus = ServiceBus(storage, trace_path=trace_path)
+        self.member_repo = self.bus.member_repo
+        self.team_repo = self.bus.team_repo
+        self.permissions = self.bus.permissions
 
     @require_permission(Action.ADMIN, "workbook")
     def member_add(self, subject_id: int, name: str, role: str) -> Member:
@@ -108,8 +109,11 @@ def main(
     workbook: str = typer.Option(
         SEED_WORKBOOK_PATH, "--workbook", help="工作簿路径"
     ),
+    trace: str = typer.Option(
+        None, "--trace", help="trace 输出路径（默认 config.TRACE_OUTPUT_PATH）"
+    ),
 ) -> None:
-    ctx.obj = GxCli(workbook_path=workbook, actor=actor)
+    ctx.obj = GxCli(workbook_path=workbook, actor=actor, trace_path=trace or TRACE_OUTPUT_PATH)
 
 
 @member_app.command("add")
@@ -171,3 +175,48 @@ def role_assign_cmd(
         app.role_assign, subject_id=app.actor, member_id=member_id, role=role
     )
     typer.echo(f"[OK] 已分配角色: member_id={updated.id} role={updated.role.value}")
+
+
+@pr_app.command("create")
+def pr_create_cmd(
+    ctx: typer.Context,
+    title: str = typer.Option(..., "--title", help="PR 标题"),
+) -> None:
+    app: GxCli = ctx.obj
+    pr = _run_command(app.bus.create_pr, subject_id=app.actor, title=title)
+    typer.echo(f"[OK] PR 已创建: id={pr.id} title={pr.title} author={pr.author}")
+
+
+@pr_app.command("list")
+def pr_list_cmd(ctx: typer.Context) -> None:
+    app: GxCli = ctx.obj
+    prs = app.bus.list_prs()
+    if not prs:
+        typer.echo("（暂无 PR）")
+        return
+    for pr in prs:
+        approvers = ",".join(pr.approvers) or "-"
+        typer.echo(f"{pr.id}\t{pr.title}\t{pr.author}\t{pr.status.value}\t{approvers}")
+
+
+@pr_app.command("approve")
+def pr_approve_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+    approver: str = typer.Argument(..., help="审批人成员名称"),
+) -> None:
+    app: GxCli = ctx.obj
+    updated = _run_command(
+        app.bus.approve_pr, subject_id=app.actor, pr_id=pr_id, approver=approver
+    )
+    typer.echo(f"[OK] PR 已审批: id={updated.id} approvers={updated.approvers}")
+
+
+@pr_app.command("merge")
+def pr_merge_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+) -> None:
+    app: GxCli = ctx.obj
+    updated = _run_command(app.bus.merge_pr, subject_id=app.actor, pr_id=pr_id)
+    typer.echo(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")

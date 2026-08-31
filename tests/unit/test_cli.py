@@ -15,6 +15,14 @@ from gx.storage.xlsx import LocalXlsxStorage
 runner = CliRunner(mix_stderr=False)
 
 
+@pytest.fixture(autouse=True)
+def _trace_tmp(tmp_path, monkeypatch):
+    """所有 CLI 用例的 trace 输出指向临时文件，避免污染仓库。"""
+    monkeypatch.setattr(
+        "gx.api.cli.TRACE_OUTPUT_PATH", str(tmp_path / "trace.jsonl")
+    )
+
+
 def _ts() -> datetime:
     return datetime(2026, 9, 1, tzinfo=timezone.utc)
 
@@ -68,6 +76,7 @@ def test_cli_help_shows_groups():
     assert "member" in result.output
     assert "team" in result.output
     assert "role" in result.output
+    assert "pr" in result.output
 
 
 def test_member_list(workbook_path):
@@ -137,3 +146,34 @@ def test_role_assign_missing_member(workbook_path):
     )
     assert result.exit_code == 1
     assert "S004" in result.stderr
+
+
+def test_pr_full_flow(workbook_path):
+    created = runner.invoke(
+        cli,
+        ["--workbook", workbook_path, "--actor", "1", "pr", "create", "--title", "demo change"],
+    )
+    assert created.exit_code == 0
+    assert "demo change" in created.output
+
+    blocked = runner.invoke(
+        cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"]
+    )
+    assert blocked.exit_code == 1
+    assert "R001" in blocked.stderr
+
+    approved = runner.invoke(
+        cli,
+        ["--workbook", workbook_path, "--actor", "1", "pr", "approve", "1", "alice"],
+    )
+    assert approved.exit_code == 0
+
+    merged = runner.invoke(
+        cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"]
+    )
+    assert merged.exit_code == 0
+    assert "merged" in merged.output
+
+    listed = runner.invoke(cli, ["--workbook", workbook_path, "pr", "list"])
+    assert "demo change" in listed.output
+    assert "merged" in listed.output

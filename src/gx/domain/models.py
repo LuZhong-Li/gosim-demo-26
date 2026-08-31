@@ -195,3 +195,11 @@ class RuleSet(DomainModel):
     name: str = Field(min_length=1, max_length=64)
     rule_type: RuleType
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuleViolation(DomainModel):
+    """规则违规结果（docs/plans/02-核心模块设计.md 3.4）。"""
+
+    rule_id: str = Field(min_length=1, max_length=32)
+    message: str = Field(min_length=1, max_length=200)
+    resource_id: str = Field(default="", max_length=128)

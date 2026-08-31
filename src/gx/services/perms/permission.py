@@ -5,14 +5,13 @@
 """
 
 import functools
-from datetime import datetime, timezone
 from typing import Any, Callable
 
 from constants import AUDIT_LOG, RULESETS
 from errors import GXError
 from gx.domain.enums import Action, Role as RoleEnum, Source
-from gx.domain.models import AuditLogEntry
-from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
+from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
+from gx.services.audit.interceptor import AuditInterceptor
 
 # 通用动作矩阵（owner 全局权限与特殊表限制在 _role_allows 中额外处理）
 _ROLE_ACTIONS: dict[RoleEnum, frozenset[Action]] = {
@@ -38,12 +37,12 @@ class PermissionService:
         member_repo: MemberRepo,
         team_repo: TeamRepo,
         role_repo: RoleRepo,
-        audit_repo: AuditRepo | None = None,
+        interceptor: AuditInterceptor | None = None,
     ) -> None:
         self._members = member_repo
         self._teams = team_repo
         self._roles = role_repo
-        self._audit = audit_repo
+        self._interceptor = interceptor
 
     def check(
         self,
@@ -87,20 +86,18 @@ class PermissionService:
         self, actor_id: Any, subject_id: Any, old_role: str, new_role: str
     ) -> None:
         """权限变更审计埋点（供后续角色变更操作调用）。"""
-        if self._audit is None:
+        if self._interceptor is None:
             return
-        self._audit.create(
-            AuditLogEntry(
-                actor_id=str(actor_id),
-                action_type="permission.change",
-                resource_type="member",
-                resource_id=str(subject_id),
-                before_snapshot={"role": str(old_role)},
-                after_snapshot={"role": str(new_role)},
-                timestamp=datetime.now(timezone.utc),
-                source=Source.CLI,
-                success=True,
-            )
+        self._interceptor.record(
+            actor_id=str(actor_id),
+            action_type="permission.change",
+            resource_type="member",
+            resource_id=str(subject_id),
+            before_snapshot={"role": str(old_role)},
+            after_snapshot={"role": str(new_role)},
+            source=Source.CLI,
+            success=True,
+            trace_type="api_call",
         )
 
     def _resolve_roles(self, subject_id: Any) -> set[RoleEnum]:
@@ -144,20 +141,18 @@ class PermissionService:
         resource_id: str | None,
         action: Action,
     ) -> None:
-        if self._audit is None:
+        if self._interceptor is None:
             return
-        self._audit.create(
-            AuditLogEntry(
-                actor_id=str(subject_id),
-                action_type="permission.deny",
-                resource_type=resource_type,
-                resource_id=str(resource_id or ""),
-                after_snapshot={"action": action.value},
-                timestamp=datetime.now(timezone.utc),
-                source=Source.API,
-                success=False,
-                error_msg="[P001] permission denied",
-            )
+        self._interceptor.record(
+            actor_id=str(subject_id),
+            action_type="permission.deny",
+            resource_type=resource_type,
+            resource_id=str(resource_id or ""),
+            after_snapshot={"action": action.value},
+            source=Source.API,
+            success=False,
+            error_msg="[P001] permission denied",
+            trace_type="api_call",
         )
 
 
