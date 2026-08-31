@@ -23,8 +23,31 @@
 ## 快速开始
 
 ```bash
+python -m venv .venv
+# Windows 激活：.venv\Scripts\activate
 pip install -r requirements.txt
+pip install -e .
 python demo/init_seed.py
+gx --help
+```
+
+## 一键演示
+
+```bash
+python demo/run_demo.py
+# Windows 也可以双击 demo\run_demo.bat
+```
+
+脚本会自动跑通完整链路并生成 `demo/output/trace.jsonl`：
+创建成员 -> 创建 PR -> 权限拦截（P001）-> Rulesets 拦截（R001）-> 审批 -> 运行工作流 -> 合并 PR -> 人工干预 -> 校验 trace。
+
+## 使用 CLI 与 Mock Agent
+
+```bash
+gx member list
+gx pr create --title "demo change"
+gx workflow run ci-check
+python agent/mock_nl_parser.py "添加成员 bob 为 member"
 ```
 
 ## 已确认决策
