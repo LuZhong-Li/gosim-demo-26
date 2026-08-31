@@ -1,6 +1,6 @@
 """生成种子工作簿 demo/seed-workbook.xlsx。
 
-包含 8 张固定工作表，并预置 owner/admin 两个默认角色与一个 admin 默认用户。
+包含 8 张固定工作表，并通过领域 Repository 接口预置角色/团队/成员。
 参见 docs/plans/04-里程碑任务.md Phase0。
 """
 
@@ -26,6 +26,9 @@ from constants import (
     WORKFLOW_RUNS,
 )
 from config import SEED_WORKBOOK_PATH
+from src.gx.domain.enums import Role as RoleEnum
+from src.gx.domain.models import Member, Role, Team
+from src.gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
 from src.gx.storage.xlsx import LocalXlsxStorage
 
 # 各工作表表头（首行）；audit_log 字段严格对齐 docs/plans/02-核心模块设计.md 3.2
@@ -80,17 +83,29 @@ def main() -> None:
     # 清理 openpyxl 默认工作表，保证恰好 8 张表
     storage.remove_sheet("Sheet")
 
+    role_repo = RoleRepo(storage)
+    team_repo = TeamRepo(storage)
+    member_repo = MemberRepo(storage)
+
     # 预置默认角色
-    storage.append_row(ROLES, {"id": OWNER, "name": OWNER, "permissions": "read,write,admin"})
-    storage.append_row(ROLES, {"id": ADMIN, "name": ADMIN, "permissions": "read,write,admin"})
-    # 预置默认 admin 用户
-    storage.append_row(
-        MEMBERS,
-        {"id": 1, "name": "admin", "role": ADMIN, "team_id": "", "created_at": now_iso()},
+    role_repo.create(Role(id=OWNER, name=OWNER, permissions=["read", "write", "admin"]))
+    role_repo.create(Role(id=ADMIN, name=ADMIN, permissions=["read", "write", "admin"]))
+    # 预置默认团队
+    team_repo.create(Team(id=1, name="core", description="核心团队"))
+    # 预置默认成员：admin（管理员）、alice（普通成员）
+    member_repo.create(
+        Member(id=1, name="admin", role=RoleEnum.ADMIN, team_id=None, created_at=now_iso())
+    )
+    member_repo.create(
+        Member(id=2, name="alice", role=RoleEnum.MEMBER, team_id=1, created_at=now_iso())
     )
 
     print(f"种子工作簿已生成: {SEED_WORKBOOK_PATH}")
     print(f"工作表: {', '.join(SHEET_NAMES)}")
+    print(
+        f"角色 {len(role_repo.list())} 个 / 团队 {len(team_repo.list())} 个 / "
+        f"成员 {len(member_repo.list())} 个"
+    )
 
 
 if __name__ == "__main__":
