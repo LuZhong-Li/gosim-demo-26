@@ -150,6 +150,13 @@ def test_role_parse_comma_separated_legacy():
     assert role.permissions == ["read", "write", "admin"]
 
 
+def test_empty_string_field_round_trip(storage):
+    team_repo = TeamRepo(storage)
+    team_repo.create(Team(id=1, name="core", description=""))
+    loaded = team_repo.get(1)
+    assert loaded.description == ""
+
+
 def test_audit_entry_snapshot_round_trip():
     entry = AuditLogEntry(
         actor_id="system",

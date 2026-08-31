@@ -9,7 +9,14 @@ import json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from errors import GXError
 from src.gx.domain.enums import (
@@ -69,6 +76,16 @@ class DomainModel(BaseModel):
             except json.JSONDecodeError:
                 return value
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_empty_strings(cls, data: Any) -> Any:
+        """openpyxl 将空单元格读回为 None；str 字段统一还原为空串。"""
+        if isinstance(data, dict):
+            for name, field in cls.model_fields.items():
+                if field.annotation is str and name in data and data[name] is None:
+                    data[name] = ""
+        return data
 
 
 class Member(DomainModel):
