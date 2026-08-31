@@ -84,31 +84,33 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def main() -> None:
-    storage = LocalXlsxStorage.create_workbook(SEED_WORKBOOK_PATH)
+def create_seed_workbook(path: str) -> LocalXlsxStorage:
+    """新建空工作簿并预置种子数据，返回已就绪的存储实例。"""
+    storage = LocalXlsxStorage.create_workbook(path)
     for sheet_name in SHEET_NAMES:
         storage.add_sheet(sheet_name, SHEET_COLUMNS[sheet_name])
     # 清理 openpyxl 默认工作表，保证恰好 8 张表
     storage.remove_sheet("Sheet")
+    build_seed(storage)
+    return storage
 
+
+def build_seed(storage: LocalXlsxStorage) -> None:
+    """向已建表的工作簿写入预置角色/团队/成员/工作流。"""
     role_repo = RoleRepo(storage)
     team_repo = TeamRepo(storage)
     member_repo = MemberRepo(storage)
     workflow_repo = WorkflowRepo(storage)
 
-    # 预置默认角色
     role_repo.create(Role(id=OWNER, name=OWNER, permissions=["read", "write", "admin"]))
     role_repo.create(Role(id=ADMIN, name=ADMIN, permissions=["read", "write", "admin"]))
-    # 预置默认团队
     team_repo.create(Team(id=1, name="core", description="核心团队"))
-    # 预置默认成员：admin（管理员）、alice（普通成员）
     member_repo.create(
         Member(id=1, name="admin", role=RoleEnum.ADMIN, team_id=None, created_at=now_iso())
     )
     member_repo.create(
         Member(id=2, name="alice", role=RoleEnum.MEMBER, team_id=1, created_at=now_iso())
     )
-    # 预置默认 ci-check 工作流（Phase3 演示用）
     workflow_repo.create(
         Workflow(
             id=1,
@@ -119,13 +121,12 @@ def main() -> None:
         )
     )
 
+
+def main() -> None:
+    create_seed_workbook(SEED_WORKBOOK_PATH)
     print(f"种子工作簿已生成: {SEED_WORKBOOK_PATH}")
     print(f"工作表: {', '.join(SHEET_NAMES)}")
-    print(
-        f"角色 {len(role_repo.list())} 个 / 团队 {len(team_repo.list())} 个 / "
-        f"成员 {len(member_repo.list())} 个"
-    )
-    print(f"工作流 {len(workflow_repo.list())} 个")
+    print("角色 2 个 / 团队 1 个 / 成员 2 个 / 工作流 1 个")
 
 
 if __name__ == "__main__":
