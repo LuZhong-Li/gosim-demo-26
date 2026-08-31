@@ -15,10 +15,10 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from config import TRACE_OUTPUT_PATH
+from agent.mock_nl_parser import MockNlParser
 from demo.init_seed import create_seed_workbook
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import Role as RoleEnum
 from gx.services.audit.trace import TraceWriter
 from tools.check_trace import check_trace
 
@@ -33,9 +33,10 @@ def main() -> None:
     storage = create_seed_workbook(str(workdir / "demo.xlsx"))
     bus = ServiceBus(storage, trace_path=str(trace_path))
 
-    print("== 1. 创建只读成员 ==")
-    reader = bus.member_add(subject_id=1, name="reader", role=RoleEnum.READONLY.value)
-    print(f"[OK] {reader.name}（{reader.role.value}）")
+    print("== 1. 通过 Agent 创建只读成员 ==")
+    agent = MockNlParser(bus, actor=1, trace_path=str(trace_path))
+    print(agent.parse("添加成员 reader 为 readonly"))
+    reader = next(member for member in bus.list_members() if member.name == "reader")
 
     print("== 2. 创建 PR ==")
     pr = bus.create_pr(subject_id=1, title="demo change")
