@@ -1,0 +1,4 @@
+openpyxl==3.1.5
+pydantic==2.8.2
+typer==0.12.5
+pytest==8.3.2

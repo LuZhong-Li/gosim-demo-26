@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ==== GX-Sheet 项目补充 ====
+# 缓存与虚拟环境（模板已含 __pycache__/、*.py[codz]、.venv，此处按清单显式列出）
+__pycache__/
+.venv/
+*.pyc
+
+# 备份与临时文件
+*.bak
+*.tmp
+*.xlsx.bak
+*.backup.xlsx
+
+# demo 运行日志
+demo/output/*.log
