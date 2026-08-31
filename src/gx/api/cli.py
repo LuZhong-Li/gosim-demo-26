@@ -1,21 +1,16 @@
 """GX-Sheet 命令行接口（typer，click 之上的一层封装）。
 
-子命令：member add/list、team add/list、role assign。
-所有修改操作经 @require_permission 权限校验；读写统一走领域仓储。
+子命令：member / team / role / pr / workflow。
+上层只调用 core 门面（ServiceBus），不直接碰存储与零散服务。
 """
 
-from datetime import datetime, timezone
 from typing import Any, Callable
 
 import typer
 
 from config import CLI_ACTOR_ID, SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
-from constants import TEAMS
 from errors import GXError
-from gx.domain.enums import Action, Role as RoleEnum
-from gx.domain.models import Member, Team
 from gx.core.service_bus import ServiceBus
-from gx.services.perms.permission import require_permission
 from gx.storage.xlsx import LocalXlsxStorage
 
 cli = typer.Typer(
@@ -34,60 +29,15 @@ cli.add_typer(workflow_app, name="workflow")
 
 
 class GxCli:
-    """CLI 业务门面：封装仓储与权限服务。"""
+    """CLI 上下文：仅持有操作者与统一业务门面。"""
 
     def __init__(
         self, workbook_path: str, actor: int, trace_path: str = TRACE_OUTPUT_PATH
     ) -> None:
         self.actor = actor
-        storage = LocalXlsxStorage(workbook_path)
-        self.bus = ServiceBus(storage, trace_path=trace_path)
-        self.member_repo = self.bus.member_repo
-        self.team_repo = self.bus.team_repo
-        self.permissions = self.bus.permissions
-
-    @require_permission(Action.ADMIN, "workbook")
-    def member_add(self, subject_id: int, name: str, role: str) -> Member:
-        member = Member(
-            id=self._next_id(self.member_repo),
-            name=name,
-            role=RoleEnum(role),
-            created_at=datetime.now(timezone.utc),
+        self.bus = ServiceBus(
+            LocalXlsxStorage(workbook_path), trace_path=trace_path
         )
-        self.member_repo.create(member)
-        return member
-
-    @require_permission(Action.WRITE, "sheet", resource_id=TEAMS)
-    def team_add(self, subject_id: int, name: str, description: str = "") -> Team:
-        team = Team(
-            id=self._next_id(self.team_repo), name=name, description=description
-        )
-        self.team_repo.create(team)
-        return team
-
-    @require_permission(Action.ADMIN, "workbook")
-    def role_assign(self, subject_id: int, member_id: int, role: str) -> Member:
-        current = self.member_repo.get(member_id)
-        new_role = RoleEnum(role)
-        updated = self.member_repo.update(member_id, {"role": new_role.value})
-        self.permissions.record_permission_change(
-            actor_id=subject_id,
-            subject_id=member_id,
-            old_role=current.role.value,
-            new_role=new_role.value,
-        )
-        return updated
-
-    def list_members(self) -> list[Member]:
-        return self.member_repo.list()
-
-    def list_teams(self) -> list[Team]:
-        return self.team_repo.list()
-
-    @staticmethod
-    def _next_id(repo: Any) -> int:
-        existing = [getattr(item, "id") for item in repo.list()]
-        return max(existing, default=0) + 1
 
 
 def _run_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -125,7 +75,9 @@ def member_add_cmd(
     role: str = typer.Argument(..., help="角色：owner/admin/member/readonly"),
 ) -> None:
     app: GxCli = ctx.obj
-    member = _run_command(app.member_add, subject_id=app.actor, name=name, role=role)
+    member = _run_command(
+        app.bus.member_add, subject_id=app.actor, name=name, role=role
+    )
     typer.echo(
         f"[OK] 成员已添加: id={member.id} name={member.name} role={member.role.value}"
     )
@@ -134,7 +86,7 @@ def member_add_cmd(
 @member_app.command("list")
 def member_list_cmd(ctx: typer.Context) -> None:
     app: GxCli = ctx.obj
-    members = app.list_members()
+    members = app.bus.list_members()
     if not members:
         typer.echo("（暂无成员）")
         return
@@ -150,7 +102,7 @@ def team_add_cmd(
 ) -> None:
     app: GxCli = ctx.obj
     team = _run_command(
-        app.team_add, subject_id=app.actor, name=name, description=description
+        app.bus.team_add, subject_id=app.actor, name=name, description=description
     )
     typer.echo(f"[OK] 团队已创建: id={team.id} name={team.name}")
 
@@ -158,7 +110,7 @@ def team_add_cmd(
 @team_app.command("list")
 def team_list_cmd(ctx: typer.Context) -> None:
     app: GxCli = ctx.obj
-    teams = app.list_teams()
+    teams = app.bus.list_teams()
     if not teams:
         typer.echo("（暂无团队）")
         return
@@ -174,7 +126,7 @@ def role_assign_cmd(
 ) -> None:
     app: GxCli = ctx.obj
     updated = _run_command(
-        app.role_assign, subject_id=app.actor, member_id=member_id, role=role
+        app.bus.role_assign, subject_id=app.actor, member_id=member_id, role=role
     )
     typer.echo(f"[OK] 已分配角色: member_id={updated.id} role={updated.role.value}")
 

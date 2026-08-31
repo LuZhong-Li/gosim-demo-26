@@ -7,10 +7,10 @@
 from datetime import datetime, timezone
 
 from config import TRACE_OUTPUT_PATH
-from constants import PULL_REQUESTS, WORKFLOWS
+from constants import MEMBERS, PULL_REQUESTS, TEAMS, WORKFLOWS
 from errors import GXError
-from gx.domain.enums import Action, PRStatus, Source, TriggerType
-from gx.domain.models import PullRequest
+from gx.domain.enums import Action, PRStatus, Role as RoleEnum, Source, TriggerType
+from gx.domain.models import Member, PullRequest, Team
 from gx.domain.repositories import (
     AuditRepo,
     MemberRepo,
@@ -31,7 +31,7 @@ from gx.storage.base import BaseStorage
 
 
 class ServiceBus:
-    """统一业务门面：PR 创建 / 审批 / 合并编排。"""
+    """统一业务门面：成员/团队/角色/PR/工作流编排。"""
 
     def __init__(self, storage: BaseStorage, trace_path: str = TRACE_OUTPUT_PATH) -> None:
         self._storage = storage
@@ -149,6 +149,68 @@ class ServiceBus:
     def list_prs(self) -> list[PullRequest]:
         return self.pr_repo.list()
 
+    @require_permission(Action.ADMIN, "workbook")
+    def member_add(self, subject_id: int, name: str, role: str) -> Member:
+        member = Member(
+            id=self._next_id(self.member_repo),
+            name=name,
+            role=RoleEnum(role),
+            created_at=datetime.now(timezone.utc),
+        )
+        self.member_repo.create(member)
+        self.interceptor.record(
+            actor_id=subject_id,
+            action_type="member.add",
+            resource_type="sheet",
+            resource_id=MEMBERS,
+            after_snapshot={
+                "id": member.id,
+                "name": member.name,
+                "role": member.role.value,
+            },
+            source=Source.API,
+            success=True,
+            trace_type="api_call",
+        )
+        return member
+
+    @require_permission(Action.WRITE, "sheet", resource_id=TEAMS)
+    def team_add(self, subject_id: int, name: str, description: str = "") -> Team:
+        team = Team(
+            id=self._next_id(self.team_repo), name=name, description=description
+        )
+        self.team_repo.create(team)
+        self.interceptor.record(
+            actor_id=subject_id,
+            action_type="team.add",
+            resource_type="sheet",
+            resource_id=TEAMS,
+            after_snapshot={"id": team.id, "name": team.name},
+            source=Source.API,
+            success=True,
+            trace_type="api_call",
+        )
+        return team
+
+    @require_permission(Action.ADMIN, "workbook")
+    def role_assign(self, subject_id: int, member_id: int, role: str) -> Member:
+        current = self.member_repo.get(member_id)
+        new_role = RoleEnum(role)
+        updated = self.member_repo.update(member_id, {"role": new_role.value})
+        self.permissions.record_permission_change(
+            actor_id=subject_id,
+            subject_id=member_id,
+            old_role=current.role.value,
+            new_role=new_role.value,
+        )
+        return updated
+
+    def list_members(self) -> list[Member]:
+        return self.member_repo.list()
+
+    def list_teams(self) -> list[Team]:
+        return self.team_repo.list()
+
     @require_permission(Action.WRITE, "sheet", resource_id=WORKFLOWS)
     def run_workflow(self, subject_id: int, name: str):
         """按名称手动触发工作流。"""
@@ -158,5 +220,9 @@ class ServiceBus:
         return self.workflow_repo.list()
 
     def _next_pr_id(self) -> int:
-        existing = [pr.id for pr in self.pr_repo.list()]
+        return self._next_id(self.pr_repo)
+
+    @staticmethod
+    def _next_id(repo) -> int:
+        existing = [getattr(item, "id") for item in repo.list()]
         return max(existing, default=0) + 1
