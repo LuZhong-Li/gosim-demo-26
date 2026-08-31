@@ -7,9 +7,9 @@
 from datetime import datetime, timezone
 
 from config import TRACE_OUTPUT_PATH
-from constants import PULL_REQUESTS
+from constants import PULL_REQUESTS, WORKFLOWS
 from errors import GXError
-from gx.domain.enums import Action, PRStatus, Source
+from gx.domain.enums import Action, PRStatus, Source, TriggerType
 from gx.domain.models import PullRequest
 from gx.domain.repositories import (
     AuditRepo,
@@ -17,12 +17,16 @@ from gx.domain.repositories import (
     PRRepo,
     RoleRepo,
     TeamRepo,
+    WorkflowRepo,
     WorkflowRunRepo,
 )
+from gx.services.actions.runner import WorkflowRunner
+from gx.services.actions.trigger import WorkflowTrigger
 from gx.services.audit.interceptor import AuditInterceptor
 from gx.services.audit.trace import TraceWriter
 from gx.services.perms.permission import PermissionService, require_permission
 from gx.services.rules.service import RuleService
+from gx.services.rules.workflow_check import WorkflowCheck
 from gx.storage.base import BaseStorage
 
 
@@ -35,6 +39,7 @@ class ServiceBus:
         self.team_repo = TeamRepo(storage)
         self.role_repo = RoleRepo(storage)
         self.pr_repo = PRRepo(storage)
+        self.workflow_repo = WorkflowRepo(storage)
         self.workflow_run_repo = WorkflowRunRepo(storage)
         audit_repo = AuditRepo(storage)
         trace = TraceWriter(trace_path)
@@ -43,6 +48,10 @@ class ServiceBus:
             self.member_repo, self.team_repo, self.role_repo, self.interceptor
         )
         self.rules = RuleService()
+        self.workflow_trigger = WorkflowTrigger(
+            self.workflow_repo, self.workflow_run_repo, WorkflowRunner(), self.interceptor
+        )
+        self.workflow_check = WorkflowCheck(self.workflow_run_repo)
 
     @require_permission(Action.WRITE, "sheet", resource_id=PULL_REQUESTS)
     def create_pr(self, subject_id: int, title: str) -> PullRequest:
@@ -90,7 +99,10 @@ class ServiceBus:
     @require_permission(Action.WRITE, "sheet", resource_id=PULL_REQUESTS)
     def merge_pr(self, subject_id: int, pr_id: int) -> PullRequest:
         pr = self.pr_repo.get(pr_id)
-        violations = self.rules.evaluate(pr)
+        violations = self.rules.evaluate(
+            pr,
+            context={"workflow_status": self.workflow_check.latest_status()},
+        )
         if violations:
             self.interceptor.record(
                 actor_id=subject_id,
@@ -136,6 +148,14 @@ class ServiceBus:
 
     def list_prs(self) -> list[PullRequest]:
         return self.pr_repo.list()
+
+    @require_permission(Action.WRITE, "sheet", resource_id=WORKFLOWS)
+    def run_workflow(self, subject_id: int, name: str):
+        """按名称手动触发工作流。"""
+        return self.workflow_trigger.run_by_name(name, actor=subject_id)
+
+    def list_workflows(self):
+        return self.workflow_repo.list()
 
     def _next_pr_id(self) -> int:
         existing = [pr.id for pr in self.pr_repo.list()]

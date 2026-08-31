@@ -28,7 +28,7 @@ class RuleService:
                 )
             )
         workflow_status = (context or {}).get("workflow_status")
-        if workflow_status == RunStatus.FAILED.value:
+        if workflow_status is not None and workflow_status != RunStatus.SUCCESS.value:
             violations.append(
                 RuleViolation(
                     rule_id=RuleType.REQUIRED_CHECK.value,

@@ -34,3 +34,13 @@ def test_required_check_failed_violates():
         context={"workflow_status": RunStatus.FAILED.value},
     )
     assert [v.rule_id for v in violations] == [RuleType.REQUIRED_CHECK.value]
+
+
+def test_required_check_success_passes():
+    assert (
+        RuleService().evaluate(
+            _pr(approvers=["alice"]),
+            context={"workflow_status": RunStatus.SUCCESS.value},
+        )
+        == []
+    )

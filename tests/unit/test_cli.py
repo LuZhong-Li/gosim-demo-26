@@ -8,8 +8,8 @@ from typer.testing import CliRunner
 from demo.init_seed import SHEET_COLUMNS
 from gx.api.cli import cli
 from gx.domain.enums import Role as RoleEnum
-from gx.domain.models import Member, Role, Team
-from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
+from gx.domain.models import Member, Role, Team, Workflow
+from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo, WorkflowRepo
 from gx.storage.xlsx import LocalXlsxStorage
 
 runner = CliRunner(mix_stderr=False)
@@ -61,6 +61,10 @@ def _build_workbook(path: str) -> None:
 
     team_repo = TeamRepo(storage)
     team_repo.create(Team(id=1, name="core", description="核心团队"))
+    workflow_repo = WorkflowRepo(storage)
+    workflow_repo.create(
+        Workflow(id=1, name="ci-check", steps=[{"type": "shell", "command": "echo ok"}])
+    )
 
 
 @pytest.fixture
@@ -177,3 +181,15 @@ def test_pr_full_flow(workbook_path):
     listed = runner.invoke(cli, ["--workbook", workbook_path, "pr", "list"])
     assert "demo change" in listed.output
     assert "merged" in listed.output
+
+
+def test_workflow_run_and_list(workbook_path):
+    run = runner.invoke(
+        cli,
+        ["--workbook", workbook_path, "--actor", "1", "workflow", "run", "ci-check"],
+    )
+    assert run.exit_code == 0
+    assert "success" in run.output
+    listed = runner.invoke(cli, ["--workbook", workbook_path, "workflow", "list"])
+    assert listed.exit_code == 0
+    assert "ci-check" in listed.output

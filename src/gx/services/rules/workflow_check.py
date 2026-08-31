@@ -1,0 +1,22 @@
+"""required-check：读取最新 workflow_runs 状态供规则引擎使用。
+
+原型实现取最新一条运行记录；后续可按 PR/工作流精确关联。
+参见 docs/plans/02-核心模块设计.md 3.4、04-里程碑任务.md Phase3。
+"""
+
+from gx.domain.repositories import WorkflowRunRepo
+
+
+class WorkflowCheck:
+    """合并前 required-check 校验。"""
+
+    def __init__(self, workflow_run_repo: WorkflowRunRepo) -> None:
+        self._runs = workflow_run_repo
+
+    def latest_status(self) -> str | None:
+        """返回最新一次工作流运行状态；无运行记录时返回 None。"""
+        runs = self._runs.list()
+        if not runs:
+            return None
+        latest = max(runs, key=lambda run: run.id)
+        return latest.status.value

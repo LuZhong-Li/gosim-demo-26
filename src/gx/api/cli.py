@@ -25,10 +25,12 @@ member_app = typer.Typer(help="成员管理")
 team_app = typer.Typer(help="团队管理")
 role_app = typer.Typer(help="角色管理")
 pr_app = typer.Typer(help="PR 模拟管理")
+workflow_app = typer.Typer(help="工作流管理")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
 cli.add_typer(pr_app, name="pr")
+cli.add_typer(workflow_app, name="workflow")
 
 
 class GxCli:
@@ -220,3 +222,24 @@ def pr_merge_cmd(
     app: GxCli = ctx.obj
     updated = _run_command(app.bus.merge_pr, subject_id=app.actor, pr_id=pr_id)
     typer.echo(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")
+
+
+@workflow_app.command("list")
+def workflow_list_cmd(ctx: typer.Context) -> None:
+    app: GxCli = ctx.obj
+    workflows = app.bus.list_workflows()
+    if not workflows:
+        typer.echo("（暂无工作流）")
+        return
+    for workflow in workflows:
+        typer.echo(f"{workflow.id}\t{workflow.name}\t{workflow.status.value}")
+
+
+@workflow_app.command("run")
+def workflow_run_cmd(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help="工作流名称"),
+) -> None:
+    app: GxCli = ctx.obj
+    run = _run_command(app.bus.run_workflow, subject_id=app.actor, name=name)
+    typer.echo(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")

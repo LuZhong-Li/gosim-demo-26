@@ -29,9 +29,14 @@ from constants import (
     WORKFLOW_RUNS,
 )
 from config import SEED_WORKBOOK_PATH
-from gx.domain.enums import Role as RoleEnum
-from gx.domain.models import Member, Role, Team
-from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
+from gx.domain.enums import Role as RoleEnum, TriggerType, WorkflowStatus
+from gx.domain.models import Member, Role, Team, Workflow
+from gx.domain.repositories import (
+    MemberRepo,
+    RoleRepo,
+    TeamRepo,
+    WorkflowRepo,
+)
 from gx.storage.xlsx import LocalXlsxStorage
 
 # 各工作表表头（首行）；audit_log 字段严格对齐 docs/plans/02-核心模块设计.md 3.2
@@ -89,6 +94,7 @@ def main() -> None:
     role_repo = RoleRepo(storage)
     team_repo = TeamRepo(storage)
     member_repo = MemberRepo(storage)
+    workflow_repo = WorkflowRepo(storage)
 
     # 预置默认角色
     role_repo.create(Role(id=OWNER, name=OWNER, permissions=["read", "write", "admin"]))
@@ -102,6 +108,16 @@ def main() -> None:
     member_repo.create(
         Member(id=2, name="alice", role=RoleEnum.MEMBER, team_id=1, created_at=now_iso())
     )
+    # 预置默认 ci-check 工作流（Phase3 演示用）
+    workflow_repo.create(
+        Workflow(
+            id=1,
+            name="ci-check",
+            steps=[{"type": "shell", "command": "echo ok"}],
+            trigger=TriggerType.MANUAL,
+            status=WorkflowStatus.ACTIVE,
+        )
+    )
 
     print(f"种子工作簿已生成: {SEED_WORKBOOK_PATH}")
     print(f"工作表: {', '.join(SHEET_NAMES)}")
@@ -109,6 +125,7 @@ def main() -> None:
         f"角色 {len(role_repo.list())} 个 / 团队 {len(team_repo.list())} 个 / "
         f"成员 {len(member_repo.list())} 个"
     )
+    print(f"工作流 {len(workflow_repo.list())} 个")
 
 
 if __name__ == "__main__":
