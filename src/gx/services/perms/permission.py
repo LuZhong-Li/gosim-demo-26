@@ -10,9 +10,9 @@ from typing import Any, Callable
 
 from constants import AUDIT_LOG, RULESETS
 from errors import GXError
-from src.gx.domain.enums import Action, Role as RoleEnum, Source
-from src.gx.domain.models import AuditLogEntry
-from src.gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
+from gx.domain.enums import Action, Role as RoleEnum, Source
+from gx.domain.models import AuditLogEntry
+from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
 
 # 通用动作矩阵（owner 全局权限与特殊表限制在 _role_allows 中额外处理）
 _ROLE_ACTIONS: dict[RoleEnum, frozenset[Action]] = {
@@ -164,13 +164,15 @@ class PermissionService:
 def require_permission(
     action: Action | str,
     resource_type: str,
+    resource_id: str | None = None,
     resource_id_arg: str | None = None,
 ) -> Callable:
     """方法装饰器：调用前先做权限拦截。
 
     约定：被装饰方法所在类持有 ``permissions`` 属性（PermissionService 实例）；
     ``subject_id`` 从 kwargs 读取，缺省取第一个位置参数；``resource_id`` 从
-    ``resource_id_arg`` 指定的 kwargs 读取，缺省使用 ``resource_type``。
+    ``resource_id`` 固定值或 ``resource_id_arg`` 指定的 kwargs 读取，
+    缺省使用 ``resource_type``。
     校验失败抛 GXError(P001)，由上层统一处理。
     """
 
@@ -188,10 +190,15 @@ def require_permission(
                         "action": str(action),
                     },
                 )
-            resource_id = (
-                kwargs.get(resource_id_arg) if resource_id_arg else resource_type
+            if resource_id is not None:
+                resolved_resource_id = resource_id
+            elif resource_id_arg:
+                resolved_resource_id = kwargs.get(resource_id_arg)
+            else:
+                resolved_resource_id = resource_type
+            self.permissions.enforce(
+                subject_id, resource_type, resolved_resource_id, action
             )
-            self.permissions.enforce(subject_id, resource_type, resource_id, action)
             return func(self, *args, **kwargs)
 
         return wrapper

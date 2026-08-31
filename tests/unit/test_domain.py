@@ -9,14 +9,14 @@ import pytest
 
 from demo.init_seed import SHEET_COLUMNS
 from errors import GXError
-from src.gx.domain.enums import (
+from gx.domain.enums import (
     PRStatus,
     Role as RoleEnum,
     RunStatus,
     Source,
     TriggerType,
 )
-from src.gx.domain.models import (
+from gx.domain.models import (
     AuditLogEntry,
     Member,
     PullRequest,
@@ -25,7 +25,7 @@ from src.gx.domain.models import (
     Workflow,
     WorkflowRun,
 )
-from src.gx.domain.repositories import (
+from gx.domain.repositories import (
     AuditRepo,
     MemberRepo,
     PRRepo,
@@ -34,7 +34,7 @@ from src.gx.domain.repositories import (
     WorkflowRepo,
     WorkflowRunRepo,
 )
-from src.gx.storage.xlsx import LocalXlsxStorage
+from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:

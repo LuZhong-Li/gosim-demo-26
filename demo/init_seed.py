@@ -9,8 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+SRC = ROOT / "src"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 from constants import (
     ADMIN,
@@ -26,10 +29,10 @@ from constants import (
     WORKFLOW_RUNS,
 )
 from config import SEED_WORKBOOK_PATH
-from src.gx.domain.enums import Role as RoleEnum
-from src.gx.domain.models import Member, Role, Team
-from src.gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
-from src.gx.storage.xlsx import LocalXlsxStorage
+from gx.domain.enums import Role as RoleEnum
+from gx.domain.models import Member, Role, Team
+from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
+from gx.storage.xlsx import LocalXlsxStorage
 
 # 各工作表表头（首行）；audit_log 字段严格对齐 docs/plans/02-核心模块设计.md 3.2
 SHEET_COLUMNS: dict[str, list[str]] = {

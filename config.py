@@ -15,3 +15,6 @@ TRACE_OUTPUT_PATH = "demo/output/trace.jsonl"
 
 # 默认操作者：未显式传入 actor 时使用
 DEFAULT_ACTOR = "system"
+
+# CLI 默认操作者成员 ID（种子工作簿中的 admin）
+CLI_ACTOR_ID = 1

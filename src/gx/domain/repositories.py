@@ -18,7 +18,7 @@ from constants import (
     WORKFLOW_RUNS,
 )
 from errors import GXError
-from src.gx.domain.models import (
+from gx.domain.models import (
     AuditLogEntry,
     DomainModel,
     Member,
@@ -29,7 +29,7 @@ from src.gx.domain.models import (
     Workflow,
     WorkflowRun,
 )
-from src.gx.storage.base import BaseStorage
+from gx.storage.base import BaseStorage
 
 
 class _IdRepo:

@@ -11,16 +11,16 @@ import pytest
 from constants import AUDIT_LOG, MEMBERS, RULESETS
 from demo.init_seed import SHEET_COLUMNS
 from errors import GXError
-from src.gx.domain.enums import Action, Role as RoleEnum
-from src.gx.domain.models import Member, Role, Team
-from src.gx.domain.repositories import (
+from gx.domain.enums import Action, Role as RoleEnum
+from gx.domain.models import Member, Role, Team
+from gx.domain.repositories import (
     AuditRepo,
     MemberRepo,
     RoleRepo,
     TeamRepo,
 )
-from src.gx.services.perms.permission import PermissionService, require_permission
-from src.gx.storage.xlsx import LocalXlsxStorage
+from gx.services.perms.permission import PermissionService, require_permission
+from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:

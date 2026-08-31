@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 from errors import GXError
-from src.gx.domain.enums import (
+from gx.domain.enums import (
     PRStatus,
     Role as RoleEnum,
     RuleType,

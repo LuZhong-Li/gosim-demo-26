@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gx-sheet"
+version = "0.1.0"
+description = "GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "openpyxl==3.1.5",
+    "pydantic==2.8.2",
+    "click==8.1.8",
+    "typer==0.12.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.2",
+]
+
+[project.scripts]
+gx = "gx.api.cli:cli"
+
+[tool.setuptools]
+py-modules = ["constants", "config", "errors"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

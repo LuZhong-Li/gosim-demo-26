@@ -11,8 +11,8 @@ from openpyxl import Workbook, load_workbook
 
 from constants import AUDIT_LOG
 from errors import GXError
-from src.gx.storage.base import BaseStorage
-from src.gx.storage.lock import MemoryLock
+from gx.storage.base import BaseStorage
+from gx.storage.lock import MemoryLock
 
 
 class LocalXlsxStorage(BaseStorage):

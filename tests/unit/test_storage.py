@@ -7,8 +7,8 @@ import pytest
 
 from constants import AUDIT_LOG, MEMBERS
 from errors import GXError
-from src.gx.storage.lock import MemoryLock
-from src.gx.storage.xlsx import LocalXlsxStorage
+from gx.storage.lock import MemoryLock
+from gx.storage.xlsx import LocalXlsxStorage
 
 
 @pytest.fixture
