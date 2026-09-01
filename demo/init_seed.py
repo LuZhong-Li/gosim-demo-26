@@ -28,7 +28,7 @@ from constants import (
     WORKFLOWS,
     WORKFLOW_RUNS,
 )
-from config import SEED_WORKBOOK_PATH
+from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from gx.domain.enums import Role as RoleEnum, TriggerType, WorkflowStatus
 from gx.domain.models import Member, Role, Team, Workflow
 from gx.domain.repositories import (
@@ -123,6 +123,10 @@ def build_seed(storage: LocalXlsxStorage) -> None:
 
 
 def main() -> None:
+    # 重置：清空旧的演示 trace
+    trace_path = Path(TRACE_OUTPUT_PATH)
+    if trace_path.exists():
+        trace_path.unlink()
     create_seed_workbook(SEED_WORKBOOK_PATH)
     print(f"种子工作簿已生成: {SEED_WORKBOOK_PATH}")
     print(f"工作表: {', '.join(SHEET_NAMES)}")
