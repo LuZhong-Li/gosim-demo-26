@@ -6,10 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "gx-sheet"
 version = "0.1.0"
 description = "GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "openpyxl==3.1.5",
-    "pydantic==2.8.2",
+    "pydantic==2.13.5",
     "click==8.1.8",
     "typer==0.12.5",
 ]
