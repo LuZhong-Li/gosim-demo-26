@@ -5,13 +5,16 @@
 """
 
 import functools
-from typing import Any, Callable
+from typing import Any, Callable, ParamSpec, TypeVar
 
-from constants import AUDIT_LOG, RULESETS
+from constants import AUDIT_LOG, ERR_PERMISSION_DENIED, RULESETS
 from errors import GXError
 from gx.domain.enums import Action, Role as RoleEnum, Source
 from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
 from gx.services.audit.interceptor import AuditInterceptor
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 # 通用动作矩阵（owner 全局权限与特殊表限制在 _role_allows 中额外处理）
 _ROLE_ACTIONS: dict[RoleEnum, frozenset[Action]] = {
@@ -51,7 +54,19 @@ class PermissionService:
         resource_id: str | None,
         action: Action | str,
     ) -> bool:
-        """核心校验：主体是否对 (resource_type, resource_id) 拥有 action 权限。"""
+        """核心校验：主体是否对 (resource_type, resource_id) 拥有 action 权限。
+
+        入参：
+            subject_id: 主体（成员 id）。
+            resource_type: 资源类型（sheet / workbook / member）。
+            resource_id: 资源 id，可为 None。
+            action: 权限动作（read / write / admin）。
+
+        返回值：有权限返回 True，否则返回 False（不抛错、不留审计）。
+
+        注意：团队权限采用“并集”语义（原型已知局限，见 docs/dev/limitation.md），
+        决赛再修复，避免改变 P001 行为导致 trace 对不上。
+        """
         action = _normalize_action(action)
         return any(
             self._role_allows(role, resource_type, resource_id, action)
@@ -65,13 +80,17 @@ class PermissionService:
         resource_id: str | None,
         action: Action | str,
     ) -> None:
-        """校验失败时写入审计记录并抛 GXError(P001)。"""
+        """校验失败时写入审计记录并抛 GXError(P001)。
+
+        入参：同 check()。无返回值；权限不足时抛 P001（permission denied），
+        由上层（CLI/Mock Agent）统一格式化输出。
+        """
         action = _normalize_action(action)
         if self.check(subject_id, resource_type, resource_id, action):
             return
         self._audit_deny(subject_id, resource_type, resource_id, action)
         raise GXError(
-            "P001",
+            ERR_PERMISSION_DENIED,
             "permission denied",
             module="perms",
             context={
@@ -85,7 +104,15 @@ class PermissionService:
     def record_permission_change(
         self, actor_id: Any, subject_id: Any, old_role: str, new_role: str
     ) -> None:
-        """权限变更审计埋点（供后续角色变更操作调用）。"""
+        """权限变更审计埋点（供角色变更操作调用）。
+
+        入参：
+            actor_id: 操作者 id。
+            subject_id: 被变更成员 id。
+            old_role: 变更前角色。
+            new_role: 变更后角色。
+        无返回值；拦截器为空时静默跳过（不写审计）。
+        """
         if self._interceptor is None:
             return
         self._interceptor.record(
@@ -161,7 +188,7 @@ def require_permission(
     resource_type: str,
     resource_id: str | None = None,
     resource_id_arg: str | None = None,
-) -> Callable:
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """方法装饰器：调用前先做权限拦截。
 
     约定：被装饰方法所在类持有 ``permissions`` 属性（PermissionService 实例）；
@@ -169,15 +196,18 @@ def require_permission(
     ``resource_id`` 固定值或 ``resource_id_arg`` 指定的 kwargs 读取，
     缺省使用 ``resource_type``。
     校验失败抛 GXError(P001)，由上层统一处理。
+
+    返回：包装后的方法（行为不变）。
     """
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            self = args[0]
             subject_id = kwargs.get("subject_id", args[0] if args else None)
             if subject_id is None:
                 raise GXError(
-                    "P001",
+                    ERR_PERMISSION_DENIED,
                     "缺少 subject_id，无法执行权限校验",
                     module="perms",
                     context={
@@ -194,7 +224,7 @@ def require_permission(
             self.permissions.enforce(
                 subject_id, resource_type, resolved_resource_id, action
             )
-            return func(self, *args, **kwargs)
+            return func(*args, **kwargs)
 
         return wrapper
 

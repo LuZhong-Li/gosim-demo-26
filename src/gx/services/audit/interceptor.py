@@ -45,7 +45,21 @@ class AuditInterceptor:
         trace_type: str = "api_call",
         timestamp: datetime | None = None,
     ) -> AuditLogEntry:
-        """原子完成「写审计 + 写 trace」；trace 失败抛 A001。"""
+        """原子完成「写审计 + 写 trace」；trace 失败抛 GXError(A001)。
+
+        入参：
+            actor_id: 操作者标识（统一转字符串写入审计）。
+            action_type: 动作名（如 member.add / pr.merge / permission.deny）。
+            resource_type / resource_id: 资源定位（写入 trace 的 resource 字段）。
+            before_snapshot / after_snapshot: 变更前后快照。
+            source: 审计来源（api / cli / agent）。
+            success: 是否成功；失败事件必须带 error_msg 留痕。
+            error_msg: 失败原因，写审计与 trace 的 error_msg 字段。
+            trace_type: trace 类型（api_call / workflow_run 等）。
+            timestamp: 事件时间，缺省取当前 UTC 时间。
+
+        返回值：写入审计表的 AuditLogEntry。
+        """
         timestamp = timestamp or datetime.now(timezone.utc)
         entry = AuditLogEntry(
             actor_id=str(actor_id),

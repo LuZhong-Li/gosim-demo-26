@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from constants import ERR_DOMAIN_VALIDATION
 from errors import GXError
 from gx.domain.enums import (
     PRStatus,
@@ -50,7 +51,7 @@ class DomainModel(BaseModel):
                 for err in exc.errors()
             ]
             raise GXError(
-                "D001",
+                ERR_DOMAIN_VALIDATION,
                 f"领域模型校验失败: {cls.__name__}",
                 module="domain",
                 context={"errors": errors},

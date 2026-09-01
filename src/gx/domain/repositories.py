@@ -9,6 +9,7 @@ from typing import Any
 
 from constants import (
     AUDIT_LOG,
+    ERR_STORAGE_ROW,
     MEMBERS,
     PULL_REQUESTS,
     ROLES,
@@ -67,7 +68,7 @@ class _IdRepo:
             if self._id_matches(row, entity_id):
                 return row_id
         raise GXError(
-            "S004",
+            ERR_STORAGE_ROW,
             f"记录不存在: {self._sheet} id={entity_id}",
             module="domain",
             context={"sheet": self._sheet, "id": entity_id},
@@ -128,7 +129,7 @@ class AuditRepo:
         rows = self._storage.get_sheet(self._sheet)
         if row_id < 0 or row_id >= len(rows):
             raise GXError(
-                "S004",
+                ERR_STORAGE_ROW,
                 f"审计记录不存在或越界: row_id={row_id}",
                 module="domain",
                 context={"sheet": self._sheet, "row_id": row_id},

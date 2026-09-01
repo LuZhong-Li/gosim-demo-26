@@ -7,6 +7,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from constants import ERR_STORAGE_ROW
 from errors import GXError
 from gx.domain.enums import RunStatus, Source, TriggerType
 from gx.domain.models import Workflow, WorkflowRun
@@ -87,7 +88,7 @@ class WorkflowTrigger:
             if workflow.name == name:
                 return workflow
         raise GXError(
-            "S004",
+            ERR_STORAGE_ROW,
             f"工作流不存在: {name}",
             module="actions",
             context={"name": name},

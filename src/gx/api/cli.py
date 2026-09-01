@@ -41,15 +41,27 @@ class GxCli:
 
 
 def _run_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """执行命令并统一格式化错误输出（GXError / 参数错误）。"""
+    """执行命令并统一格式化错误输出（GXError / 参数错误）。
+
+    P 前缀错误码（权限类）输出为红色提示，仅控制台显示，不写入 trace。
+    """
     try:
         return func(*args, **kwargs)
     except GXError as exc:
-        typer.echo(f"[{exc.code}] {exc.message}", err=True)
+        line = f"[{exc.code}] {exc.message}"
+        if exc.code.startswith("P"):
+            typer.echo(typer.style(line, fg=typer.colors.RED), err=True)
+        else:
+            typer.echo(line, err=True)
         raise typer.Exit(code=1) from exc
     except ValueError as exc:
         typer.echo(f"[参数错误] {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+def _echo_ok(message: str) -> None:
+    """绿色输出 [OK] 成功提示（仅控制台显示，不写入 trace）。"""
+    typer.echo(typer.style(message, fg=typer.colors.GREEN))
 
 
 @cli.callback()
@@ -72,14 +84,15 @@ def main(
 def member_add_cmd(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="成员名称"),
-    role: str = typer.Argument(..., help="角色：owner/admin/member/readonly"),
+    role: str = typer.Argument(..., help="角色枚举 [owner/admin/member/readonly]"),
 ) -> None:
     app: GxCli = ctx.obj
     member = _run_command(
         app.bus.member_add, subject_id=app.actor, name=name, role=role
     )
-    typer.echo(
-        f"[OK] 成员已添加: id={member.id} name={member.name} role={member.role.value}"
+    _echo_ok(
+        f"[OK] 成员已添加: id={member.id} name={member.name} "
+        f"role={member.role.value}"
     )
 
 
@@ -90,6 +103,7 @@ def member_list_cmd(ctx: typer.Context) -> None:
     if not members:
         typer.echo("（暂无成员）")
         return
+    typer.echo("ID\t名称\t角色")
     for member in members:
         typer.echo(f"{member.id}\t{member.name}\t{member.role.value}")
 
@@ -104,7 +118,7 @@ def team_add_cmd(
     team = _run_command(
         app.bus.team_add, subject_id=app.actor, name=name, description=description
     )
-    typer.echo(f"[OK] 团队已创建: id={team.id} name={team.name}")
+    _echo_ok(f"[OK] 团队已创建: id={team.id} name={team.name}")
 
 
 @team_app.command("list")
@@ -114,6 +128,7 @@ def team_list_cmd(ctx: typer.Context) -> None:
     if not teams:
         typer.echo("（暂无团队）")
         return
+    typer.echo("ID\t名称\t描述")
     for team in teams:
         typer.echo(f"{team.id}\t{team.name}\t{team.description}")
 
@@ -122,13 +137,13 @@ def team_list_cmd(ctx: typer.Context) -> None:
 def role_assign_cmd(
     ctx: typer.Context,
     member_id: int = typer.Argument(..., help="成员ID"),
-    role: str = typer.Argument(..., help="角色：owner/admin/member/readonly"),
+    role: str = typer.Argument(..., help="角色枚举 [owner/admin/member/readonly]"),
 ) -> None:
     app: GxCli = ctx.obj
     updated = _run_command(
         app.bus.role_assign, subject_id=app.actor, member_id=member_id, role=role
     )
-    typer.echo(f"[OK] 已分配角色: member_id={updated.id} role={updated.role.value}")
+    _echo_ok(f"[OK] 已分配角色: member_id={updated.id} role={updated.role.value}")
 
 
 @pr_app.command("create")
@@ -138,7 +153,7 @@ def pr_create_cmd(
 ) -> None:
     app: GxCli = ctx.obj
     pr = _run_command(app.bus.create_pr, subject_id=app.actor, title=title)
-    typer.echo(f"[OK] PR 已创建: id={pr.id} title={pr.title} author={pr.author}")
+    _echo_ok(f"[OK] PR 已创建: id={pr.id} title={pr.title} author={pr.author}")
 
 
 @pr_app.command("list")
@@ -148,6 +163,7 @@ def pr_list_cmd(ctx: typer.Context) -> None:
     if not prs:
         typer.echo("（暂无 PR）")
         return
+    typer.echo("ID\t标题\t作者\t状态\t审批人")
     for pr in prs:
         approvers = ",".join(pr.approvers) or "-"
         typer.echo(f"{pr.id}\t{pr.title}\t{pr.author}\t{pr.status.value}\t{approvers}")
@@ -163,7 +179,7 @@ def pr_approve_cmd(
     updated = _run_command(
         app.bus.approve_pr, subject_id=app.actor, pr_id=pr_id, approver=approver
     )
-    typer.echo(f"[OK] PR 已审批: id={updated.id} approvers={updated.approvers}")
+    _echo_ok(f"[OK] PR 已审批: id={updated.id} approvers={updated.approvers}")
 
 
 @pr_app.command("merge")
@@ -173,7 +189,7 @@ def pr_merge_cmd(
 ) -> None:
     app: GxCli = ctx.obj
     updated = _run_command(app.bus.merge_pr, subject_id=app.actor, pr_id=pr_id)
-    typer.echo(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")
+    _echo_ok(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")
 
 
 @workflow_app.command("list")
@@ -183,6 +199,7 @@ def workflow_list_cmd(ctx: typer.Context) -> None:
     if not workflows:
         typer.echo("（暂无工作流）")
         return
+    typer.echo("ID\t名称\t状态")
     for workflow in workflows:
         typer.echo(f"{workflow.id}\t{workflow.name}\t{workflow.status.value}")
 
@@ -194,4 +211,4 @@ def workflow_run_cmd(
 ) -> None:
     app: GxCli = ctx.obj
     run = _run_command(app.bus.run_workflow, subject_id=app.actor, name=name)
-    typer.echo(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")
+    _echo_ok(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")

@@ -6,6 +6,7 @@
 
 import threading
 
+from constants import ERR_STORAGE_LOCK
 from errors import GXError
 
 
@@ -18,7 +19,7 @@ class MemoryLock:
     def __enter__(self) -> "MemoryLock":
         if not self._thread_lock.acquire(blocking=False):
             raise GXError(
-                "S003",
+                ERR_STORAGE_LOCK,
                 "存储写锁被占用，检测到并发写操作",
                 module="storage",
                 context={"reason": "concurrent_write"},

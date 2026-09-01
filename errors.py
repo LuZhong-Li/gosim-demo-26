@@ -29,11 +29,14 @@ class GXError(Exception):
         super().__init__(f"[{code}] {message}")
 
 
-# 错误码示例（完整错误码表见 docs/plans/03-分层与代码结构.md 4.4）
-# S001 文件不存在 / S002 工作表不存在（或重复建表）
-# S003 存储写锁被占用（并发写）/ S004 数据行不存在或越界
-# D001 领域模型校验失败（domain 层 parse_raw）
-# P001 权限拒绝（readonly 用户写操作被拒）
-# R001 规则违规（如 PR 合并缺审批 / required-check 未通过）
-# A001 审计写入失败
-# W001 工作流运行错误
+# 错误码常量统一定义在 constants.py（ERR_* 前缀），值如下，业务代码禁止硬编码：
+# ERR_STORAGE_FILE_NOT_FOUND  S001 文件不存在
+# ERR_STORAGE_SHEET           S002 工作表不存在（或重复建表）
+# ERR_STORAGE_LOCK            S003 存储写锁被占用（并发写）
+# ERR_STORAGE_ROW             S004 数据行不存在或越界
+# ERR_STORAGE_IO              S005 存储读写 IO 失败
+# ERR_DOMAIN_VALIDATION       D001 领域模型校验失败（domain 层 parse_raw）
+# ERR_PERMISSION_DENIED       P001 权限拒绝（readonly 用户写操作被拒）
+# ERR_RULE_PR_APPROVE         R001 规则违规（如 PR 合并缺审批 / required-check 未通过）
+# ERR_AUDIT_WRITE             A001 审计写入失败
+# ERR_WORKFLOW_RUN            W001 工作流运行错误
