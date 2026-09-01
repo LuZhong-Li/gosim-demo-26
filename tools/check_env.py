@@ -9,14 +9,14 @@
 import importlib.metadata
 import sys
 
-# 与 pyproject.toml requires-python 对齐（3.11-3.12）
+# 与 pyproject.toml requires-python 对齐（>=3.11,<3.15）
 MIN_PYTHON = (3, 11)
-MAX_PYTHON = (3, 13)
+MAX_PYTHON = (3, 15)
 
 # 与 requirements.txt 锁定的版本一致
 REQUIRED_PACKAGES = {
     "openpyxl": "3.1.5",
-    "pydantic": "2.8.2",
+    "pydantic": "2.13.5",
     "click": "8.1.8",
     "typer": "0.12.5",
     "pytest": "8.3.2",
