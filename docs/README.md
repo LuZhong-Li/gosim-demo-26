@@ -37,10 +37,13 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| [README.md](specs/README.md) | 数据模型、权限矩阵、Rulesets 规则、工作流步骤、trace 字段规格 |
+| [README.md](specs/README.md) | 规格总览：数据模型、权限矩阵、Rulesets 规则、工作流步骤、trace 规格索引 |
+| [rulesets.md](specs/rulesets.md) | Rulesets 表驱动规格：status 语义、引擎、CLI 与留痕字段 |
+| [trace_format.md](specs/trace_format.md) | Trace 8 字段、5 种 type、校验规则与真实示例 |
 
 ## 交付指南（docs/）
 
 | 文件 | 解决什么问题 |
 | --- | --- |
 | [交付指南.md](交付指南.md) | 提交页三项链接怎么填、Demo 视频录制脚本 |
+| [demo_guide.md](demo_guide.md) | 评审分步复现手册：组织/权限/PR/Rulesets/Trace 全链路操作与预期输出 |
