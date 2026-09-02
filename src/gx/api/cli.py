@@ -21,11 +21,13 @@ team_app = typer.Typer(help="团队管理")
 role_app = typer.Typer(help="角色管理")
 pr_app = typer.Typer(help="PR 模拟管理")
 workflow_app = typer.Typer(help="工作流管理")
+ruleset_app = typer.Typer(help="Rulesets 规则管理")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
 cli.add_typer(pr_app, name="pr")
 cli.add_typer(workflow_app, name="workflow")
+cli.add_typer(ruleset_app, name="ruleset")
 
 
 class GxCli:
@@ -212,3 +214,47 @@ def workflow_run_cmd(
     app: GxCli = ctx.obj
     run = _run_command(app.bus.run_workflow, subject_id=app.actor, name=name)
     _echo_ok(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")
+
+
+@ruleset_app.command("list")
+def ruleset_list_cmd(ctx: typer.Context) -> None:
+    app: GxCli = ctx.obj
+    rulesets = app.bus.list_rulesets()
+    if not rulesets:
+        typer.echo("（暂无规则）")
+        return
+    typer.echo("ID\t类型\t状态\t名称")
+    for rule in rulesets:
+        typer.echo(
+            f"{rule.id}\t{rule.rule_type.value}\t{rule.status.value}\t{rule.name}"
+        )
+
+
+def _toggle_ruleset(
+    ctx: typer.Context, rule_id: str, enabled: bool, verb: str
+) -> None:
+    """启用/禁用规则并输出绿色 [OK]（权限/规则错误统一由 _run_command 处理）。"""
+    app: GxCli = ctx.obj
+    updated = _run_command(
+        app.bus.ruleset_set_enabled,
+        subject_id=app.actor,
+        rule_id=rule_id,
+        enabled=enabled,
+    )
+    _echo_ok(f"[OK] 规则已{verb}: id={updated.id} status={updated.status.value}")
+
+
+@ruleset_app.command("enable")
+def ruleset_enable_cmd(
+    ctx: typer.Context,
+    rule_id: str = typer.Argument(..., help="规则 id [approval/required_check]"),
+) -> None:
+    _toggle_ruleset(ctx, rule_id, enabled=True, verb="启用")
+
+
+@ruleset_app.command("disable")
+def ruleset_disable_cmd(
+    ctx: typer.Context,
+    rule_id: str = typer.Argument(..., help="规则 id [approval/required_check]"),
+) -> None:
+    _toggle_ruleset(ctx, rule_id, enabled=False, verb="禁用")
