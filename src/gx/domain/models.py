@@ -23,6 +23,7 @@ from errors import GXError
 from gx.domain.enums import (
     PRStatus,
     Role as RoleEnum,
+    RuleStatus,
     RuleType,
     RunStatus,
     Source,
@@ -195,6 +196,7 @@ class RuleSet(DomainModel):
     id: str = Field(min_length=1, max_length=32)
     name: str = Field(min_length=1, max_length=64)
     rule_type: RuleType
+    status: RuleStatus = RuleStatus.ACTIVE
     config: dict[str, Any] = Field(default_factory=dict)
 
 

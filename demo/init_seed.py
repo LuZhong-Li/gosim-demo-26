@@ -29,11 +29,18 @@ from constants import (
     WORKFLOW_RUNS,
 )
 from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
-from gx.domain.enums import Role as RoleEnum, TriggerType, WorkflowStatus
-from gx.domain.models import Member, Role, Team, Workflow
+from gx.domain.enums import (
+    Role as RoleEnum,
+    RuleStatus,
+    RuleType,
+    TriggerType,
+    WorkflowStatus,
+)
+from gx.domain.models import Member, Role, RuleSet, Team, Workflow
 from gx.domain.repositories import (
     MemberRepo,
     RoleRepo,
+    RuleSetRepo,
     TeamRepo,
     WorkflowRepo,
 )
@@ -76,8 +83,15 @@ SHEET_COLUMNS: dict[str, list[str]] = {
         "error_msg",
         "prev_hash",
     ],
-    RULESETS: ["id", "name", "rule_type", "config"],
+    RULESETS: ["id", "name", "rule_type", "status", "config"],
 }
+
+# 默认规则：demo 与测试工作簿统一预置两条 active 规则（RuleSet.id = rule_type）。
+# 规则引擎按 status=active 参与判定（见 docs/plans/10-评审优化第一轮.md 5.1）。
+DEFAULT_RULESETS: tuple[tuple[str, str, str], ...] = (
+    ("approval", "PR 合并需要至少 1 个审批人", "approval"),
+    ("required_check", "required-check 工作流需通过", "required_check"),
+)
 
 
 def now_iso() -> str:
@@ -120,6 +134,24 @@ def build_seed(storage: LocalXlsxStorage) -> None:
             status=WorkflowStatus.ACTIVE,
         )
     )
+    seed_default_rules(storage)
+
+
+def seed_default_rules(storage: LocalXlsxStorage) -> None:
+    """幂等写入两条默认 active 规则，供 init_seed 与测试 fixture 复用。"""
+    repo = RuleSetRepo(storage)
+    existing = {rule.id for rule in repo.list()}
+    for rule_id, name, rule_type in DEFAULT_RULESETS:
+        if rule_id in existing:
+            continue
+        repo.create(
+            RuleSet(
+                id=rule_id,
+                name=name,
+                rule_type=RuleType(rule_type),
+                status=RuleStatus.ACTIVE,
+            )
+        )
 
 
 def main() -> None:

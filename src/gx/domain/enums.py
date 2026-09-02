@@ -73,3 +73,10 @@ class RuleType(str, Enum):
 
     APPROVAL = "approval"
     REQUIRED_CHECK = "required_check"
+
+
+class RuleStatus(str, Enum):
+    """Rulesets 规则启用状态（评审优化第一轮：规则表驱动）。"""
+
+    ACTIVE = "active"
+    DISABLED = "disabled"
