@@ -1,16 +1,20 @@
 """GX-Sheet 命令行接口（typer，click 之上的一层封装）。
 
-子命令：member / team / role / pr / workflow。
+子命令：member / team / role / pr / workflow / ruleset / trace。
 上层只调用 core 门面（ServiceBus），不直接碰存储与零散服务。
 """
 
+import os
+import shutil
 from typing import Any, Callable
 
 import typer
 
 from config import CLI_ACTOR_ID, SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
+from constants import ERR_STORAGE_FILE_NOT_FOUND, ERR_STORAGE_IO
 from errors import GXError
 from gx.core.service_bus import ServiceBus
+from gx.services.audit.validator import check_trace, count_by_type, parse_trace
 from gx.storage.xlsx import LocalXlsxStorage
 
 cli = typer.Typer(
@@ -22,12 +26,14 @@ role_app = typer.Typer(help="角色管理")
 pr_app = typer.Typer(help="PR 模拟管理")
 workflow_app = typer.Typer(help="工作流管理")
 ruleset_app = typer.Typer(help="Rulesets 规则管理")
+trace_app = typer.Typer(help="生产轨迹 trace 校验与导出")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
 cli.add_typer(pr_app, name="pr")
 cli.add_typer(workflow_app, name="workflow")
 cli.add_typer(ruleset_app, name="ruleset")
+cli.add_typer(trace_app, name="trace")
 
 
 class GxCli:
@@ -258,3 +264,75 @@ def ruleset_disable_cmd(
     rule_id: str = typer.Argument(..., help="规则 id [approval/required_check]"),
 ) -> None:
     _toggle_ruleset(ctx, rule_id, enabled=False, verb="禁用")
+
+
+def _print_trace_errors(errors: list[str]) -> None:
+    """逐行红色输出 trace 校验错误并退出（仅控制台显示，不写 trace）。"""
+    for error in errors:
+        typer.echo(typer.style(error, fg=typer.colors.RED), err=True)
+    raise typer.Exit(code=1)
+
+
+@trace_app.command("check")
+def trace_check_cmd(
+    path: str = typer.Argument(
+        None, help="trace 文件路径（默认 config.TRACE_OUTPUT_PATH）"
+    ),
+) -> None:
+    """校验 trace 文件：schema、type、human_intervene 强制项。"""
+    target = path or TRACE_OUTPUT_PATH
+    errors = check_trace(target)
+    if errors:
+        _print_trace_errors(errors)
+    objs = parse_trace(target)
+    typer.echo(f"[OK] {target}: 校验通过（共 {len(objs)} 条事件）")
+    counts = count_by_type(objs)
+    if counts:
+        breakdown = ", ".join(
+            f"{name}={count}" for name, count in sorted(counts.items())
+        )
+        typer.echo(f"[INFO] 事件构成: {breakdown}")
+
+
+@trace_app.command("export")
+def trace_export_cmd(
+    dest: str = typer.Argument(..., help="导出目标文件路径"),
+    source: str = typer.Option(
+        TRACE_OUTPUT_PATH,
+        "--source",
+        help="源 trace 路径（默认 config.TRACE_OUTPUT_PATH）",
+    ),
+) -> None:
+    """复制并校验 trace 到目标路径（不修改源文件，不新增事件）。"""
+    count = _run_command(_export_trace, dest, source)
+    typer.echo(f"[OK] 已导出并校验通过: {dest}（共 {count} 条事件）")
+
+
+def _export_trace(dest: str, source: str) -> int:
+    """执行导出与校验，返回事件条数；错误统一抛 GXError/ValueError。"""
+    if os.path.abspath(dest) == os.path.abspath(source):
+        raise ValueError("导出目标不能与源文件相同")
+    if not os.path.isfile(source):
+        raise GXError(
+            ERR_STORAGE_FILE_NOT_FOUND,
+            f"源 trace 不存在: {source}",
+            module="trace",
+            context={"path": source},
+        )
+    source_errors = check_trace(source)
+    if source_errors:
+        _print_trace_errors(source_errors)
+    try:
+        shutil.copyfile(source, dest)
+    except OSError as exc:
+        raise GXError(
+            ERR_STORAGE_IO,
+            f"trace 导出失败: {exc}",
+            module="trace",
+            context={"source": source, "dest": dest},
+        ) from exc
+    dest_errors = check_trace(dest)
+    if dest_errors:
+        _print_trace_errors(dest_errors)
+    objs = parse_trace(dest)
+    return len(objs)
