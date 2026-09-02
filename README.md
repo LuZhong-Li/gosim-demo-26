@@ -7,6 +7,26 @@
 以普通 xlsx 电子表格为唯一持久数据源（Workbook = 组织，Sheet = 资源集，行 = 实体），
 用 CLI + Mock Agent 作为交互入口，模拟 GitHub 组织管控与自动化 Agent 的核心语义。
 
+## 架构
+
+```mermaid
+flowchart LR
+    A[CLI gx] --> B[ServiceBus 门面]
+    M[Mock Agent] --> B
+    B --> P[权限引擎 PermissionService]
+    B --> R[Rulesets RuleService]
+    B --> I[审计拦截器 AuditInterceptor]
+    B --> W[Actions WorkflowTrigger/Runner]
+    P --> S[(xlsx 8 Sheet)]
+    R --> S
+    W --> S
+    I --> S
+    I --> T[trace.jsonl]
+```
+
+上层（CLI / Agent）只调用 `ServiceBus` 门面；权限、规则、工作流统一编排，
+审计拦截器同时写 `audit_log`（哈希链）与 `trace.jsonl`。
+
 ## 初赛提交物
 
 1. **源码仓库**：本仓库（Public）；
@@ -24,6 +44,16 @@
 | Rulesets | `pull_requests` 模拟 PR，2 条规则（审批 ≥ 1、required-check） |
 | 审计留痕 | `audit_log` 只追加 + 基础哈希链 |
 | Actions | 最小步骤 runner（shell/python/http）-> `workflow_runs` |
+
+### 已实现 / 决赛迭代
+
+| 能力 | 本轮已实现（2026-09 评审优化第一轮） | 决赛迭代方向 |
+| --- | --- | --- |
+| 组织权限 | roles 矩阵 + P001 拦截 + 审计/trace | `roles` 表驱动权限、修复团队并集提权 |
+| Rulesets | 规则表驱动：`RULESETS.status` 决定是否参与判定，支持 `gx ruleset enable/disable` | required-check 按 PR 精确关联 |
+| PR 模拟 | create / approve / merge + R001 规则拦截 | 状态机与审批人身份校验 |
+| Actions | shell/python/http 步骤 runner → `workflow_runs` | 沙箱化、按 PR 关联运行 |
+| 审计/Trace | 哈希链 audit_log + 10 条事件 trace + `gx trace check/export` | trace 来源字段、滚动清理 |
 
 ## 环境要求
 
@@ -53,12 +83,25 @@ python demo/run_demo.py
 脚本会自动跑通完整链路并生成 `demo/output/trace.jsonl`：
 创建成员 -> 创建 PR -> 权限拦截（P001）-> Rulesets 拦截（R001）-> 审批 -> 运行工作流 -> 合并 PR -> 人工干预 -> 校验 trace。
 
+`trace.jsonl` 每行一个 JSON 对象（8 个必填字段、5 种 type），示例：
+
+```jsonl
+{"timestamp": "2026-09-01T15:41:07.583344+00:00", "type": "prompt", "actor": "1", "action": "prompt", "resource": "", "detail": "添加成员 reader 为 readonly", "success": true, "error_msg": ""}
+{"timestamp": "2026-09-01T15:41:07.583846+00:00", "type": "tool_call", "actor": "1", "action": "member_add", "resource": "workbook", "detail": {"name": "reader", "role": "readonly"}, "success": true, "error_msg": ""}
+{"timestamp": "2026-09-01T15:41:07.618667+00:00", "type": "api_call", "actor": "1", "action": "member.add", "resource": "sheet:members", "detail": {"id": 3, "name": "reader", "role": "readonly"}, "success": true, "error_msg": ""}
+```
+
 ## 使用 CLI 与 Mock Agent
 
 ```bash
 gx member list
 gx pr create --title "demo change"
 gx workflow run ci-check
+gx ruleset list
+gx ruleset disable approval
+gx ruleset enable approval
+gx trace check
+gx trace export demo/output/trace-backup.jsonl
 python agent/mock_nl_parser.py "添加成员 bob 为 member"
 ```
 
@@ -129,3 +172,6 @@ gosim-demo-26/
 
 - 项目计划：`docs/plans/`（先读 [docs/plans/00-README.md](docs/plans/00-README.md)）。
 - 文档索引：[docs/README.md](docs/README.md)。
+- 评审复现手册：[docs/demo_guide.md](docs/demo_guide.md)。
+- 规格文档：[docs/specs/rulesets.md](docs/specs/rulesets.md)、
+  [docs/specs/trace_format.md](docs/specs/trace_format.md)。
