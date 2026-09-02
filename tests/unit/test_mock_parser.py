@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 from agent.mock_nl_parser import MockNlParser
-from demo.init_seed import SHEET_COLUMNS
+from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from gx.core.service_bus import ServiceBus
 from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team, Workflow
@@ -40,6 +40,7 @@ def agent(tmp_path):
     WorkflowRepo(storage).create(
         Workflow(id=1, name="ci-check", steps=[{"type": "shell", "command": "echo ok"}])
     )
+    seed_default_rules(storage)
 
     bus = ServiceBus(storage, trace_path=str(tmp_path / "trace.jsonl"))
     return MockNlParser(bus, actor=1), bus

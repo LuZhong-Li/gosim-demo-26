@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from demo.init_seed import SHEET_COLUMNS
+from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.domain.enums import PRStatus, Role as RoleEnum, RunStatus
@@ -51,6 +51,7 @@ def env(tmp_path):
     workflow_repo.create(
         Workflow(id=2, name="ci-fail", steps=[{"type": "shell", "command": "exit 1"}])
     )
+    seed_default_rules(storage)
 
     bus = ServiceBus(storage, trace_path=str(tmp_path / "trace.jsonl"))
     return bus

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from demo.init_seed import SHEET_COLUMNS
+from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.domain.enums import PRStatus, Role as RoleEnum
@@ -50,6 +50,7 @@ def env(tmp_path):
         Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts())
     )
     TeamRepo(storage).create(Team(id=1, name="core", description="核心团队"))
+    seed_default_rules(storage)
 
     trace_path = str(tmp_path / "trace.jsonl")
     bus = ServiceBus(storage, trace_path=trace_path)

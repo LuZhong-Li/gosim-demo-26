@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from typer.testing import CliRunner
 
-from demo.init_seed import SHEET_COLUMNS
+from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from gx.api.cli import cli
 from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team, Workflow
@@ -65,6 +65,7 @@ def _build_workbook(path: str) -> None:
     workflow_repo.create(
         Workflow(id=1, name="ci-check", steps=[{"type": "shell", "command": "echo ok"}])
     )
+    seed_default_rules(storage)
 
 
 @pytest.fixture

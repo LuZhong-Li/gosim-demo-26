@@ -7,15 +7,30 @@
 from datetime import datetime, timezone
 
 from config import TRACE_OUTPUT_PATH
-from constants import ERR_RULE_PR_APPROVE, MEMBERS, PULL_REQUESTS, TEAMS, WORKFLOWS
+from constants import (
+    ERR_RULE_PR_APPROVE,
+    MEMBERS,
+    PULL_REQUESTS,
+    RULESETS,
+    TEAMS,
+    WORKFLOWS,
+)
 from errors import GXError
-from gx.domain.enums import Action, PRStatus, Role as RoleEnum, Source, TriggerType
-from gx.domain.models import Member, PullRequest, Team
+from gx.domain.enums import (
+    Action,
+    PRStatus,
+    Role as RoleEnum,
+    RuleStatus,
+    Source,
+    TriggerType,
+)
+from gx.domain.models import Member, PullRequest, RuleSet, Team
 from gx.domain.repositories import (
     AuditRepo,
     MemberRepo,
     PRRepo,
     RoleRepo,
+    RuleSetRepo,
     TeamRepo,
     WorkflowRepo,
     WorkflowRunRepo,
@@ -47,7 +62,8 @@ class ServiceBus:
         self.permissions = PermissionService(
             self.member_repo, self.team_repo, self.role_repo, self.interceptor
         )
-        self.rules = RuleService()
+        self.rule_repo = RuleSetRepo(storage)
+        self.rules = RuleService(self.rule_repo)
         self.workflow_trigger = WorkflowTrigger(
             self.workflow_repo, self.workflow_run_repo, WorkflowRunner(), self.interceptor
         )
@@ -287,6 +303,42 @@ class ServiceBus:
     def list_workflows(self):
         """返回全部工作流定义列表（只读，无需权限）。"""
         return self.workflow_repo.list()
+
+    def list_rulesets(self) -> list[RuleSet]:
+        """返回全部 Rulesets 规则配置（只读，无需权限）。"""
+        return self.rule_repo.list()
+
+    @require_permission(Action.WRITE, "sheet", resource_id=RULESETS)
+    def ruleset_set_enabled(
+        self, subject_id: int, rule_id: str, enabled: bool
+    ) -> RuleSet:
+        """启用/禁用一条规则（rulesets 为 admin/owner 特殊表，普通成员被拒）。
+
+        入参：
+            subject_id: 操作者成员 id。
+            rule_id: 规则 id（approval / required_check）。
+            enabled: True=active，False=disabled。
+
+        返回值：更新后的 RuleSet。目标状态与当前一致时幂等返回，不写审计/trace；
+        状态变化写 ``ruleset.update`` 审计并联动 trace（type=api_call）。
+        """
+        current = self.rule_repo.get(rule_id)
+        new_status = RuleStatus.ACTIVE if enabled else RuleStatus.DISABLED
+        if current.status == new_status:
+            return current
+        updated = self.rule_repo.update(rule_id, {"status": new_status.value})
+        self.interceptor.record(
+            actor_id=subject_id,
+            action_type="ruleset.update",
+            resource_type="rulesets",
+            resource_id=str(rule_id),
+            before_snapshot={"status": current.status.value},
+            after_snapshot={"status": new_status.value},
+            source=Source.API,
+            success=True,
+            trace_type="api_call",
+        )
+        return updated
 
     def _next_pr_id(self) -> int:
         """计算下一个 PR id（取现有最大 id + 1）。"""
