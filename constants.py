@@ -39,6 +39,7 @@ ERR_PREFIX_PERMS = "P"  # 权限
 ERR_PREFIX_RULES = "R"  # 规则
 ERR_PREFIX_AUDIT = "A"  # 审计
 ERR_PREFIX_WORKFLOW = "W"  # 工作流
+ERR_PREFIX_BUSINESS = "B"  # 业务校验
 
 ERR_STORAGE_FILE_NOT_FOUND = "S001"  # 工作簿文件不存在
 ERR_STORAGE_SHEET = "S002"  # 工作表不存在（或重复建表）
@@ -50,3 +51,4 @@ ERR_PERMISSION_DENIED = "P001"  # 权限拒绝（readonly 用户写操作被拒�
 ERR_RULE_PR_APPROVE = "R001"  # 规则违规（PR 合并缺审批 / required-check 未通过）
 ERR_AUDIT_WRITE = "A001"  # 审计写入失败
 ERR_WORKFLOW_RUN = "W001"  # 工作流运行错误
+ERR_BUSINESS_VALIDATION = "B001"  # 业务状态/身份校验失败（如 PR 自审批、重复合并）
