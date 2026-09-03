@@ -27,6 +27,7 @@
 | 10 | [10-评审优化第一轮.md](plans/10-评审优化第一轮.md) | 评审优化第一轮：Rulesets 表驱动引擎、ruleset/trace CLI、规格与 README 增强、验证与分批提交 | 决定开展第一轮评审优化时先读；实现与验证按此文件执行 |
 | 11 | [11-评审优化第二轮.md](plans/11-评审优化第二轮.md) | 第二轮工程化与 Agent 实验计划：P0 CI/ruff/README，P1 Turn-Step/组织经验库/可选 LLM，P2 trace replay/request_id，P3 边界原则 | 决定开展第二轮优化时先读；所有实验先在 codex/dev 落地 |
 | 12 | [12-测试数据存档.md](plans/12-测试数据存档.md) | 2026-09-03 codex/dev 合并后完整验证数据：pytest/ruff/demo/trace 结果与比赛指标对照 | 完整验证后回填或对照；向评审提供机器指标代理数据时读 |
+| 13 | [13-评审优化第三轮.md](plans/13-评审优化第三轮.md) | 第三轮优化提案：官方主题能力矩阵 + Gate 决策 + S1 PR 评审流 TDD 细化，S2-S5 路线 | 决定按 GitHub 语义推进第三轮优化时先读；执行 S1 时按 Task 0-4 走 |
 
 ## 开发文档（docs/dev/）
 
