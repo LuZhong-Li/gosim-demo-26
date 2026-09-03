@@ -14,15 +14,14 @@ for path in (ROOT, SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from typer import colors, style
-
-from agent.mock_nl_parser import MockNlParser
 from config import TRACE_OUTPUT_PATH
+from agent.mock_nl_parser import MockNlParser
 from demo.init_seed import create_seed_workbook
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.services.audit.trace import TraceWriter
 from tools.check_trace import check_trace
+from typer import colors, style
 
 
 def _ok(text: str) -> str:
