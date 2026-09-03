@@ -16,6 +16,7 @@ from constants import ERR_STORAGE_FILE_NOT_FOUND, ERR_STORAGE_IO
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.services.audit.validator import check_trace, count_by_type, parse_trace
+from gx.services.trace_replay import render_trace
 from gx.storage.xlsx import LocalXlsxStorage
 
 cli = typer.Typer(help="GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型")
@@ -280,6 +281,23 @@ def trace_export_cmd(
     """复制并校验 trace 到目标路径（不修改源文件，不新增事件）。"""
     count = _run_command(_export_trace, dest, source)
     typer.echo(f"[OK] 已导出并校验通过: {dest}（共 {count} 条事件）")
+
+
+@trace_app.command("replay")
+def trace_replay_cmd(
+    source: str = typer.Option(
+        TRACE_OUTPUT_PATH,
+        "--source",
+        help="源 trace 路径（默认 config.TRACE_OUTPUT_PATH）",
+    ),
+    out: str = typer.Option(..., "--out", help="HTML 输出文件路径"),
+) -> None:
+    """把 trace 渲染成只读 HTML 时间线，不修改源文件与 schema。"""
+    events = parse_trace(source)
+    html = render_trace(events)
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(html)
+    typer.echo(f"[OK] 已生成 trace 回放: {out}（共 {len(events)} 条事件）")
 
 
 def _export_trace(dest: str, source: str) -> int:
