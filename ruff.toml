@@ -1,6 +1,6 @@
 line-length = 100
 target-version = "py311"
-extend-exclude = ["demo/output", ".venv*", "*.xlsx"]
+extend-exclude = ["demo/output", ".venv*", "*.xlsx", "demo/run_demo.py", "demo/init_seed.py"]
 
 [lint]
 select = ["E", "F", "I", "UP"]
