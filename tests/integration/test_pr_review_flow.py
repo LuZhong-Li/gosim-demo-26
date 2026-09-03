@@ -82,3 +82,13 @@ def test_approve_merged_pr_denied(pr_env):
     with pytest.raises(GXError) as exc:
         bus.approve_pr(subject_id=1, pr_id=1, approver="carol")
     assert exc.value.code == ERR_BUSINESS_VALIDATION
+
+
+def test_merge_merged_pr_denied(pr_env):
+    bus, _ = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    bus.approve_pr(subject_id=1, pr_id=1, approver="alice")
+    bus.merge_pr(subject_id=1, pr_id=1)
+    with pytest.raises(GXError) as exc:
+        bus.merge_pr(subject_id=1, pr_id=1)
+    assert exc.value.code == ERR_BUSINESS_VALIDATION

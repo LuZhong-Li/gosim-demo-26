@@ -5,9 +5,11 @@
 """
 
 from datetime import UTC, datetime
+from typing import Any
 
 from config import TRACE_OUTPUT_PATH
 from constants import (
+    ERR_BUSINESS_VALIDATION,
     ERR_RULE_PR_APPROVE,
     MEMBERS,
     PULL_REQUESTS,
@@ -113,18 +115,75 @@ class ServiceBus:
             approver: 审批人成员名称。
 
         返回值：更新后的 PullRequest。
-        权限不足抛 GXError(P001)。注意：原型未做“自审批/重复审批”校验，
-        属已知局限（docs/dev/limitation.md），决赛迭代修复。
+        权限不足抛 GXError(P001)；业务校验失败（非有效成员 / 自审批 /
+        重复审批 / merged / closed）抛 GXError(B001) 并留失败审计。
         """
         pr = self.pr_repo.get(pr_id)
-        approvers = pr.approvers if approver in pr.approvers else [*pr.approvers, approver]
-        updated = self.pr_repo.update(pr_id, {"approvers": approvers})
+        if pr.status in (PRStatus.MERGED, PRStatus.CLOSED):
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.approve",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message=f"PR 已{pr.status.value}，不能审批",
+            )
+        members = self.member_repo.list()
+        matches = [member for member in members if member.name == approver]
+        if not matches:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.approve",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message=f"审批人不是有效成员: {approver}",
+            )
+        if len(matches) > 1:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.approve",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message=f"成员重名，无法唯一确定审批人: {approver}",
+            )
+        if pr.author == matches[0].name:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.approve",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message="不能审批自己的 PR",
+            )
+        if approver in pr.approvers:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.approve",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message=f"审批人已审批过: {approver}",
+            )
+        approvers = [*pr.approvers, approver]
+        new_status = (
+            PRStatus.APPROVED.value if pr.status == PRStatus.OPEN else pr.status.value
+        )
+        updated = self.pr_repo.update(
+            pr_id,
+            {"approvers": approvers, "status": new_status},
+        )
         self.interceptor.record(
             actor_id=subject_id,
             action_type="pr.approve",
             resource_type="sheet",
             resource_id=str(pr_id),
-            after_snapshot={"approver": approver, "approvers": approvers},
+            after_snapshot={
+                "approver": approver,
+                "approvers": approvers,
+                "status": updated.status.value,
+            },
             source=Source.API,
             success=True,
             trace_type="api_call",
@@ -141,9 +200,28 @@ class ServiceBus:
 
         返回值：合并后的 PullRequest。
         规则不通过（无审批 / required-check 失败）时抛 GXError(R001)，
-        并同步写一条 success=false 的审计 + trace 记录。
+        并同步写一条 success=false 的审计 + trace 记录；
+        merged / closed 状态抛 GXError(B001)。
         """
         pr = self.pr_repo.get(pr_id)
+        if pr.status == PRStatus.MERGED:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.merge",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message="PR 已合并，不能重复合并",
+            )
+        if pr.status == PRStatus.CLOSED:
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.merge",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message="PR 已关闭，不能合并",
+            )
         violations = self.rules.evaluate(
             pr,
             context={"workflow_status": self.workflow_check.latest_status()},
@@ -190,6 +268,35 @@ class ServiceBus:
             trace_type="api_call",
         )
         return updated
+
+    def _business_fail(
+        self,
+        *,
+        actor_id: Any,
+        action_type: str,
+        pr_id: int,
+        status: str,
+        code: str,
+        message: str,
+    ) -> None:
+        """记录失败审计 + trace 后抛业务校验错误（GXError）。"""
+        self.interceptor.record(
+            actor_id=actor_id,
+            action_type=action_type,
+            resource_type="sheet",
+            resource_id=str(pr_id),
+            after_snapshot={"status": status, "error": message},
+            source=Source.API,
+            success=False,
+            error_msg=f"[{code}] {message}",
+            trace_type="api_call",
+        )
+        raise GXError(
+            code,
+            message,
+            module="pr",
+            context={"resource_id": str(pr_id), "status": status},
+        )
 
     def list_prs(self) -> list[PullRequest]:
         """返回全部 PR 列表（只读，无需权限）。"""
