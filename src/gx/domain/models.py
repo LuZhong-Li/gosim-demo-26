@@ -140,6 +140,8 @@ class WorkflowRun(DomainModel):
     workflow_id: int = Field(ge=1)
     status: RunStatus = RunStatus.PENDING
     trigger: TriggerType = TriggerType.MANUAL
+    pr_id: int | None = Field(default=None)
+    head_sha: str = Field(default="", max_length=64)
     started_at: datetime | None = Field(default=None)
     finished_at: datetime | None = Field(default=None)
     detail: str = Field(default="", max_length=500)

@@ -7,7 +7,7 @@ import pytest
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import PRStatus, RunStatus
+from gx.domain.enums import PRStatus, RunStatus, WorkflowStatus
 from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team, Workflow
 from gx.domain.repositories import (
@@ -61,7 +61,7 @@ def env(tmp_path):
 def test_failed_workflow_blocks_merge(env):
     env.create_pr(subject_id=1, title="demo")
     env.approve_pr(subject_id=1, pr_id=1, approver="alice")
-    run = env.run_workflow(subject_id=1, name="ci-fail")
+    run = env.run_workflow(subject_id=1, name="ci-fail", pr_id=1)
     assert run.status == RunStatus.FAILED
     with pytest.raises(GXError) as exc_info:
         env.merge_pr(subject_id=1, pr_id=1)
@@ -71,7 +71,31 @@ def test_failed_workflow_blocks_merge(env):
 def test_successful_workflow_allows_merge(env):
     env.create_pr(subject_id=1, title="demo")
     env.approve_pr(subject_id=1, pr_id=1, approver="alice")
-    run = env.run_workflow(subject_id=1, name="ci-check")
+    run = env.run_workflow(subject_id=1, name="ci-check", pr_id=1)
     assert run.status == RunStatus.SUCCESS
     merged = env.merge_pr(subject_id=1, pr_id=1)
     assert merged.status == PRStatus.MERGED
+
+
+def test_required_check_is_scoped_to_pr(env):
+    pr1 = env.create_pr(subject_id=1, title="p1")
+    env.approve_pr(subject_id=1, pr_id=pr1.id, approver="alice")
+    env.run_workflow(subject_id=1, name="ci-fail", pr_id=pr1.id)
+
+    pr2 = env.create_pr(subject_id=1, title="p2")
+    env.approve_pr(subject_id=1, pr_id=pr2.id, approver="alice")
+    env.run_workflow(subject_id=1, name="ci-check", pr_id=pr2.id)
+
+    merged = env.merge_pr(subject_id=1, pr_id=pr2.id)
+    assert merged.status == PRStatus.MERGED
+
+    with pytest.raises(GXError) as exc_info:
+        env.merge_pr(subject_id=1, pr_id=pr1.id)
+    assert exc_info.value.code == "R001"
+
+
+def test_disabled_workflow_refuses_run(env):
+    env.workflow_repo.update(1, {"status": WorkflowStatus.DISABLED.value})
+    with pytest.raises(GXError) as exc_info:
+        env.run_workflow(subject_id=1, name="ci-check")
+    assert exc_info.value.code == "W001"

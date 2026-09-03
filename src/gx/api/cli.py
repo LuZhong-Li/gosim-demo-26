@@ -227,9 +227,17 @@ def workflow_list_cmd(ctx: typer.Context) -> None:
 def workflow_run_cmd(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="工作流名称"),
+    pr_id: int = typer.Option(None, "--pr", help="关联 PR id"),
+    head_sha: str = typer.Option("", "--head-sha", help="关联提交 SHA"),
 ) -> None:
     app: GxCli = ctx.obj
-    run = _run_command(app.bus.run_workflow, subject_id=app.actor, name=name)
+    run = _run_command(
+        app.bus.run_workflow,
+        subject_id=app.actor,
+        name=name,
+        pr_id=pr_id,
+        head_sha=head_sha,
+    )
     _echo_ok(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")
 
 

@@ -224,7 +224,7 @@ class ServiceBus:
             )
         violations = self.rules.evaluate(
             pr,
-            context={"workflow_status": self.workflow_check.latest_status()},
+            context={"workflow_status": self.workflow_check.latest_status(pr_id=pr_id)},
         )
         if violations:
             self.interceptor.record(
@@ -442,17 +442,31 @@ class ServiceBus:
         return self.team_repo.list()
 
     @require_permission(Action.WRITE, "sheet", resource_id=WORKFLOWS)
-    def run_workflow(self, subject_id: int, name: str):
+    def run_workflow(
+        self,
+        subject_id: int,
+        name: str,
+        pr_id: int | None = None,
+        head_sha: str = "",
+    ):
         """按名称手动触发工作流（需要 sheet:workflows 写权限）。
 
         入参：
             subject_id: 操作者成员 id。
             name: 工作流名称。
+            pr_id: 关联 PR id（required-check 按 PR 精确取状态时使用）。
+            head_sha: 关联提交 SHA（可选留痕）。
 
         返回值：本次 WorkflowRun（含运行状态）。
-        权限不足抛 GXError(P001)；工作流不存在抛 GXError(S004)。
+        权限不足抛 GXError(P001)；工作流不存在抛 GXError(S004)；
+        工作流已禁用抛 GXError(W001)。
         """
-        return self.workflow_trigger.run_by_name(name, actor=subject_id)
+        return self.workflow_trigger.run_by_name(
+            name,
+            actor=subject_id,
+            pr_id=pr_id,
+            head_sha=head_sha,
+        )
 
     def list_workflows(self):
         """返回全部工作流定义列表（只读，无需权限）。"""

@@ -7,9 +7,9 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from constants import ERR_STORAGE_ROW
+from constants import ERR_STORAGE_ROW, ERR_WORKFLOW_RUN
 from errors import GXError
-from gx.domain.enums import RunStatus, Source, TriggerType
+from gx.domain.enums import RunStatus, Source, TriggerType, WorkflowStatus
 from gx.domain.models import Workflow, WorkflowRun
 from gx.domain.repositories import WorkflowRepo, WorkflowRunRepo
 from gx.services.actions.runner import WorkflowRunner
@@ -32,18 +32,54 @@ class WorkflowTrigger:
         self._interceptor = interceptor
 
     def run_by_name(
-        self, name: str, actor: Any, trigger: TriggerType = TriggerType.MANUAL
+        self,
+        name: str,
+        actor: Any,
+        trigger: TriggerType = TriggerType.MANUAL,
+        pr_id: int | None = None,
+        head_sha: str = "",
     ) -> WorkflowRun:
         workflow = self._find_by_name(name)
-        return self._execute(workflow, actor, trigger)
+        return self._execute(workflow, actor, trigger, pr_id, head_sha)
 
     def run(
-        self, workflow_id: int, actor: Any, trigger: TriggerType = TriggerType.MANUAL
+        self,
+        workflow_id: int,
+        actor: Any,
+        trigger: TriggerType = TriggerType.MANUAL,
+        pr_id: int | None = None,
+        head_sha: str = "",
     ) -> WorkflowRun:
         workflow = self._workflows.get(workflow_id)
-        return self._execute(workflow, actor, trigger)
+        return self._execute(workflow, actor, trigger, pr_id, head_sha)
 
-    def _execute(self, workflow: Workflow, actor: Any, trigger: TriggerType) -> WorkflowRun:
+    def _execute(
+        self,
+        workflow: Workflow,
+        actor: Any,
+        trigger: TriggerType,
+        pr_id: int | None,
+        head_sha: str,
+    ) -> WorkflowRun:
+        if workflow.status != WorkflowStatus.ACTIVE:
+            error_msg = f"工作流已禁用: {workflow.name}"
+            self._interceptor.record(
+                actor_id=actor,
+                action_type="workflow.run",
+                resource_type="workflow",
+                resource_id=str(workflow.id),
+                after_snapshot={"workflow": workflow.name, "status": workflow.status.value},
+                source=Source.API,
+                success=False,
+                error_msg=f"[{ERR_WORKFLOW_RUN}] {error_msg}",
+                trace_type="workflow_run",
+            )
+            raise GXError(
+                ERR_WORKFLOW_RUN,
+                error_msg,
+                module="actions",
+                context={"workflow_id": workflow.id, "name": workflow.name},
+            )
         now = datetime.now(UTC)
         run = self._runs.create(
             WorkflowRun(
@@ -51,6 +87,8 @@ class WorkflowTrigger:
                 workflow_id=workflow.id,
                 status=RunStatus.RUNNING,
                 trigger=trigger,
+                pr_id=pr_id,
+                head_sha=head_sha,
                 started_at=now,
             )
         )

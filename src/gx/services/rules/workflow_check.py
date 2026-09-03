@@ -13,9 +13,9 @@ class WorkflowCheck:
     def __init__(self, workflow_run_repo: WorkflowRunRepo) -> None:
         self._runs = workflow_run_repo
 
-    def latest_status(self) -> str | None:
-        """返回最新一次工作流运行状态；无运行记录时返回 None。"""
-        runs = self._runs.list()
+    def latest_status(self, pr_id: int | None = None) -> str | None:
+        """返回最新一次工作流运行状态；可按 PR 过滤。无运行记录时返回 None。"""
+        runs = [run for run in self._runs.list() if pr_id is None or run.pr_id == pr_id]
         if not runs:
             return None
         latest = max(runs, key=lambda run: run.id)
