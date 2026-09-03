@@ -13,6 +13,9 @@ SEED_WORKBOOK_PATH = "demo/seed-workbook.xlsx"
 # trace 输出路径（审计拦截器自动追加，禁止手动编辑）
 TRACE_OUTPUT_PATH = "demo/output/trace.jsonl"
 
+# Agent 组织经验库（上层辅助记忆，不参与权限/规则判定）
+AGENT_MEMORY_PATH = "demo/output/agent_memory.jsonl"
+
 # 默认操作者：未显式传入 actor 时使用
 DEFAULT_ACTOR = "system"
 
