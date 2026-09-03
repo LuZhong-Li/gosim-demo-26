@@ -7,10 +7,9 @@
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from errors import GXError
 from gx.domain.enums import Source
 from gx.domain.models import AuditLogEntry
 from gx.domain.repositories import AuditRepo
@@ -60,7 +59,7 @@ class AuditInterceptor:
 
         返回值：写入审计表的 AuditLogEntry。
         """
-        timestamp = timestamp or datetime.now(timezone.utc)
+        timestamp = timestamp or datetime.now(UTC)
         entry = AuditLogEntry(
             actor_id=str(actor_id),
             action_type=action_type,

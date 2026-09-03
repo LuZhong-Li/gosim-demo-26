@@ -107,9 +107,7 @@ class LocalXlsxStorage(BaseStorage):
             headers = [str(cell.value) for cell in worksheet[1]]
             for column_index, header in enumerate(headers, start=1):
                 if header in data:
-                    worksheet.cell(
-                        row=excel_row, column=column_index, value=data[header]
-                    )
+                    worksheet.cell(row=excel_row, column=column_index, value=data[header])
             self.save()
 
     def add_sheet(self, sheet_name: str, columns: list[str]) -> None:

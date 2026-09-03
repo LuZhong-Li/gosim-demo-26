@@ -4,7 +4,7 @@
 → 审计哈希链 + trace 留痕。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +12,8 @@ import pytest
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import PRStatus, Role as RoleEnum
+from gx.domain.enums import PRStatus
+from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team
 from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
 from gx.services.audit.interceptor import audit_hash
@@ -22,7 +23,7 @@ from tools.check_trace import check_trace
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -46,9 +47,7 @@ def env(tmp_path):
     member_repo = MemberRepo(storage)
     member_repo.create(Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts()))
     member_repo.create(Member(id=2, name="alice", role=RoleEnum.MEMBER, created_at=_ts()))
-    member_repo.create(
-        Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts())
-    )
+    member_repo.create(Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts()))
     TeamRepo(storage).create(Team(id=1, name="core", description="核心团队"))
     seed_default_rules(storage)
 

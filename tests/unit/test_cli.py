@@ -1,6 +1,6 @@
 """CLI 单元测试：使用 typer CliRunner 与临时工作簿。"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from typer.testing import CliRunner
@@ -18,13 +18,11 @@ runner = CliRunner(mix_stderr=False)
 @pytest.fixture(autouse=True)
 def _trace_tmp(tmp_path, monkeypatch):
     """所有 CLI 用例的 trace 输出指向临时文件，避免污染仓库。"""
-    monkeypatch.setattr(
-        "gx.api.cli.TRACE_OUTPUT_PATH", str(tmp_path / "trace.jsonl")
-    )
+    monkeypatch.setattr("gx.api.cli.TRACE_OUTPUT_PATH", str(tmp_path / "trace.jsonl"))
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 def _build_workbook(path: str) -> None:
@@ -41,23 +39,13 @@ def _build_workbook(path: str) -> None:
         RoleEnum.READONLY: ["read"],
     }
     for role, permissions in permissions_by_role.items():
-        role_repo.create(
-            Role(id=role.value, name=role.value, permissions=permissions)
-        )
+        role_repo.create(Role(id=role.value, name=role.value, permissions=permissions))
 
     member_repo = MemberRepo(storage)
-    member_repo.create(
-        Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts())
-    )
-    member_repo.create(
-        Member(id=2, name="alice", role=RoleEnum.MEMBER, created_at=_ts())
-    )
-    member_repo.create(
-        Member(id=3, name="bob", role=RoleEnum.MEMBER, created_at=_ts())
-    )
-    member_repo.create(
-        Member(id=4, name="carol", role=RoleEnum.READONLY, created_at=_ts())
-    )
+    member_repo.create(Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts()))
+    member_repo.create(Member(id=2, name="alice", role=RoleEnum.MEMBER, created_at=_ts()))
+    member_repo.create(Member(id=3, name="bob", role=RoleEnum.MEMBER, created_at=_ts()))
+    member_repo.create(Member(id=4, name="carol", role=RoleEnum.READONLY, created_at=_ts()))
 
     team_repo = TeamRepo(storage)
     team_repo.create(Team(id=1, name="core", description="核心团队"))
@@ -161,9 +149,7 @@ def test_pr_full_flow(workbook_path):
     assert created.exit_code == 0
     assert "demo change" in created.output
 
-    blocked = runner.invoke(
-        cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"]
-    )
+    blocked = runner.invoke(cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"])
     assert blocked.exit_code == 1
     assert "R001" in blocked.stderr
 
@@ -173,9 +159,7 @@ def test_pr_full_flow(workbook_path):
     )
     assert approved.exit_code == 0
 
-    merged = runner.invoke(
-        cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"]
-    )
+    merged = runner.invoke(cli, ["--workbook", workbook_path, "--actor", "1", "pr", "merge", "1"])
     assert merged.exit_code == 0
     assert "merged" in merged.output
 

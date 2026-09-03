@@ -4,7 +4,7 @@
 参见 docs/plans/04-里程碑任务.md Phase3。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from constants import ERR_STORAGE_ROW
@@ -43,10 +43,8 @@ class WorkflowTrigger:
         workflow = self._workflows.get(workflow_id)
         return self._execute(workflow, actor, trigger)
 
-    def _execute(
-        self, workflow: Workflow, actor: Any, trigger: TriggerType
-    ) -> WorkflowRun:
-        now = datetime.now(timezone.utc)
+    def _execute(self, workflow: Workflow, actor: Any, trigger: TriggerType) -> WorkflowRun:
+        now = datetime.now(UTC)
         run = self._runs.create(
             WorkflowRun(
                 id=self._next_run_id(),
@@ -62,7 +60,7 @@ class WorkflowTrigger:
             run.id,
             {
                 "status": status.value,
-                "finished_at": datetime.now(timezone.utc),
+                "finished_at": datetime.now(UTC),
                 "detail": self._format_detail(result),
             },
         )

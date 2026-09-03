@@ -1,6 +1,6 @@
 """Mock Agent 自然语言解析单元测试。"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,7 +14,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -51,8 +51,7 @@ def test_add_member(agent):
     result = parser.parse("添加成员 bob 为 member")
     assert "bob" in result
     assert any(
-        member.name == "bob" and member.role == RoleEnum.MEMBER
-        for member in bus.list_members()
+        member.name == "bob" and member.role == RoleEnum.MEMBER for member in bus.list_members()
     )
 
 

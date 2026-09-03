@@ -22,13 +22,15 @@ from constants import ERR_DOMAIN_VALIDATION
 from errors import GXError
 from gx.domain.enums import (
     PRStatus,
-    Role as RoleEnum,
     RuleStatus,
     RuleType,
     RunStatus,
     Source,
     TriggerType,
     WorkflowStatus,
+)
+from gx.domain.enums import (
+    Role as RoleEnum,
 )
 
 
@@ -62,9 +64,7 @@ class DomainModel(BaseModel):
         """序列化为存储行 dict；列表/字典字段写入 JSON 字符串。"""
         row = json.loads(self.model_dump_json())
         return {
-            key: json.dumps(value, ensure_ascii=False)
-            if isinstance(value, (list, dict))
-            else value
+            key: json.dumps(value, ensure_ascii=False) if isinstance(value, list | dict) else value
             for key, value in row.items()
         }
 
