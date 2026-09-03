@@ -15,6 +15,7 @@ for path in (ROOT, SRC):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from agent.runtime import StepResult, TurnResult
 from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from errors import GXError
 from gx.core.service_bus import ServiceBus
@@ -31,19 +32,56 @@ class MockNlParser:
         self._trace = TraceWriter(trace_path) if trace_path else None
 
     def parse(self, text: str) -> str:
+        return self.parse_turn(text).response
+
+    def parse_turn(self, text: str) -> TurnResult:
         text = text.strip()
         if not text:
-            return "（空指令）"
+            return TurnResult(instruction=text, response="（空指令）")
         self._log_prompt(text)
+        turn = TurnResult(instruction=text)
+        turn.steps.append(StepResult(kind="intent"))
 
         if self._match_list(text, "成员"):
-            return self._format_members(self._bus.list_members())
+            result = self._format_members(self._bus.list_members())
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="list_members", output=result),
+                    StepResult(kind="stop", output=result),
+                ]
+            )
+            turn.response = result
+            return turn
         if self._match_list(text, "团队"):
-            return self._format_teams(self._bus.list_teams())
+            result = self._format_teams(self._bus.list_teams())
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="list_teams", output=result),
+                    StepResult(kind="stop", output=result),
+                ]
+            )
+            turn.response = result
+            return turn
         if self._match_list(text, "工作流"):
-            return self._format_workflows(self._bus.list_workflows())
+            result = self._format_workflows(self._bus.list_workflows())
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="list_workflows", output=result),
+                    StepResult(kind="stop", output=result),
+                ]
+            )
+            turn.response = result
+            return turn
         if self._match_list(text, "pr"):
-            return self._format_prs(self._bus.list_prs())
+            result = self._format_prs(self._bus.list_prs())
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="list_prs", output=result),
+                    StepResult(kind="stop", output=result),
+                ]
+            )
+            turn.response = result
+            return turn
 
         match = re.match(
             r"(添加\s*成员|add\s+member)\s+(\S+)(?:\s+(?:为|as)\s+(\S+))?",
@@ -53,37 +91,88 @@ class MockNlParser:
         if match:
             name = match.group(2)
             role = match.group(3) or "member"
-            self._log_tool_call("member_add", {"name": name, "role": role})
+            params = {"name": name, "role": role}
+            turn.steps.append(StepResult(kind="tool_call", name="member_add", params=params))
+            self._log_tool_call("member_add", params)
             member = self._bus.member_add(subject_id=self._actor, name=name, role=role)
-            return f"[OK] 已添加成员 {member.name}（角色 {member.role.value}）"
+            response = f"[OK] 已添加成员 {member.name}（角色 {member.role.value}）"
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="member_add", params=params, output=response),
+                    StepResult(kind="stop", output=response),
+                ]
+            )
+            turn.response = response
+            return turn
 
         match = re.match(r"(创建\s*pr|create\s+pr)\s+(.+)", text, re.IGNORECASE)
         if match:
-            self._log_tool_call("create_pr", {"title": match.group(2).strip()})
-            pr = self._bus.create_pr(subject_id=self._actor, title=match.group(2).strip())
-            return f"[OK] 已创建 PR #{pr.id}: {pr.title}"
+            title = match.group(2).strip()
+            params = {"title": title}
+            turn.steps.append(StepResult(kind="tool_call", name="create_pr", params=params))
+            self._log_tool_call("create_pr", params)
+            pr = self._bus.create_pr(subject_id=self._actor, title=title)
+            response = f"[OK] 已创建 PR #{pr.id}: {pr.title}"
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="create_pr", params=params, output=response),
+                    StepResult(kind="stop", output=response),
+                ]
+            )
+            turn.response = response
+            return turn
 
         match = re.match(r"(审批\s*pr|approve\s+pr)\s+(\d+)\s+(\S+)", text, re.IGNORECASE)
         if match:
             pr_id = int(match.group(2))
             approver = match.group(3)
-            self._log_tool_call("approve_pr", {"pr_id": pr_id, "approver": approver})
+            params = {"pr_id": pr_id, "approver": approver}
+            turn.steps.append(StepResult(kind="tool_call", name="approve_pr", params=params))
+            self._log_tool_call("approve_pr", params)
             pr = self._bus.approve_pr(subject_id=self._actor, pr_id=pr_id, approver=approver)
-            return f"[OK] PR #{pr.id} 已由 {approver} 审批"
+            response = f"[OK] PR #{pr.id} 已由 {approver} 审批"
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="approve_pr", params=params, output=response),
+                    StepResult(kind="stop", output=response),
+                ]
+            )
+            turn.response = response
+            return turn
 
         match = re.match(r"(合并\s*pr|merge\s+pr)\s+(\d+)", text, re.IGNORECASE)
         if match:
             pr_id = int(match.group(2))
-            self._log_tool_call("merge_pr", {"pr_id": pr_id})
+            params = {"pr_id": pr_id}
+            turn.steps.append(StepResult(kind="tool_call", name="merge_pr", params=params))
+            self._log_tool_call("merge_pr", params)
             pr = self._bus.merge_pr(subject_id=self._actor, pr_id=pr_id)
-            return f"[OK] PR #{pr.id} 已合并（{pr.status.value}）"
+            response = f"[OK] PR #{pr.id} 已合并（{pr.status.value}）"
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="merge_pr", params=params, output=response),
+                    StepResult(kind="stop", output=response),
+                ]
+            )
+            turn.response = response
+            return turn
 
         match = re.match(r"(运行\s*工作流|run\s+workflow)\s+(\S+)", text, re.IGNORECASE)
         if match:
             name = match.group(2)
-            self._log_tool_call("run_workflow", {"name": name})
+            params = {"name": name}
+            turn.steps.append(StepResult(kind="tool_call", name="run_workflow", params=params))
+            self._log_tool_call("run_workflow", params)
             run = self._bus.run_workflow(subject_id=self._actor, name=name)
-            return f"[OK] 工作流 {name} 运行结果: {run.status.value}"
+            response = f"[OK] 工作流 {name} 运行结果: {run.status.value}"
+            turn.steps.extend(
+                [
+                    StepResult(kind="result", name="run_workflow", params=params, output=response),
+                    StepResult(kind="stop", output=response),
+                ]
+            )
+            turn.response = response
+            return turn
 
         raise ValueError(f"无法理解指令: {text}")
 
