@@ -20,6 +20,9 @@ dev = [
     "ruff>=0.12,<0.13",
     "pytest-cov>=6,<7",
 ]
+llm = [
+    "openai>=1.99,<2",
+]
 
 [project.scripts]
 gx = "gx.api.cli:cli"

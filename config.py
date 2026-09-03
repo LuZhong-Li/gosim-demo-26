@@ -13,6 +13,16 @@ SEED_WORKBOOK_PATH = "demo/seed-workbook.xlsx"
 # trace 输出路径（审计拦截器自动追加，禁止手动编辑）
 TRACE_OUTPUT_PATH = "demo/output/trace.jsonl"
 
+# Agent 组织经验库（上层辅助记忆，不参与权限/规则判定）
+AGENT_MEMORY_PATH = "demo/output/agent_memory.jsonl"
+
+# 可选真实 LLM 适配器：默认关闭；未配置 key 时 Mock Agent 保持离线行为
+AGENT_LLM_ENABLED = False
+AGENT_LLM_API_KEY = ""
+
+# request_id 追踪：默认关闭；开启后只写入 detail 子字段，不改 trace 顶层 schema
+AGENT_REQUEST_ID_ENABLED = False
+
 # 默认操作者：未显式传入 actor 时使用
 DEFAULT_ACTOR = "system"
 
