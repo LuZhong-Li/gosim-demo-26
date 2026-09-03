@@ -183,6 +183,34 @@ def pr_merge_cmd(
     _echo_ok(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")
 
 
+@pr_app.command("close")
+def pr_close_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+    reason: str = typer.Option("", "--reason", help="关闭/驳回原因"),
+) -> None:
+    app: GxCli = ctx.obj
+    updated = _run_command(
+        app.bus.close_pr, subject_id=app.actor, pr_id=pr_id, reason=reason
+    )
+    _echo_ok(f"[OK] PR 已关闭: id={updated.id} status={updated.status.value}")
+
+
+@pr_app.command("history")
+def pr_history_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+) -> None:
+    app: GxCli = ctx.obj
+    rows = _run_command(app.bus.pr_history, pr_id=pr_id)
+    typer.echo("时间\t动作\t结果\t错误")
+    for row in rows:
+        typer.echo(
+            f"{row['timestamp']}\t{row['action_type']}\t"
+            f"{'成功' if row['success'] else '失败'}\t{row['error_msg']}"
+        )
+
+
 @workflow_app.command("list")
 def workflow_list_cmd(ctx: typer.Context) -> None:
     app: GxCli = ctx.obj

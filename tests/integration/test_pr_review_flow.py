@@ -8,6 +8,7 @@ from constants import ERR_BUSINESS_VALIDATION
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
+from gx.domain.enums import PRStatus
 from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team
 from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
@@ -82,6 +83,55 @@ def test_approve_merged_pr_denied(pr_env):
     with pytest.raises(GXError) as exc:
         bus.approve_pr(subject_id=1, pr_id=1, approver="carol")
     assert exc.value.code == ERR_BUSINESS_VALIDATION
+def test_close_pr(pr_env):
+    bus, storage = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    closed = bus.close_pr(subject_id=1, pr_id=1, reason="不再需要")
+    assert closed.status == PRStatus.CLOSED
+    entries = AuditRepo(storage).list()
+    assert entries[-1].action_type == "pr.close"
+    assert entries[-1].success is True
+
+
+def test_close_merged_pr_denied(pr_env):
+    bus, _ = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    bus.approve_pr(subject_id=1, pr_id=1, approver="alice")
+    bus.merge_pr(subject_id=1, pr_id=1)
+    with pytest.raises(GXError) as exc:
+        bus.close_pr(subject_id=1, pr_id=1)
+    assert exc.value.code == ERR_BUSINESS_VALIDATION
+
+
+def test_merge_closed_pr_denied(pr_env):
+    bus, _ = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    bus.close_pr(subject_id=1, pr_id=1)
+    with pytest.raises(GXError) as exc:
+        bus.merge_pr(subject_id=1, pr_id=1)
+    assert exc.value.code == ERR_BUSINESS_VALIDATION
+
+
+def test_approve_closed_pr_denied(pr_env):
+    bus, _ = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    bus.close_pr(subject_id=1, pr_id=1)
+    with pytest.raises(GXError) as exc:
+        bus.approve_pr(subject_id=1, pr_id=1, approver="alice")
+    assert exc.value.code == ERR_BUSINESS_VALIDATION
+
+
+def test_pr_history_includes_review_events(pr_env):
+    bus, _ = pr_env
+    bus.create_pr(subject_id=1, title="demo")
+    bus.approve_pr(subject_id=1, pr_id=1, approver="alice")
+    bus.close_pr(subject_id=1, pr_id=1, reason="驳回")
+    rows = bus.pr_history(1)
+    assert [row["action_type"] for row in rows] == [
+        "pr.create",
+        "pr.approve",
+        "pr.close",
+    ]
 
 
 def test_merge_merged_pr_denied(pr_env):

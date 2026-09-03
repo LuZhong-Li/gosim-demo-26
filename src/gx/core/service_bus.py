@@ -59,9 +59,9 @@ class ServiceBus:
         self.pr_repo = PRRepo(storage)
         self.workflow_repo = WorkflowRepo(storage)
         self.workflow_run_repo = WorkflowRunRepo(storage)
-        audit_repo = AuditRepo(storage)
+        self.audit_repo = AuditRepo(storage)
         trace = TraceWriter(trace_path)
-        self.interceptor = AuditInterceptor(audit_repo, trace)
+        self.interceptor = AuditInterceptor(self.audit_repo, trace)
         self.permissions = PermissionService(
             self.member_repo, self.team_repo, self.role_repo, self.interceptor
         )
@@ -268,6 +268,56 @@ class ServiceBus:
             trace_type="api_call",
         )
         return updated
+
+    @require_permission(Action.WRITE, "sheet", resource_id=PULL_REQUESTS)
+    def close_pr(self, subject_id: int, pr_id: int, reason: str = "") -> PullRequest:
+        """关闭/驳回 PR（状态机 S1）：merged/closed 不可再关闭。"""
+        pr = self.pr_repo.get(pr_id)
+        if pr.status in (PRStatus.MERGED, PRStatus.CLOSED):
+            self._business_fail(
+                actor_id=subject_id,
+                action_type="pr.close",
+                pr_id=pr_id,
+                status=pr.status.value,
+                code=ERR_BUSINESS_VALIDATION,
+                message=f"PR 已{pr.status.value}，不能关闭",
+            )
+        updated = self.pr_repo.update(pr_id, {"status": PRStatus.CLOSED.value})
+        self.interceptor.record(
+            actor_id=subject_id,
+            action_type="pr.close",
+            resource_type="sheet",
+            resource_id=str(pr_id),
+            after_snapshot={"status": PRStatus.CLOSED.value, "reason": reason},
+            source=Source.API,
+            success=True,
+            trace_type="api_call",
+        )
+        return updated
+
+    def pr_history(self, pr_id: int) -> list[dict[str, Any]]:
+        """按 PR 汇总审计中的评审事件（只读，供 CLI 展示）。"""
+        self.pr_repo.get(pr_id)
+        rows: list[dict[str, Any]] = []
+        for entry in self.audit_repo.list():
+            if entry.action_type == "pr.create":
+                after = entry.after_snapshot or {}
+                if str(after.get("id")) != str(pr_id):
+                    continue
+            elif entry.action_type not in {"pr.approve", "pr.close", "pr.merge"}:
+                continue
+            elif entry.resource_id != str(pr_id):
+                continue
+            rows.append(
+                {
+                    "timestamp": entry.timestamp.isoformat(),
+                    "action_type": entry.action_type,
+                    "success": entry.success,
+                    "error_msg": entry.error_msg,
+                    "after_snapshot": entry.after_snapshot,
+                }
+            )
+        return rows
 
     def _business_fail(
         self,
