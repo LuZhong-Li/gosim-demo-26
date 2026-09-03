@@ -319,6 +319,26 @@ class ServiceBus:
             )
         return rows
 
+    @require_permission(Action.ADMIN, "workbook")
+    def list_audit(self, subject_id: int) -> list[dict[str, Any]]:
+        """导出审计日志（workbook 级 admin 权限，供合规导出）。"""
+        return [
+            {
+                "actor_id": entry.actor_id,
+                "action_type": entry.action_type,
+                "resource_type": entry.resource_type,
+                "resource_id": entry.resource_id,
+                "before_snapshot": entry.before_snapshot,
+                "after_snapshot": entry.after_snapshot,
+                "timestamp": entry.timestamp.isoformat(),
+                "source": entry.source.value,
+                "success": entry.success,
+                "error_msg": entry.error_msg,
+                "prev_hash": entry.prev_hash,
+            }
+            for entry in self.audit_repo.list()
+        ]
+
     def _business_fail(
         self,
         *,

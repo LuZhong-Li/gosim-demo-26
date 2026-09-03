@@ -17,7 +17,7 @@ for path in (ROOT, SRC):
         sys.path.insert(0, str(path))
 
 from agent.runtime import StepResult, TurnResult
-from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
+from config import AGENT_REQUEST_ID_ENABLED, SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.llm.adapter import LLMAdapter
@@ -34,13 +34,17 @@ class MockNlParser:
         actor: int = 1,
         trace_path: str | None = None,
         llm: LLMAdapter | None = None,
-        request_id_enabled: bool = False,
+        request_id_enabled: bool | None = None,
     ) -> None:
         self._bus = bus
         self._actor = actor
         self._trace = TraceWriter(trace_path) if trace_path else None
         self._llm = llm
-        self._request_id_enabled = request_id_enabled
+        self._request_id_enabled = (
+            request_id_enabled
+            if request_id_enabled is not None
+            else AGENT_REQUEST_ID_ENABLED
+        )
 
     def parse(self, text: str) -> str:
         return self.parse_turn(text).response
@@ -274,10 +278,21 @@ def main(argv=None) -> None:
     parser.add_argument("text", help="自然语言指令")
     parser.add_argument("--workbook", default=SEED_WORKBOOK_PATH, help="工作簿路径")
     parser.add_argument("--actor", type=int, default=1, help="操作者成员ID")
+    parser.add_argument(
+        "--request-id",
+        action="store_true",
+        default=None,
+        help="为本次指令生成 request_id（默认读取 config.AGENT_REQUEST_ID_ENABLED）",
+    )
     args = parser.parse_args(argv)
 
     bus = ServiceBus(LocalXlsxStorage(args.workbook))
-    agent = MockNlParser(bus, actor=args.actor, trace_path=TRACE_OUTPUT_PATH)
+    agent = MockNlParser(
+        bus,
+        actor=args.actor,
+        trace_path=TRACE_OUTPUT_PATH,
+        request_id_enabled=args.request_id,
+    )
     try:
         print(agent.parse(args.text))
     except (GXError, ValueError) as exc:

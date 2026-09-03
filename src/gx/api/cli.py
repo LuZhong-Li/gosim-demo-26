@@ -4,6 +4,7 @@
 上层只调用 core 门面（ServiceBus），不直接碰存储与零散服务。
 """
 
+import json
 import os
 import shutil
 from collections.abc import Callable
@@ -27,6 +28,7 @@ pr_app = typer.Typer(help="PR 模拟管理")
 workflow_app = typer.Typer(help="工作流管理")
 ruleset_app = typer.Typer(help="Rulesets 规则管理")
 trace_app = typer.Typer(help="生产轨迹 trace 校验与导出")
+audit_app = typer.Typer(help="审计日志合规导出")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
@@ -34,6 +36,7 @@ cli.add_typer(pr_app, name="pr")
 cli.add_typer(workflow_app, name="workflow")
 cli.add_typer(ruleset_app, name="ruleset")
 cli.add_typer(trace_app, name="trace")
+cli.add_typer(audit_app, name="audit")
 
 
 class GxCli:
@@ -364,3 +367,16 @@ def _export_trace(dest: str, source: str) -> int:
         _print_trace_errors(dest_errors)
     objs = parse_trace(dest)
     return len(objs)
+
+
+@audit_app.command("export")
+def audit_export_cmd(
+    ctx: typer.Context,
+    dest: str = typer.Argument(..., help="审计导出目标 JSON 文件路径"),
+) -> None:
+    """导出审计日志到 JSON 文件（workbook 级 admin 权限）。"""
+    app: GxCli = ctx.obj
+    rows = _run_command(app.bus.list_audit, subject_id=app.actor)
+    with open(dest, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle, ensure_ascii=False, indent=2)
+    _echo_ok(f"[OK] 审计已导出: {dest}（共 {len(rows)} 条）")
