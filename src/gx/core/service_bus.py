@@ -352,6 +352,34 @@ class ServiceBus:
         """返回全部 PR 列表（只读，无需权限）。"""
         return self.pr_repo.list()
 
+    def _org_validation_fail(
+        self,
+        *,
+        actor_id: Any,
+        action_type: str,
+        resource_type: str,
+        resource_id: str,
+        message: str,
+    ) -> None:
+        """记录失败审计 + trace 后抛 B001（组织/权限类业务校验）。"""
+        self.interceptor.record(
+            actor_id=actor_id,
+            action_type=action_type,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            after_snapshot={"error": message},
+            source=Source.API,
+            success=False,
+            error_msg=f"[{ERR_BUSINESS_VALIDATION}] {message}",
+            trace_type="api_call",
+        )
+        raise GXError(
+            ERR_BUSINESS_VALIDATION,
+            message,
+            module="org",
+            context={"resource_type": resource_type, "resource_id": resource_id},
+        )
+
     @require_permission(Action.ADMIN, "workbook")
     def member_add(self, subject_id: int, name: str, role: str) -> Member:
         """添加成员（需要 workbook 级 admin 权限）。
@@ -361,8 +389,16 @@ class ServiceBus:
             name: 成员名称。
             role: 角色枚举值（owner/admin/member/readonly）。
 
-        返回值：新建的 Member。权限不足抛 GXError(P001)。
+        返回值：新建的 Member。权限不足抛 GXError(P001)；重名抛 GXError(B001)。
         """
+        if any(member.name == name for member in self.member_repo.list()):
+            self._org_validation_fail(
+                actor_id=subject_id,
+                action_type="member.add",
+                resource_type="sheet",
+                resource_id=MEMBERS,
+                message=f"成员名称已存在: {name}",
+            )
         member = Member(
             id=self._next_id(self.member_repo),
             name=name,
@@ -395,8 +431,16 @@ class ServiceBus:
             name: 团队名称。
             description: 团队描述（默认空串）。
 
-        返回值：新建的 Team。权限不足抛 GXError(P001)。
+        返回值：新建的 Team。权限不足抛 GXError(P001)；重名抛 GXError(B001)。
         """
+        if any(team.name == name for team in self.team_repo.list()):
+            self._org_validation_fail(
+                actor_id=subject_id,
+                action_type="team.add",
+                resource_type="sheet",
+                resource_id=TEAMS,
+                message=f"团队名称已存在: {name}",
+            )
         team = Team(id=self._next_id(self.team_repo), name=name, description=description)
         self.team_repo.create(team)
         self.interceptor.record(
@@ -420,10 +464,28 @@ class ServiceBus:
             member_id: 被调整成员 id。
             role: 目标角色枚举值（owner/admin/member/readonly）。
 
-        返回值：更新后的 Member。权限不足抛 GXError(P001)。
+        返回值：更新后的 Member。权限不足抛 GXError(P001)；
+        非 owner 授予/修改 owner 角色抛 GXError(B001)。
         """
+        actor = self.member_repo.get(subject_id)
         current = self.member_repo.get(member_id)
         new_role = RoleEnum(role)
+        if new_role is RoleEnum.OWNER and actor.role is not RoleEnum.OWNER:
+            self._org_validation_fail(
+                actor_id=subject_id,
+                action_type="role.assign",
+                resource_type="member",
+                resource_id=str(member_id),
+                message="只有 owner 可以授予 owner 角色",
+            )
+        if current.role is RoleEnum.OWNER and actor.role is not RoleEnum.OWNER:
+            self._org_validation_fail(
+                actor_id=subject_id,
+                action_type="role.assign",
+                resource_type="member",
+                resource_id=str(member_id),
+                message="只有 owner 可以修改 owner 成员的角色",
+            )
         updated = self.member_repo.update(member_id, {"role": new_role.value})
         self.permissions.record_permission_change(
             actor_id=subject_id,

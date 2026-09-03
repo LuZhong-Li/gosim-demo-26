@@ -131,6 +131,27 @@ def test_unknown_subject_denied(service):
     assert exc_info.value.code == "P001"
 
 
+def test_role_table_drives_permissions(tmp_path):
+    storage = LocalXlsxStorage.create_workbook(str(tmp_path / "role_driven.xlsx"))
+    for sheet_name, columns in SHEET_COLUMNS.items():
+        storage.add_sheet(sheet_name, columns)
+    storage.remove_sheet("Sheet")
+
+    role_repo = RoleRepo(storage)
+    _seed_role(role_repo, RoleEnum.MEMBER, ["read", "write"])
+    member_repo = MemberRepo(storage)
+    member_repo.create(
+        Member(id=1, name="m1", role=RoleEnum.MEMBER, created_at=_ts())
+    )
+    service = PermissionService(member_repo, TeamRepo(storage), role_repo)
+
+    assert service.check(1, "sheet", MEMBERS, Action.WRITE)
+
+    role_repo.update(RoleEnum.MEMBER.value, {"permissions": ["read"]})
+    assert service.check(1, "sheet", MEMBERS, Action.READ)
+    assert not service.check(1, "sheet", MEMBERS, Action.WRITE)
+
+
 def test_deny_writes_audit_entry(service, tmp_path):
     with pytest.raises(GXError):
         service.enforce(4, "sheet", MEMBERS, Action.WRITE)

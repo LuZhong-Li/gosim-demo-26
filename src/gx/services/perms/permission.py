@@ -155,11 +155,21 @@ class PermissionService:
     ) -> bool:
         if role is RoleEnum.OWNER:
             return True  # owner 全局最高权限，不受资源限制
-        if action not in _ROLE_ACTIONS.get(role, frozenset()):
+        if action.value not in self._role_permissions(role):
             return False
         if resource_type == "sheet" and resource_id in _ADMIN_ONLY_SHEETS:
             return role in (RoleEnum.OWNER, RoleEnum.ADMIN)
         return True
+
+    def _role_permissions(self, role: RoleEnum) -> frozenset[str]:
+        """读取 roles 表的权限配置；缺失时回退到内置默认矩阵。"""
+        try:
+            configured = self._roles.get(role.value)
+        except GXError:
+            configured = None
+        if configured is not None:
+            return frozenset(configured.permissions)
+        return frozenset(action.value for action in _ROLE_ACTIONS.get(role, frozenset()))
 
     def _audit_deny(
         self,
