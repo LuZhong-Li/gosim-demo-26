@@ -1,5 +1,6 @@
 """Mock Agent Turn/Step 运行时单元测试（评审优化第二轮 Task 3）。"""
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -52,3 +53,29 @@ def test_parse_turn_exposes_expected_step_sequence(agent):
     assert [step.kind for step in turn.steps] == ["intent", "tool_call", "result", "stop"]
     assert turn.steps[1].name == "member_add"
     assert turn.steps[1].params == {"name": "bob", "role": "member"}
+
+
+def test_request_id_enabled_links_details_without_top_level_schema_change(agent):
+    parser, trace_path = agent
+    parser_with_ids = MockNlParser(
+        bus=parser._bus,
+        actor=1,
+        trace_path=trace_path,
+        request_id_enabled=True,
+    )
+
+    parser_with_ids.parse_turn("添加成员 bob 为 member")
+
+    lines = [
+        json.loads(line)
+        for line in open(trace_path, encoding="utf-8").read().splitlines()
+        if line.strip()
+    ]
+    prompt = next(event for event in lines if event["type"] == "prompt")
+    tool_call = next(event for event in lines if event["type"] == "tool_call")
+
+    assert "request_id" not in prompt
+    assert "request_id" not in tool_call
+    assert prompt["detail"]["request_id"] == tool_call["detail"]["request_id"]
+    assert prompt["detail"]["text"] == "添加成员 bob 为 member"
+    assert tool_call["detail"]["name"] == "bob"

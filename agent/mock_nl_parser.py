@@ -8,6 +8,7 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
@@ -33,11 +34,13 @@ class MockNlParser:
         actor: int = 1,
         trace_path: str | None = None,
         llm: LLMAdapter | None = None,
+        request_id_enabled: bool = False,
     ) -> None:
         self._bus = bus
         self._actor = actor
         self._trace = TraceWriter(trace_path) if trace_path else None
         self._llm = llm
+        self._request_id_enabled = request_id_enabled
 
     def parse(self, text: str) -> str:
         return self.parse_turn(text).response
@@ -46,7 +49,8 @@ class MockNlParser:
         text = text.strip()
         if not text:
             return TurnResult(instruction=text, response="（空指令）")
-        self._log_prompt(text)
+        request_id = uuid4().hex[:12] if self._request_id_enabled else None
+        self._log_prompt(text, request_id)
         turn = TurnResult(instruction=text)
         turn.steps.append(StepResult(kind="intent"))
 
@@ -101,7 +105,7 @@ class MockNlParser:
             role = match.group(3) or "member"
             params = {"name": name, "role": role}
             turn.steps.append(StepResult(kind="tool_call", name="member_add", params=params))
-            self._log_tool_call("member_add", params)
+            self._log_tool_call("member_add", params, request_id)
             member = self._bus.member_add(subject_id=self._actor, name=name, role=role)
             response = f"[OK] 已添加成员 {member.name}（角色 {member.role.value}）"
             turn.steps.extend(
@@ -118,7 +122,7 @@ class MockNlParser:
             title = match.group(2).strip()
             params = {"title": title}
             turn.steps.append(StepResult(kind="tool_call", name="create_pr", params=params))
-            self._log_tool_call("create_pr", params)
+            self._log_tool_call("create_pr", params, request_id)
             pr = self._bus.create_pr(subject_id=self._actor, title=title)
             response = f"[OK] 已创建 PR #{pr.id}: {pr.title}"
             turn.steps.extend(
@@ -136,7 +140,7 @@ class MockNlParser:
             approver = match.group(3)
             params = {"pr_id": pr_id, "approver": approver}
             turn.steps.append(StepResult(kind="tool_call", name="approve_pr", params=params))
-            self._log_tool_call("approve_pr", params)
+            self._log_tool_call("approve_pr", params, request_id)
             pr = self._bus.approve_pr(subject_id=self._actor, pr_id=pr_id, approver=approver)
             response = f"[OK] PR #{pr.id} 已由 {approver} 审批"
             turn.steps.extend(
@@ -153,7 +157,7 @@ class MockNlParser:
             pr_id = int(match.group(2))
             params = {"pr_id": pr_id}
             turn.steps.append(StepResult(kind="tool_call", name="merge_pr", params=params))
-            self._log_tool_call("merge_pr", params)
+            self._log_tool_call("merge_pr", params, request_id)
             pr = self._bus.merge_pr(subject_id=self._actor, pr_id=pr_id)
             response = f"[OK] PR #{pr.id} 已合并（{pr.status.value}）"
             turn.steps.extend(
@@ -170,7 +174,7 @@ class MockNlParser:
             name = match.group(2)
             params = {"name": name}
             turn.steps.append(StepResult(kind="tool_call", name="run_workflow", params=params))
-            self._log_tool_call("run_workflow", params)
+            self._log_tool_call("run_workflow", params, request_id)
             run = self._bus.run_workflow(subject_id=self._actor, name=name)
             response = f"[OK] 工作流 {name} 运行结果: {run.status.value}"
             turn.steps.extend(
@@ -200,30 +204,32 @@ class MockNlParser:
         )
         return turn
 
-    def _log_prompt(self, text: str) -> None:
+    def _log_prompt(self, text: str, request_id: str | None = None) -> None:
         if self._trace is None:
             return
+        detail = {"text": text, "request_id": request_id} if request_id else text
         self._trace.append(
             timestamp=datetime.now(UTC),
             type="prompt",
             actor=self._actor,
             action="prompt",
             resource="",
-            detail=text,
+            detail=detail,
             success=True,
             error_msg="",
         )
 
-    def _log_tool_call(self, action: str, detail) -> None:
+    def _log_tool_call(self, action: str, detail, request_id: str | None = None) -> None:
         if self._trace is None:
             return
+        payload = {**detail, "request_id": request_id} if request_id else detail
         self._trace.append(
             timestamp=datetime.now(UTC),
             type="tool_call",
             actor=self._actor,
             action=action,
             resource="workbook",
-            detail=detail,
+            detail=payload,
             success=True,
             error_msg="",
         )

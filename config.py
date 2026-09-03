@@ -20,6 +20,9 @@ AGENT_MEMORY_PATH = "demo/output/agent_memory.jsonl"
 AGENT_LLM_ENABLED = False
 AGENT_LLM_API_KEY = ""
 
+# request_id 追踪：默认关闭；开启后只写入 detail 子字段，不改 trace 顶层 schema
+AGENT_REQUEST_ID_ENABLED = False
+
 # 默认操作者：未显式传入 actor 时使用
 DEFAULT_ACTOR = "system"
 
