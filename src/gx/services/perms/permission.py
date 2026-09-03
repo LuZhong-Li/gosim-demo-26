@@ -5,11 +5,13 @@
 """
 
 import functools
-from typing import Any, Callable, ParamSpec, TypeVar
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar
 
 from constants import AUDIT_LOG, ERR_PERMISSION_DENIED, RULESETS
 from errors import GXError
-from gx.domain.enums import Action, Role as RoleEnum, Source
+from gx.domain.enums import Action, Source
+from gx.domain.enums import Role as RoleEnum
 from gx.domain.repositories import MemberRepo, RoleRepo, TeamRepo
 from gx.services.audit.interceptor import AuditInterceptor
 
@@ -140,9 +142,7 @@ class PermissionService:
         except GXError:
             return roles  # 团队不存在则跳过继承
         roles.update(
-            teammate.role
-            for teammate in self._members.list()
-            if teammate.team_id == member.team_id
+            teammate.role for teammate in self._members.list() if teammate.team_id == member.team_id
         )
         return roles
 
@@ -221,9 +221,7 @@ def require_permission(
                 resolved_resource_id = kwargs.get(resource_id_arg)
             else:
                 resolved_resource_id = resource_type
-            self.permissions.enforce(
-                subject_id, resource_type, resolved_resource_id, action
-            )
+            self.permissions.enforce(subject_id, resource_type, resolved_resource_id, action)
             return func(*args, **kwargs)
 
         return wrapper

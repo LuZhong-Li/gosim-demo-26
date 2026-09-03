@@ -6,7 +6,7 @@
 
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,9 +25,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 class MockNlParser:
     """基于字符串匹配的自然语言解析器（原型）。"""
 
-    def __init__(
-        self, bus: ServiceBus, actor: int = 1, trace_path: str | None = None
-    ) -> None:
+    def __init__(self, bus: ServiceBus, actor: int = 1, trace_path: str | None = None) -> None:
         self._bus = bus
         self._actor = actor
         self._trace = TraceWriter(trace_path) if trace_path else None
@@ -56,45 +54,31 @@ class MockNlParser:
             name = match.group(2)
             role = match.group(3) or "member"
             self._log_tool_call("member_add", {"name": name, "role": role})
-            member = self._bus.member_add(
-                subject_id=self._actor, name=name, role=role
-            )
+            member = self._bus.member_add(subject_id=self._actor, name=name, role=role)
             return f"[OK] 已添加成员 {member.name}（角色 {member.role.value}）"
 
-        match = re.match(
-            r"(创建\s*pr|create\s+pr)\s+(.+)", text, re.IGNORECASE
-        )
+        match = re.match(r"(创建\s*pr|create\s+pr)\s+(.+)", text, re.IGNORECASE)
         if match:
             self._log_tool_call("create_pr", {"title": match.group(2).strip()})
-            pr = self._bus.create_pr(
-                subject_id=self._actor, title=match.group(2).strip()
-            )
+            pr = self._bus.create_pr(subject_id=self._actor, title=match.group(2).strip())
             return f"[OK] 已创建 PR #{pr.id}: {pr.title}"
 
-        match = re.match(
-            r"(审批\s*pr|approve\s+pr)\s+(\d+)\s+(\S+)", text, re.IGNORECASE
-        )
+        match = re.match(r"(审批\s*pr|approve\s+pr)\s+(\d+)\s+(\S+)", text, re.IGNORECASE)
         if match:
             pr_id = int(match.group(2))
             approver = match.group(3)
             self._log_tool_call("approve_pr", {"pr_id": pr_id, "approver": approver})
-            pr = self._bus.approve_pr(
-                subject_id=self._actor, pr_id=pr_id, approver=approver
-            )
+            pr = self._bus.approve_pr(subject_id=self._actor, pr_id=pr_id, approver=approver)
             return f"[OK] PR #{pr.id} 已由 {approver} 审批"
 
         match = re.match(r"(合并\s*pr|merge\s+pr)\s+(\d+)", text, re.IGNORECASE)
         if match:
             pr_id = int(match.group(2))
             self._log_tool_call("merge_pr", {"pr_id": pr_id})
-            pr = self._bus.merge_pr(
-                subject_id=self._actor, pr_id=pr_id
-            )
+            pr = self._bus.merge_pr(subject_id=self._actor, pr_id=pr_id)
             return f"[OK] PR #{pr.id} 已合并（{pr.status.value}）"
 
-        match = re.match(
-            r"(运行\s*工作流|run\s+workflow)\s+(\S+)", text, re.IGNORECASE
-        )
+        match = re.match(r"(运行\s*工作流|run\s+workflow)\s+(\S+)", text, re.IGNORECASE)
         if match:
             name = match.group(2)
             self._log_tool_call("run_workflow", {"name": name})
@@ -107,7 +91,7 @@ class MockNlParser:
         if self._trace is None:
             return
         self._trace.append(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             type="prompt",
             actor=self._actor,
             action="prompt",
@@ -121,7 +105,7 @@ class MockNlParser:
         if self._trace is None:
             return
         self._trace.append(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             type="tool_call",
             actor=self._actor,
             action=action,
@@ -159,8 +143,7 @@ class MockNlParser:
         if not rows:
             return "（暂无 PR）"
         return "\n".join(
-            f"{p.id}\t{p.title}\t{p.author}\t{p.status.value}"
-            f"\t{','.join(p.approvers) or '-'}"
+            f"{p.id}\t{p.title}\t{p.author}\t{p.status.value}\t{','.join(p.approvers) or '-'}"
             for p in rows
         )
 

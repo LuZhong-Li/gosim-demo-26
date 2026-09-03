@@ -4,14 +4,15 @@
 未知 rule_id S004。trace 全部指向临时路径。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from typer.testing import CliRunner
 
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from gx.api.cli import cli
-from gx.domain.enums import Role as RoleEnum, RuleStatus
+from gx.domain.enums import Role as RoleEnum
+from gx.domain.enums import RuleStatus
 from gx.domain.models import Member, Role
 from gx.domain.repositories import MemberRepo, RoleRepo, RuleSetRepo
 from gx.storage.xlsx import LocalXlsxStorage
@@ -22,13 +23,11 @@ runner = CliRunner(mix_stderr=False)
 @pytest.fixture(autouse=True)
 def _trace_tmp(tmp_path, monkeypatch):
     """trace 输出指向临时文件，避免污染仓库基线。"""
-    monkeypatch.setattr(
-        "gx.api.cli.TRACE_OUTPUT_PATH", str(tmp_path / "trace.jsonl")
-    )
+    monkeypatch.setattr("gx.api.cli.TRACE_OUTPUT_PATH", str(tmp_path / "trace.jsonl"))
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 def _build_workbook(path: str) -> None:
@@ -50,9 +49,7 @@ def _build_workbook(path: str) -> None:
     member_repo = MemberRepo(storage)
     member_repo.create(Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts()))
     member_repo.create(Member(id=2, name="bob", role=RoleEnum.MEMBER, created_at=_ts()))
-    member_repo.create(
-        Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts())
-    )
+    member_repo.create(Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts()))
     seed_default_rules(storage)
 
 
@@ -70,9 +67,7 @@ def test_ruleset_group_shown_in_help():
 
 
 def test_ruleset_list_shows_two_rules(workbook_path):
-    result = runner.invoke(
-        cli, ["--workbook", workbook_path, "--actor", "1", "ruleset", "list"]
-    )
+    result = runner.invoke(cli, ["--workbook", workbook_path, "--actor", "1", "ruleset", "list"])
     assert result.exit_code == 0
     assert "approval" in result.output
     assert "required_check" in result.output
@@ -87,9 +82,7 @@ def test_ruleset_disable_then_enable(workbook_path):
     assert disabled.exit_code == 0
     assert "disabled" in disabled.output
 
-    listed = runner.invoke(
-        cli, ["--workbook", workbook_path, "--actor", "1", "ruleset", "list"]
-    )
+    listed = runner.invoke(cli, ["--workbook", workbook_path, "--actor", "1", "ruleset", "list"])
     assert "approval\tapproval\tdisabled" in listed.output
 
     enabled = runner.invoke(

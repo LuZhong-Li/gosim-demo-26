@@ -1,6 +1,6 @@
 """Rulesets 规则引擎单元测试。"""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from gx.domain.enums import RuleType, RunStatus
 from gx.domain.models import PullRequest
@@ -13,7 +13,7 @@ def _pr(approvers=None):
         title="demo",
         author="alice",
         approvers=approvers or [],
-        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 1, tzinfo=UTC),
     )
 
 

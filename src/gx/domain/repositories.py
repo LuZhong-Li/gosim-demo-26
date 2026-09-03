@@ -15,8 +15,8 @@ from constants import (
     ROLES,
     RULESETS,
     TEAMS,
-    WORKFLOWS,
     WORKFLOW_RUNS,
+    WORKFLOWS,
 )
 from errors import GXError
 from gx.domain.models import (
@@ -47,9 +47,7 @@ class _IdRepo:
         return self._model.parse_raw(self._storage.get_sheet(self._sheet)[row_id])
 
     def list(self) -> list[DomainModel]:
-        return [
-            self._model.parse_raw(row) for row in self._storage.get_sheet(self._sheet)
-        ]
+        return [self._model.parse_raw(row) for row in self._storage.get_sheet(self._sheet)]
 
     def create(self, model: DomainModel) -> DomainModel:
         self._storage.append_row(self._sheet, model.to_row())
@@ -137,9 +135,7 @@ class AuditRepo:
         return AuditLogEntry.parse_raw(rows[row_id])
 
     def list(self) -> list[AuditLogEntry]:
-        return [
-            AuditLogEntry.parse_raw(row) for row in self._storage.get_sheet(self._sheet)
-        ]
+        return [AuditLogEntry.parse_raw(row) for row in self._storage.get_sheet(self._sheet)]
 
     def create(self, entry: AuditLogEntry) -> AuditLogEntry:
         self._storage.append_row(self._sheet, entry.to_row())

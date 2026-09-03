@@ -30,14 +30,10 @@ def main() -> None:
     print(f"[OK] {path}: 校验通过（共 {total} 条事件）")
     counts = count_by_type(objs)
     if counts:
-        breakdown = ", ".join(
-            f"{name}={count}" for name, count in sorted(counts.items())
-        )
+        breakdown = ", ".join(f"{name}={count}" for name, count in sorted(counts.items()))
         print(f"[INFO] 事件构成: {breakdown}")
     hints = [
-        f"{name}={TYPE_SOURCE_HINT[name]}"
-        for name in sorted(TYPE_SOURCE_HINT)
-        if name in counts
+        f"{name}={TYPE_SOURCE_HINT[name]}" for name in sorted(TYPE_SOURCE_HINT) if name in counts
     ]
     if hints:
         print("[INFO] 来源提示: " + "；".join(hints))

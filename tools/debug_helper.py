@@ -25,9 +25,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="GX-Sheet 调试数据快照")
     parser.add_argument("workbook", help="工作簿路径")
     parser.add_argument("sheet", help="工作表名")
-    parser.add_argument(
-        "--latest", type=int, default=10, help="audit_log 显示最新条数（默认 10）"
-    )
+    parser.add_argument("--latest", type=int, default=10, help="audit_log 显示最新条数（默认 10）")
     args = parser.parse_args()
 
     if args.sheet not in SHEET_NAMES:
