@@ -8,7 +8,6 @@ from constants import ERR_BUSINESS_VALIDATION
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import PRStatus
 from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team
 from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, TeamRepo
