@@ -66,3 +66,4 @@ trace（type=`api_call`）。详见 [rulesets.md](rulesets.md)。
 
 - [rulesets.md](rulesets.md)：Rulesets 数据模型、引擎语义、CLI 与留痕字段；
 - [trace_format.md](trace_format.md)：trace 8 字段、5 种 type、真实示例与校验命令。
+- [agent-boundaries.md](agent-boundaries.md)：Agent 边界、架构原则与不引入的重型架构。

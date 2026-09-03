@@ -40,6 +40,7 @@
 | [README.md](specs/README.md) | 规格总览：数据模型、权限矩阵、Rulesets 规则、工作流步骤、trace 规格索引 |
 | [rulesets.md](specs/rulesets.md) | Rulesets 表驱动规格：status 语义、引擎、CLI 与留痕字段 |
 | [trace_format.md](specs/trace_format.md) | Trace 8 字段、5 种 type、校验规则与真实示例 |
+| [agent-boundaries.md](specs/agent-boundaries.md) | Agent 边界、可逆注册与审计/trace 原则 |
 
 ## 交付指南（docs/）
 
