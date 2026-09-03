@@ -16,6 +16,10 @@ TRACE_OUTPUT_PATH = "demo/output/trace.jsonl"
 # Agent 组织经验库（上层辅助记忆，不参与权限/规则判定）
 AGENT_MEMORY_PATH = "demo/output/agent_memory.jsonl"
 
+# 可选真实 LLM 适配器：默认关闭；未配置 key 时 Mock Agent 保持离线行为
+AGENT_LLM_ENABLED = False
+AGENT_LLM_API_KEY = ""
+
 # 默认操作者：未显式传入 actor 时使用
 DEFAULT_ACTOR = "system"
 
