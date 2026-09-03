@@ -72,9 +72,7 @@ def test_trace_export_copies_and_validates(valid_trace, tmp_path):
     dest = str(tmp_path / "export.jsonl")
     result = runner.invoke(cli, ["trace", "export", dest, "--source", valid_trace])
     assert result.exit_code == 0
-    assert Path(dest).read_text(encoding="utf-8") == Path(valid_trace).read_text(
-        encoding="utf-8"
-    )
+    assert Path(dest).read_text(encoding="utf-8") == Path(valid_trace).read_text(encoding="utf-8")
 
 
 def test_trace_export_rejects_same_source_and_dest(valid_trace):

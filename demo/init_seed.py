@@ -5,7 +5,7 @@
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from constants import (
     ADMIN,
     AUDIT_LOG,
@@ -25,12 +26,13 @@ from constants import (
     RULESETS,
     SHEET_NAMES,
     TEAMS,
-    WORKFLOWS,
     WORKFLOW_RUNS,
+    WORKFLOWS,
 )
-from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from gx.domain.enums import (
     Role as RoleEnum,
+)
+from gx.domain.enums import (
     RuleStatus,
     RuleType,
     TriggerType,
@@ -95,7 +97,7 @@ DEFAULT_RULESETS: tuple[tuple[str, str, str], ...] = (
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def create_seed_workbook(path: str) -> LocalXlsxStorage:

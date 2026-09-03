@@ -4,7 +4,7 @@
 参见 docs/plans/03-分层与代码结构.md 4.2。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from config import TRACE_OUTPUT_PATH
 from constants import (
@@ -19,10 +19,11 @@ from errors import GXError
 from gx.domain.enums import (
     Action,
     PRStatus,
-    Role as RoleEnum,
     RuleStatus,
     Source,
-    TriggerType,
+)
+from gx.domain.enums import (
+    Role as RoleEnum,
 )
 from gx.domain.models import Member, PullRequest, RuleSet, Team
 from gx.domain.repositories import (
@@ -87,7 +88,7 @@ class ServiceBus:
             author=author,
             status=PRStatus.OPEN,
             approvers=[],
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self.pr_repo.create(pr)
         self.interceptor.record(
@@ -116,9 +117,7 @@ class ServiceBus:
         属已知局限（docs/dev/limitation.md），决赛迭代修复。
         """
         pr = self.pr_repo.get(pr_id)
-        approvers = (
-            pr.approvers if approver in pr.approvers else [*pr.approvers, approver]
-        )
+        approvers = pr.approvers if approver in pr.approvers else [*pr.approvers, approver]
         updated = self.pr_repo.update(pr_id, {"approvers": approvers})
         self.interceptor.record(
             actor_id=subject_id,
@@ -177,7 +176,7 @@ class ServiceBus:
             pr_id,
             {
                 "status": PRStatus.MERGED.value,
-                "merged_at": datetime.now(timezone.utc),
+                "merged_at": datetime.now(UTC),
             },
         )
         self.interceptor.record(
@@ -211,7 +210,7 @@ class ServiceBus:
             id=self._next_id(self.member_repo),
             name=name,
             role=RoleEnum(role),
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self.member_repo.create(member)
         self.interceptor.record(
@@ -241,9 +240,7 @@ class ServiceBus:
 
         返回值：新建的 Team。权限不足抛 GXError(P001)。
         """
-        team = Team(
-            id=self._next_id(self.team_repo), name=name, description=description
-        )
+        team = Team(id=self._next_id(self.team_repo), name=name, description=description)
         self.team_repo.create(team)
         self.interceptor.record(
             actor_id=subject_id,
@@ -309,9 +306,7 @@ class ServiceBus:
         return self.rule_repo.list()
 
     @require_permission(Action.WRITE, "sheet", resource_id=RULESETS)
-    def ruleset_set_enabled(
-        self, subject_id: int, rule_id: str, enabled: bool
-    ) -> RuleSet:
+    def ruleset_set_enabled(self, subject_id: int, rule_id: str, enabled: bool) -> RuleSet:
         """启用/禁用一条规则（rulesets 为 admin/owner 特殊表，普通成员被拒）。
 
         入参：

@@ -4,14 +4,15 @@
 无权限拒绝、资源-动作组合、团队权限并集、审计埋点、装饰器拦截。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from constants import AUDIT_LOG, MEMBERS, RULESETS
 from demo.init_seed import SHEET_COLUMNS
 from errors import GXError
-from gx.domain.enums import Action, Role as RoleEnum
+from gx.domain.enums import Action
+from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team
 from gx.domain.repositories import (
     AuditRepo,
@@ -26,7 +27,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:
-    return datetime(2026, 8, 31, tzinfo=timezone.utc)
+    return datetime(2026, 8, 31, tzinfo=UTC)
 
 
 def _seed_role(role_repo: RoleRepo, role: RoleEnum, permissions: list[str]) -> None:
@@ -43,9 +44,7 @@ def service(tmp_path):
     member_repo = MemberRepo(storage)
     team_repo = TeamRepo(storage)
     role_repo = RoleRepo(storage)
-    interceptor = AuditInterceptor(
-        AuditRepo(storage), TraceWriter(str(tmp_path / "trace.jsonl"))
-    )
+    interceptor = AuditInterceptor(AuditRepo(storage), TraceWriter(str(tmp_path / "trace.jsonl")))
 
     _seed_role(role_repo, RoleEnum.OWNER, ["read", "write", "admin"])
     _seed_role(role_repo, RoleEnum.ADMIN, ["read", "write", "admin"])
@@ -57,12 +56,8 @@ def service(tmp_path):
     member_repo.create(Member(id=1, name="owner1", role=RoleEnum.OWNER, created_at=_ts()))
     member_repo.create(Member(id=2, name="admin1", role=RoleEnum.ADMIN, created_at=_ts()))
     member_repo.create(Member(id=3, name="m1", role=RoleEnum.MEMBER, created_at=_ts()))
-    member_repo.create(
-        Member(id=4, name="r1", role=RoleEnum.READONLY, created_at=_ts())
-    )
-    member_repo.create(
-        Member(id=5, name="m2", role=RoleEnum.MEMBER, team_id=1, created_at=_ts())
-    )
+    member_repo.create(Member(id=4, name="r1", role=RoleEnum.READONLY, created_at=_ts()))
+    member_repo.create(Member(id=5, name="m2", role=RoleEnum.MEMBER, team_id=1, created_at=_ts()))
     member_repo.create(
         Member(id=6, name="admin2", role=RoleEnum.ADMIN, team_id=1, created_at=_ts())
     )

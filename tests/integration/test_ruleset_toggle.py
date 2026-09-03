@@ -4,7 +4,7 @@
 合并；规则变更全程审计哈希链可验证，trace 通过 check_trace（含 human_intervene）。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +12,8 @@ import pytest
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import PRStatus, Role as RoleEnum, RunStatus
+from gx.domain.enums import PRStatus, RunStatus
+from gx.domain.enums import Role as RoleEnum
 from gx.domain.models import Member, Role, Team, Workflow
 from gx.domain.repositories import (
     AuditRepo,
@@ -28,7 +29,7 @@ from tools.check_trace import check_trace
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 @pytest.fixture

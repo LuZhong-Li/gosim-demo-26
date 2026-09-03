@@ -6,7 +6,8 @@
 
 import os
 import shutil
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import typer
 
@@ -17,9 +18,7 @@ from gx.core.service_bus import ServiceBus
 from gx.services.audit.validator import check_trace, count_by_type, parse_trace
 from gx.storage.xlsx import LocalXlsxStorage
 
-cli = typer.Typer(
-    help="GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型"
-)
+cli = typer.Typer(help="GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型")
 member_app = typer.Typer(help="成员管理")
 team_app = typer.Typer(help="团队管理")
 role_app = typer.Typer(help="角色管理")
@@ -39,13 +38,9 @@ cli.add_typer(trace_app, name="trace")
 class GxCli:
     """CLI 上下文：仅持有操作者与统一业务门面。"""
 
-    def __init__(
-        self, workbook_path: str, actor: int, trace_path: str = TRACE_OUTPUT_PATH
-    ) -> None:
+    def __init__(self, workbook_path: str, actor: int, trace_path: str = TRACE_OUTPUT_PATH) -> None:
         self.actor = actor
-        self.bus = ServiceBus(
-            LocalXlsxStorage(workbook_path), trace_path=trace_path
-        )
+        self.bus = ServiceBus(LocalXlsxStorage(workbook_path), trace_path=trace_path)
 
 
 def _run_command(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -75,12 +70,8 @@ def _echo_ok(message: str) -> None:
 @cli.callback()
 def main(
     ctx: typer.Context,
-    actor: int = typer.Option(
-        CLI_ACTOR_ID, "--actor", help="操作者成员ID（默认种子中的 admin=1）"
-    ),
-    workbook: str = typer.Option(
-        SEED_WORKBOOK_PATH, "--workbook", help="工作簿路径"
-    ),
+    actor: int = typer.Option(CLI_ACTOR_ID, "--actor", help="操作者成员ID（默认种子中的 admin=1）"),
+    workbook: str = typer.Option(SEED_WORKBOOK_PATH, "--workbook", help="工作簿路径"),
     trace: str = typer.Option(
         None, "--trace", help="trace 输出路径（默认 config.TRACE_OUTPUT_PATH）"
     ),
@@ -95,13 +86,8 @@ def member_add_cmd(
     role: str = typer.Argument(..., help="角色枚举 [owner/admin/member/readonly]"),
 ) -> None:
     app: GxCli = ctx.obj
-    member = _run_command(
-        app.bus.member_add, subject_id=app.actor, name=name, role=role
-    )
-    _echo_ok(
-        f"[OK] 成员已添加: id={member.id} name={member.name} "
-        f"role={member.role.value}"
-    )
+    member = _run_command(app.bus.member_add, subject_id=app.actor, name=name, role=role)
+    _echo_ok(f"[OK] 成员已添加: id={member.id} name={member.name} role={member.role.value}")
 
 
 @member_app.command("list")
@@ -123,9 +109,7 @@ def team_add_cmd(
     description: str = typer.Argument("", help="团队描述"),
 ) -> None:
     app: GxCli = ctx.obj
-    team = _run_command(
-        app.bus.team_add, subject_id=app.actor, name=name, description=description
-    )
+    team = _run_command(app.bus.team_add, subject_id=app.actor, name=name, description=description)
     _echo_ok(f"[OK] 团队已创建: id={team.id} name={team.name}")
 
 
@@ -184,9 +168,7 @@ def pr_approve_cmd(
     approver: str = typer.Argument(..., help="审批人成员名称"),
 ) -> None:
     app: GxCli = ctx.obj
-    updated = _run_command(
-        app.bus.approve_pr, subject_id=app.actor, pr_id=pr_id, approver=approver
-    )
+    updated = _run_command(app.bus.approve_pr, subject_id=app.actor, pr_id=pr_id, approver=approver)
     _echo_ok(f"[OK] PR 已审批: id={updated.id} approvers={updated.approvers}")
 
 
@@ -231,14 +213,10 @@ def ruleset_list_cmd(ctx: typer.Context) -> None:
         return
     typer.echo("ID\t类型\t状态\t名称")
     for rule in rulesets:
-        typer.echo(
-            f"{rule.id}\t{rule.rule_type.value}\t{rule.status.value}\t{rule.name}"
-        )
+        typer.echo(f"{rule.id}\t{rule.rule_type.value}\t{rule.status.value}\t{rule.name}")
 
 
-def _toggle_ruleset(
-    ctx: typer.Context, rule_id: str, enabled: bool, verb: str
-) -> None:
+def _toggle_ruleset(ctx: typer.Context, rule_id: str, enabled: bool, verb: str) -> None:
     """启用/禁用规则并输出绿色 [OK]（权限/规则错误统一由 _run_command 处理）。"""
     app: GxCli = ctx.obj
     updated = _run_command(
@@ -275,9 +253,7 @@ def _print_trace_errors(errors: list[str]) -> None:
 
 @trace_app.command("check")
 def trace_check_cmd(
-    path: str = typer.Argument(
-        None, help="trace 文件路径（默认 config.TRACE_OUTPUT_PATH）"
-    ),
+    path: str = typer.Argument(None, help="trace 文件路径（默认 config.TRACE_OUTPUT_PATH）"),
 ) -> None:
     """校验 trace 文件：schema、type、human_intervene 强制项。"""
     target = path or TRACE_OUTPUT_PATH
@@ -288,9 +264,7 @@ def trace_check_cmd(
     typer.echo(f"[OK] {target}: 校验通过（共 {len(objs)} 条事件）")
     counts = count_by_type(objs)
     if counts:
-        breakdown = ", ".join(
-            f"{name}={count}" for name, count in sorted(counts.items())
-        )
+        breakdown = ", ".join(f"{name}={count}" for name, count in sorted(counts.items()))
         typer.echo(f"[INFO] 事件构成: {breakdown}")
 
 

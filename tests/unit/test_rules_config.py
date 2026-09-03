@@ -4,7 +4,7 @@
 空 active 列表 = 全部规则关闭；repo=None 保持内置默认（兼容既有直接单测）。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from gx.domain.enums import RuleStatus, RuleType, RunStatus
@@ -15,7 +15,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 def _pr(approvers=None):
@@ -78,9 +78,7 @@ def test_reenabled_rule_blocks_again(tmp_path):
     repo.update("approval", {"status": RuleStatus.DISABLED.value})
     assert RuleService(repo).evaluate(_pr()) == []
     repo.update("approval", {"status": RuleStatus.ACTIVE.value})
-    assert [v.rule_id for v in RuleService(repo).evaluate(_pr())] == [
-        RuleType.APPROVAL.value
-    ]
+    assert [v.rule_id for v in RuleService(repo).evaluate(_pr())] == [RuleType.APPROVAL.value]
 
 
 def test_empty_active_list_means_no_rules(tmp_path):

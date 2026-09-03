@@ -3,7 +3,7 @@
 使用 pytest 临时工作簿，不污染种子工作簿。
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -11,10 +11,12 @@ from demo.init_seed import SHEET_COLUMNS
 from errors import GXError
 from gx.domain.enums import (
     PRStatus,
-    Role as RoleEnum,
     RunStatus,
     Source,
     TriggerType,
+)
+from gx.domain.enums import (
+    Role as RoleEnum,
 )
 from gx.domain.models import (
     AuditLogEntry,
@@ -38,7 +40,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:
-    return datetime(2026, 8, 31, tzinfo=timezone.utc)
+    return datetime(2026, 8, 31, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -111,9 +113,7 @@ def test_member_parse_invalid_id_raises_d001():
 
 def test_member_parse_invalid_timestamp_raises_d001():
     with pytest.raises(GXError) as exc_info:
-        Member.parse_raw(
-            {"id": 1, "name": "alice", "role": "member", "created_at": "not-a-date"}
-        )
+        Member.parse_raw({"id": 1, "name": "alice", "role": "member", "created_at": "not-a-date"})
     assert exc_info.value.code == "D001"
 
 

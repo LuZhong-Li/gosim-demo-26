@@ -6,7 +6,7 @@ trace api_call 三件齐全；admin 操作成功 → ruleset.update 审计 + tra
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +14,8 @@ import pytest
 from demo.init_seed import SHEET_COLUMNS, seed_default_rules
 from errors import GXError
 from gx.core.service_bus import ServiceBus
-from gx.domain.enums import Role as RoleEnum, RuleStatus
+from gx.domain.enums import Role as RoleEnum
+from gx.domain.enums import RuleStatus
 from gx.domain.models import Member, Role, Team
 from gx.domain.repositories import AuditRepo, MemberRepo, RoleRepo, RuleSetRepo, TeamRepo
 from gx.services.audit.interceptor import audit_hash
@@ -22,7 +23,7 @@ from gx.storage.xlsx import LocalXlsxStorage
 
 
 def _ts() -> datetime:
-    return datetime(2026, 9, 1, tzinfo=timezone.utc)
+    return datetime(2026, 9, 1, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -45,9 +46,7 @@ def env(tmp_path):
     member_repo = MemberRepo(storage)
     member_repo.create(Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts()))
     member_repo.create(Member(id=2, name="bob", role=RoleEnum.MEMBER, created_at=_ts()))
-    member_repo.create(
-        Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts())
-    )
+    member_repo.create(Member(id=3, name="carol", role=RoleEnum.READONLY, created_at=_ts()))
     TeamRepo(storage).create(Team(id=1, name="core", description="核心团队"))
     seed_default_rules(storage)
 

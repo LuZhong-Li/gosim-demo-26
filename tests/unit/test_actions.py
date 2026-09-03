@@ -59,9 +59,7 @@ def test_runner_shell_failure(env):
 
 
 def test_runner_python_success(env):
-    result = env["runner"].run(
-        _workflow("py", [{"type": "python", "code": "print('hello')"}])
-    )
+    result = env["runner"].run(_workflow("py", [{"type": "python", "code": "print('hello')"}]))
     assert result["ok"] is True
 
 
@@ -86,9 +84,7 @@ def test_runner_stops_on_first_failure(env):
 
 
 def test_trigger_creates_run_and_audit(env):
-    env["workflow_repo"].create(
-        _workflow("ci-check", [{"type": "shell", "command": "echo ok"}])
-    )
+    env["workflow_repo"].create(_workflow("ci-check", [{"type": "shell", "command": "echo ok"}]))
     run = env["trigger"].run_by_name("ci-check", actor=1)
     assert run.status == RunStatus.SUCCESS
     runs = env["run_repo"].list()
@@ -103,9 +99,7 @@ def test_trigger_creates_run_and_audit(env):
 
 
 def test_trigger_failure_records_failed_run(env):
-    env["workflow_repo"].create(
-        _workflow("ci-fail", [{"type": "shell", "command": "exit 1"}])
-    )
+    env["workflow_repo"].create(_workflow("ci-fail", [{"type": "shell", "command": "exit 1"}]))
     run = env["trigger"].run_by_name("ci-fail", actor=1)
     assert run.status == RunStatus.FAILED
     entries = env["audit_repo"].list()

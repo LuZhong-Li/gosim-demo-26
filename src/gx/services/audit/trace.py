@@ -6,7 +6,7 @@ trace 文件只由程序写入，禁止手动编辑。
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from constants import ERR_AUDIT_WRITE
@@ -77,7 +77,7 @@ class TraceWriter:
         该事件是 check_trace 强制校验项，不可删除。
         """
         self.append(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             type="human_intervene",
             actor=actor,
             action="human_intervene",

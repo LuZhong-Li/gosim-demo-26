@@ -6,7 +6,7 @@
 参见 docs/plans/02-核心模块设计.md 3.4、docs/plans/10-评审优化第一轮.md 5.2。
 """
 
-from typing import Any, Optional, Set
+from typing import Any
 
 from gx.domain.enums import RuleStatus, RuleType, RunStatus
 from gx.domain.models import PullRequest, RuleViolation
@@ -16,10 +16,10 @@ from gx.domain.repositories import RuleSetRepo
 class RuleService:
     """规则校验服务：读取 active 规则并逐条判定。"""
 
-    def __init__(self, ruleset_repo: Optional[RuleSetRepo] = None) -> None:
+    def __init__(self, ruleset_repo: RuleSetRepo | None = None) -> None:
         self._repo = ruleset_repo
 
-    def _enabled_rule_types(self) -> Set[RuleType]:
+    def _enabled_rule_types(self) -> set[RuleType]:
         """返回参与判定的规则类型集合。
 
         repo=None 时返回内置默认两条（兼容既有直接单测）；
@@ -27,11 +27,7 @@ class RuleService:
         """
         if self._repo is None:
             return {RuleType.APPROVAL, RuleType.REQUIRED_CHECK}
-        return {
-            rule.rule_type
-            for rule in self._repo.list()
-            if rule.status == RuleStatus.ACTIVE
-        }
+        return {rule.rule_type for rule in self._repo.list() if rule.status == RuleStatus.ACTIVE}
 
     def evaluate(
         self, pr: PullRequest, context: dict[str, Any] | None = None
