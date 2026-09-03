@@ -19,6 +19,7 @@ from agent.runtime import StepResult, TurnResult
 from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from errors import GXError
 from gx.core.service_bus import ServiceBus
+from gx.llm.adapter import LLMAdapter
 from gx.services.audit.trace import TraceWriter
 from gx.storage.xlsx import LocalXlsxStorage
 
@@ -26,10 +27,17 @@ from gx.storage.xlsx import LocalXlsxStorage
 class MockNlParser:
     """基于字符串匹配的自然语言解析器（原型）。"""
 
-    def __init__(self, bus: ServiceBus, actor: int = 1, trace_path: str | None = None) -> None:
+    def __init__(
+        self,
+        bus: ServiceBus | None = None,
+        actor: int = 1,
+        trace_path: str | None = None,
+        llm: LLMAdapter | None = None,
+    ) -> None:
         self._bus = bus
         self._actor = actor
         self._trace = TraceWriter(trace_path) if trace_path else None
+        self._llm = llm
 
     def parse(self, text: str) -> str:
         return self.parse_turn(text).response
@@ -175,6 +183,22 @@ class MockNlParser:
             return turn
 
         raise ValueError(f"无法理解指令: {text}")
+
+    async def parse_llm(self, text: str) -> TurnResult:
+        """使用可选 LLM 适配器处理指令；未配置适配器时抛出 RuntimeError。"""
+        if self._llm is None:
+            raise RuntimeError("未配置 LLM 适配器")
+        response = await self._llm.chat([{"role": "user", "content": text}])
+        content = response.get("content", "")
+        turn = TurnResult(instruction=text, response=content)
+        turn.steps.extend(
+            [
+                StepResult(kind="intent"),
+                StepResult(kind="result", name="llm", output=content),
+                StepResult(kind="stop", output=content),
+            ]
+        )
+        return turn
 
     def _log_prompt(self, text: str) -> None:
         if self._trace is None:

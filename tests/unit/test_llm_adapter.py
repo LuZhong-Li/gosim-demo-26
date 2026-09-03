@@ -3,6 +3,9 @@
 import asyncio
 import json
 
+import pytest
+
+from agent.mock_nl_parser import MockNlParser
 from gx.llm.openai_compat import OpenAICompatAdapter
 
 
@@ -65,3 +68,24 @@ def test_adapter_translates_fake_response_to_contract():
     assert client.chat.completions.last_kwargs["model"] == "deepseek-chat"
     assert client.chat.completions.last_kwargs["messages"] == messages
     assert client.chat.completions.last_kwargs["tools"] == tools
+
+
+class FakeLLMAdapter:
+    async def chat(self, messages, tools=None):
+        return {"content": "llm response", "tool_calls": []}
+
+
+def test_parser_uses_optional_llm_adapter():
+    parser = MockNlParser(bus=None, llm=FakeLLMAdapter())
+
+    turn = asyncio.run(parser.parse_llm("hello"))
+
+    assert turn.response == "llm response"
+    assert [step.kind for step in turn.steps] == ["intent", "result", "stop"]
+
+
+def test_parser_requires_adapter_for_llm_path():
+    parser = MockNlParser(bus=None)
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(parser.parse_llm("hello"))
