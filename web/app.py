@@ -119,6 +119,18 @@ class GxWebApp:
             pr = bus.create_pr(subject_id=subject, title=body["title"])
             return self._ok({"pr": _dump(pr)})
         segments = [segment for segment in path.split("/") if segment]
+        if (
+            method == "POST"
+            and len(segments) == 4
+            and segments[:2] == ["api", "members"]
+            and segments[3] == "role"
+        ):
+            member = bus.role_assign(
+                subject_id=subject,
+                member_id=int(segments[2]),
+                role=body["role"],
+            )
+            return self._ok({"member": _dump(member)})
         if method == "POST" and len(segments) == 4 and segments[:2] == ["api", "prs"]:
             pr_id = int(segments[2])
             action = segments[3]

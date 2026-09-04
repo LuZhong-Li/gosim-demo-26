@@ -67,8 +67,22 @@ function renderMembers(members) {
   tbody.innerHTML = "";
   for (const m of members) {
     const tr = document.createElement("tr");
-    tr.append(cell(m.id), cell(m.name), cell(m.role), cell(m.team_id ?? ""));
+    const ops = document.createElement("td");
+    ops.append(actionButton("改角色", () => memberRoleChange(m.id, m.role)));
+    tr.append(cell(m.id), cell(m.name), cell(m.role), cell(m.team_id ?? ""), ops);
     tbody.appendChild(tr);
+  }
+}
+
+async function memberRoleChange(id, currentRole) {
+  const role = prompt("新角色（owner/admin/member/readonly）", currentRole);
+  if (!role) return;
+  try {
+    await api("POST", `/api/members/${id}/role`, { role });
+    await refreshMeta();
+    setMsg(`成员 #${id} 角色已更新`);
+  } catch (err) {
+    setMsg(err.message, true);
   }
 }
 

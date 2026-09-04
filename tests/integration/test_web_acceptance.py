@@ -92,6 +92,24 @@ def test_matrix_org_permission_team_create_and_list(app):
     assert [team["name"] for team in teams] == ["core", "data"]
 
 
+def test_matrix_role_assign_admin_ok_reader_denied(app):
+    status, raw, _ = _post(
+        app, "/api/members/2/role", {"role": "readonly"}
+    )
+    assert status == 200
+    assert json.loads(raw)["member"]["role"] == "readonly"
+
+    status, raw, _ = _get(app, "/api/meta")
+    members = json.loads(raw)["members"]
+    assert [m["role"] for m in members if m["id"] == 2] == ["readonly"]
+
+    status, raw, _ = _post(
+        app, "/api/members/2/role", {"role": "admin"}, actor=3
+    )
+    assert status == 403
+    assert json.loads(raw)["code"] == "P001"
+
+
 def test_matrix_rulesets_merge_without_approval_blocked(app):
     _, raw, _ = _post(app, "/api/prs", {"title": "no-review"})
     pr_id = json.loads(raw)["pr"]["id"]
