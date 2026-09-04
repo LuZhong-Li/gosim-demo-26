@@ -55,3 +55,5 @@
 | [交付指南.md](交付指南.md) | 提交页三项链接怎么填、Demo 视频录制脚本 |
 | [demo_guide.md](demo_guide.md) | 评审分步复现手册：组织/权限/PR/Rulesets/Trace 全链路操作与预期输出 |
 | [demo_web_guide.md](demo_web_guide.md) | Web 演示分步手册：启动、复现链路与正式基线边界（第四轮 S1） |
+| [全新机器跑通核对单.md](全新机器跑通核对单.md) | 全新机器从空目录跑通 CLI + Web 的分步核对单与预期输出 |
+| [demo_video_script.md](demo_video_script.md) | 3–5 分钟 Demo 分镜脚本（含口播词、录制纪律与时间轴） |
