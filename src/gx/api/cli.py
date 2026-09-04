@@ -4,6 +4,7 @@
 上层只调用 core 门面（ServiceBus），不直接碰存储与零散服务。
 """
 
+import json
 import os
 import shutil
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from constants import ERR_STORAGE_FILE_NOT_FOUND, ERR_STORAGE_IO
 from errors import GXError
 from gx.core.service_bus import ServiceBus
 from gx.services.audit.validator import check_trace, count_by_type, parse_trace
+from gx.services.trace_replay import render_trace
 from gx.storage.xlsx import LocalXlsxStorage
 
 cli = typer.Typer(help="GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型")
@@ -26,6 +28,7 @@ pr_app = typer.Typer(help="PR 模拟管理")
 workflow_app = typer.Typer(help="工作流管理")
 ruleset_app = typer.Typer(help="Rulesets 规则管理")
 trace_app = typer.Typer(help="生产轨迹 trace 校验与导出")
+audit_app = typer.Typer(help="审计日志合规导出")
 cli.add_typer(member_app, name="member")
 cli.add_typer(team_app, name="team")
 cli.add_typer(role_app, name="role")
@@ -33,6 +36,7 @@ cli.add_typer(pr_app, name="pr")
 cli.add_typer(workflow_app, name="workflow")
 cli.add_typer(ruleset_app, name="ruleset")
 cli.add_typer(trace_app, name="trace")
+cli.add_typer(audit_app, name="audit")
 
 
 class GxCli:
@@ -182,6 +186,34 @@ def pr_merge_cmd(
     _echo_ok(f"[OK] PR 已合并: id={updated.id} status={updated.status.value}")
 
 
+@pr_app.command("close")
+def pr_close_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+    reason: str = typer.Option("", "--reason", help="关闭/驳回原因"),
+) -> None:
+    app: GxCli = ctx.obj
+    updated = _run_command(
+        app.bus.close_pr, subject_id=app.actor, pr_id=pr_id, reason=reason
+    )
+    _echo_ok(f"[OK] PR 已关闭: id={updated.id} status={updated.status.value}")
+
+
+@pr_app.command("history")
+def pr_history_cmd(
+    ctx: typer.Context,
+    pr_id: int = typer.Argument(..., help="PR ID"),
+) -> None:
+    app: GxCli = ctx.obj
+    rows = _run_command(app.bus.pr_history, pr_id=pr_id)
+    typer.echo("时间\t动作\t结果\t错误")
+    for row in rows:
+        typer.echo(
+            f"{row['timestamp']}\t{row['action_type']}\t"
+            f"{'成功' if row['success'] else '失败'}\t{row['error_msg']}"
+        )
+
+
 @workflow_app.command("list")
 def workflow_list_cmd(ctx: typer.Context) -> None:
     app: GxCli = ctx.obj
@@ -198,9 +230,17 @@ def workflow_list_cmd(ctx: typer.Context) -> None:
 def workflow_run_cmd(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="工作流名称"),
+    pr_id: int = typer.Option(None, "--pr", help="关联 PR id"),
+    head_sha: str = typer.Option("", "--head-sha", help="关联提交 SHA"),
 ) -> None:
     app: GxCli = ctx.obj
-    run = _run_command(app.bus.run_workflow, subject_id=app.actor, name=name)
+    run = _run_command(
+        app.bus.run_workflow,
+        subject_id=app.actor,
+        name=name,
+        pr_id=pr_id,
+        head_sha=head_sha,
+    )
     _echo_ok(f"[OK] 工作流运行完成: run_id={run.id} status={run.status.value}")
 
 
@@ -282,6 +322,23 @@ def trace_export_cmd(
     typer.echo(f"[OK] 已导出并校验通过: {dest}（共 {count} 条事件）")
 
 
+@trace_app.command("replay")
+def trace_replay_cmd(
+    source: str = typer.Option(
+        TRACE_OUTPUT_PATH,
+        "--source",
+        help="源 trace 路径（默认 config.TRACE_OUTPUT_PATH）",
+    ),
+    out: str = typer.Option(..., "--out", help="HTML 输出文件路径"),
+) -> None:
+    """把 trace 渲染成只读 HTML 时间线，不修改源文件与 schema。"""
+    events = parse_trace(source)
+    html = render_trace(events)
+    with open(out, "w", encoding="utf-8") as handle:
+        handle.write(html)
+    typer.echo(f"[OK] 已生成 trace 回放: {out}（共 {len(events)} 条事件）")
+
+
 def _export_trace(dest: str, source: str) -> int:
     """执行导出与校验，返回事件条数；错误统一抛 GXError/ValueError。"""
     if os.path.abspath(dest) == os.path.abspath(source):
@@ -310,3 +367,16 @@ def _export_trace(dest: str, source: str) -> int:
         _print_trace_errors(dest_errors)
     objs = parse_trace(dest)
     return len(objs)
+
+
+@audit_app.command("export")
+def audit_export_cmd(
+    ctx: typer.Context,
+    dest: str = typer.Argument(..., help="审计导出目标 JSON 文件路径"),
+) -> None:
+    """导出审计日志到 JSON 文件（workbook 级 admin 权限）。"""
+    app: GxCli = ctx.obj
+    rows = _run_command(app.bus.list_audit, subject_id=app.actor)
+    with open(dest, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle, ensure_ascii=False, indent=2)
+    _echo_ok(f"[OK] 审计已导出: {dest}（共 {len(rows)} 条）")

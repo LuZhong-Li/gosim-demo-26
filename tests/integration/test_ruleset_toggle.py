@@ -73,7 +73,7 @@ def test_disable_required_check_allows_merge_after_failed_run(env):
     pr = bus.create_pr(subject_id=1, title="demo")
     bus.approve_pr(subject_id=1, pr_id=pr.id, approver="alice")
 
-    run = bus.run_workflow(subject_id=1, name="ci-fail")
+    run = bus.run_workflow(subject_id=1, name="ci-fail", pr_id=pr.id)
     assert run.status == RunStatus.FAILED
     with pytest.raises(GXError) as exc_info:
         bus.merge_pr(subject_id=1, pr_id=pr.id)

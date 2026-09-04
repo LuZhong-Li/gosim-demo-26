@@ -152,6 +152,7 @@ activemq-data/
 .envrc
 .venv
 .venv.bak-*/
+demo/output/agent_memory*
 env/
 venv/
 ENV/

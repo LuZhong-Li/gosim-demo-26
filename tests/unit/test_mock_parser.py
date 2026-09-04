@@ -36,6 +36,7 @@ def agent(tmp_path):
 
     member_repo = MemberRepo(storage)
     member_repo.create(Member(id=1, name="admin", role=RoleEnum.ADMIN, created_at=_ts()))
+    member_repo.create(Member(id=2, name="alice", role=RoleEnum.MEMBER, created_at=_ts()))
     TeamRepo(storage).create(Team(id=1, name="core", description="核心团队"))
     WorkflowRepo(storage).create(
         Workflow(id=1, name="ci-check", steps=[{"type": "shell", "command": "echo ok"}])
@@ -83,7 +84,7 @@ def test_create_pr(agent):
 def test_approve_and_merge_pr(agent):
     parser, bus = agent
     parser.parse("创建 PR demo change")
-    parser.parse("审批 PR 1 admin")
+    parser.parse("审批 PR 1 alice")
     result = parser.parse("合并 PR 1")
     assert "merged" in result
     assert bus.list_prs()[0].status.value == "merged"

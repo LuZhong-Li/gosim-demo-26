@@ -40,3 +40,4 @@ class GXError(Exception):
 # ERR_RULE_PR_APPROVE         R001 规则违规（如 PR 合并缺审批 / required-check 未通过）
 # ERR_AUDIT_WRITE             A001 审计写入失败
 # ERR_WORKFLOW_RUN            W001 工作流运行错误
+# ERR_BUSINESS_VALIDATION     B001 PR 状态/身份校验失败（如 PR 自审批、重复合并）
