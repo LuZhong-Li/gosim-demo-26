@@ -52,3 +52,4 @@
 | --- | --- |
 | [交付指南.md](交付指南.md) | 提交页三项链接怎么填、Demo 视频录制脚本 |
 | [demo_guide.md](demo_guide.md) | 评审分步复现手册：组织/权限/PR/Rulesets/Trace 全链路操作与预期输出 |
+| [demo_web_guide.md](demo_web_guide.md) | Web 演示分步手册：启动、复现链路与正式基线边界（第四轮 S1） |

@@ -100,6 +100,13 @@ python demo/run_demo.py
 {"timestamp": "2026-09-01T15:41:07.618667+00:00", "type": "api_call", "actor": "1", "action": "member.add", "resource": "sheet:members", "detail": {"id": 3, "name": "reader", "role": "readonly"}, "success": true, "error_msg": ""}
 ```
 
+## Web 演示（第四轮 S1）
+
+```bash
+python -m web.run --reset
+# 打开 http://127.0.0.1:8765/ ，复现手册见 docs/demo_web_guide.md
+```
+
 ## 使用 CLI 与 Mock Agent
 
 ```bash
