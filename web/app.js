@@ -98,11 +98,27 @@ function renderPrs(prs) {
     ops.append(
       actionButton("审批", () => prAction(pr.id, "approve", { approver: document.getElementById("pr-approver").value })),
       actionButton("合并", () => prAction(pr.id, "merge", {})),
-      actionButton("关闭", () => prAction(pr.id, "close", { reason: prompt("关闭原因", "") || "" }))
+      actionButton("关闭", () => prAction(pr.id, "close", { reason: prompt("关闭原因", "") || "" })),
+      actionButton("历史", () => showPrHistory(pr.id, pr.title))
     );
     tr.append(cell(pr.id), cell(pr.title), cell(pr.author), cell(pr.status),
       cell((pr.approvers || []).join(",")), ops);
     tbody.appendChild(tr);
+  }
+}
+
+async function showPrHistory(id, title) {
+  try {
+    const data = await api("GET", `/api/prs/${id}/history`);
+    const rows = (data.events || []).map((e) =>
+      `${e.timestamp} | ${e.action_type} | ${e.success ? "成功" : "失败"} | ${e.error_msg || ""}`
+    );
+    const panel = document.getElementById("pr-history-panel");
+    panel.textContent = `PR #${id}「${title}」历史：\n${rows.join("\n") || "（无事件）"}`;
+    panel.hidden = false;
+    setMsg(`已加载 PR #${id} 历史`);
+  } catch (err) {
+    setMsg(err.message, true);
   }
 }
 

@@ -131,6 +131,7 @@ def test_index_page_exposes_ui_hooks(app):
         "id=\"teams-tbody\"",
         "id=\"btn-team-add\"",
         "id=\"pr-tbody\"",
+        "id=\"pr-history-panel\"",
         "id=\"workflows-tbody\"",
         "id=\"rulesets-tbody\"",
         "id=\"audit-tbody\"",
