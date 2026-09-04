@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>GX-Sheet Web</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 1100px; }
+      table { border-collapse: collapse; width: 100%; margin: .5rem 0 1.5rem; }
+      th, td { border: 1px solid #ddd; padding: .35rem .5rem; text-align: left; }
+      .error { color: #b00020; }
+      .ok { color: #1b7f3b; }
+      section { border-top: 1px solid #eee; margin-top: 1rem; padding-top: .5rem; }
+      button { margin-right: .25rem; }
+    </style>
+  </head>
+  <body>
+    <h1>GX-Sheet · GitHub 组织管控复刻（Web 演示）</h1>
+    <p>
+      当前操作者：
+      <select id="actor"></select>
+      <span id="msg"></span>
+    </p>
+
+    <section>
+      <h2>成员</h2>
+      <input id="member-name" placeholder="名称" />
+      <select id="member-role"></select>
+      <button id="btn-member-add">添加成员</button>
+      <table><thead><tr><th>ID</th><th>名称</th><th>角色</th><th>团队</th></tr></thead>
+      <tbody id="members-tbody"></tbody></table>
+    </section>
+
+    <section>
+      <h2>PR</h2>
+      <input id="pr-title" placeholder="标题" />
+      <button id="btn-pr-create">创建 PR</button>
+      <table><thead><tr><th>ID</th><th>标题</th><th>作者</th><th>状态</th><th>审批人</th><th>操作</th></tr></thead>
+      <tbody id="pr-tbody"></tbody></table>
+      <div>
+        审批人：<input id="pr-approver" placeholder="alice" />
+        <span>操作按钮：审批 / 合并 / 关闭（关闭原因用浏览器 prompt 输入）</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>工作流</h2>
+      <table><thead><tr><th>ID</th><th>名称</th><th>触发</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="workflows-tbody"></tbody></table>
+    </section>
+
+    <section>
+      <h2>Rulesets</h2>
+      <table><thead><tr><th>ID</th><th>名称</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody id="rulesets-tbody"></tbody></table>
+    </section>
+
+    <section>
+      <h2>审计</h2>
+      <button id="btn-audit">加载审计日志</button>
+      <table><thead><tr><th>时间</th><th>动作</th><th>结果</th><th>错误</th></tr></thead>
+      <tbody id="audit-tbody"></tbody></table>
+    </section>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

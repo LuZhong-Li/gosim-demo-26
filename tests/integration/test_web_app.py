@@ -118,3 +118,24 @@ def test_ruleset_toggle_via_api(app):
     status, raw, _ = _post(app, "/api/rulesets/approval", {"enabled": False})
     assert status == 200
     assert json.loads(raw)["ruleset"]["status"] == "disabled"
+
+
+def test_index_page_exposes_ui_hooks(app):
+    status, raw, ctype = app.route("GET", "/")
+    assert status == 200
+    assert "text/html" in ctype
+    for element_id in (
+        "id=\"actor\"",
+        "id=\"msg\"",
+        "id=\"members-tbody\"",
+        "id=\"pr-tbody\"",
+        "id=\"workflows-tbody\"",
+        "id=\"rulesets-tbody\"",
+        "id=\"audit-tbody\"",
+    ):
+        assert element_id in raw
+
+    status, raw, ctype = app.route("GET", "/app.js")
+    assert status == 200
+    assert "application/javascript" in ctype
+    assert "fetch(" in raw
