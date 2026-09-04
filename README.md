@@ -38,6 +38,10 @@ flowchart LR
 2. **生产轨迹**：`demo/output/trace.jsonl`（来自 OBS 录制 demo 那一次运行，禁止用测试/开发轨迹替代）；
 3. **Demo 视频**：3-5 分钟完整链路演示。
 
+> **口径注记（2026-09-04）**：官网 FAQ 当前口径为「只需向比赛平台提交智能体」；
+> 源码 / 生产轨迹 / Demo 视频降级为本地自检与展示材料，最终以 ARC-Bench 登录后的
+> 提交说明为准（见 docs/plans/14 §1.1）。正式基线冻结延后至第四轮 S6。
+
 提交前自检与录制规范见 [docs/plans/07-提交验收与提交物.md](docs/plans/07-提交验收与提交物.md)
 与 [docs/plans/09-初赛代码优化与提交保护.md](docs/plans/09-初赛代码优化与提交保护.md)。
 
@@ -112,6 +116,8 @@ python agent/mock_nl_parser.py "添加成员 bob 为 member"
 
 ## 已知局限（初赛原型）
 
+> 第四轮起按官网新口径推进：GUI 验收对应 Web 复刻形态，详见 docs/plans/14。
+
 > 本作品是概念验证原型。以下列表里，PR 审批/状态机两项已在第三轮 S1 修复；
 > 其余缺陷仍**刻意不修**——修复会改变 trace 事件，导致已录制的演示视频与
 > 轨迹文件对不上。完整清单见
@@ -119,8 +125,8 @@ python agent/mock_nl_parser.py "添加成员 bob 为 member"
 
 - 团队权限采用“并集”语义：与 admin 同队的 member 会继承 admin 权限（P001 判定过宽）；
 - ~~PR 审批未校验自审批与审批人身份，已合并 PR 可重复合并~~（已修复：见 docs/plans/13 S1）；
-- `required-check` 取全局最新一条工作流运行记录，多 PR 间会串扰；
-- 成员/团队允许重名；
+- ~~`required-check` 取全局最新一条工作流运行记录，多 PR 间会串扰~~（已修复：按 PR 关联，见 docs/plans/13）；
+- ~~成员/团队允许重名~~（已修复：第三轮 S3 起重复名称抛 B001，见 docs/plans/13）；
 - Mock Agent 为字符串匹配原型，非真实语义理解；
 - shell/python 工作流步骤可执行任意命令，仅限本地演示。
 
