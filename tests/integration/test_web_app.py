@@ -120,6 +120,19 @@ def test_ruleset_toggle_via_api(app):
     assert json.loads(raw)["ruleset"]["status"] == "disabled"
 
 
+def test_audit_export_endpoint(app):
+    _post(app, "/api/prs", {"title": "exported"})
+    status, raw, _ = app.route("GET", "/api/audit/export")
+    assert status == 200
+    data = json.loads(raw)
+    assert data["ok"] is True
+    assert any(e["action_type"] == "pr.create" for e in data["entries"])
+
+    status, raw, _ = app.route("GET", "/api/audit/export", actor=3)
+    assert status == 403
+    assert json.loads(raw)["code"] == "P001"
+
+
 def test_index_page_exposes_ui_hooks(app):
     status, raw, ctype = app.route("GET", "/")
     assert status == 200
@@ -135,6 +148,7 @@ def test_index_page_exposes_ui_hooks(app):
         "id=\"workflows-tbody\"",
         "id=\"rulesets-tbody\"",
         "id=\"audit-tbody\"",
+        "id=\"btn-audit-export\"",
     ):
         assert element_id in raw
 

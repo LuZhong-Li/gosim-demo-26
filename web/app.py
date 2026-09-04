@@ -101,6 +101,8 @@ class GxWebApp:
             return self._ok(payload)
         if method == "GET" and path == "/api/audit":
             return self._ok({"entries": bus.list_audit(subject_id=subject)})
+        if method == "GET" and path == "/api/audit/export":
+            return self._ok({"entries": bus.list_audit(subject_id=subject)})
         if method == "POST" and path == "/api/members":
             member = bus.member_add(
                 subject_id=subject, name=body["name"], role=body["role"]

@@ -132,6 +132,25 @@ async function prAction(id, action, body) {
   }
 }
 
+async function auditExport() {
+  try {
+    const data = await api("GET", "/api/audit/export");
+    const blob = new Blob(
+      [JSON.stringify(data.entries, null, 2)],
+      { type: "application/json" }
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "audit-log.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    setMsg(`审计已导出（${data.entries.length} 条）`);
+  } catch (err) {
+    setMsg(err.message, true);
+  }
+}
+
 function renderWorkflows(workflows) {
   const tbody = document.getElementById("workflows-tbody");
   tbody.innerHTML = "";
@@ -228,6 +247,7 @@ async function boot() {
       renderAudit([]);
     }
   };
+  document.getElementById("btn-audit-export").onclick = auditExport;
   document.getElementById("actor").onchange = () => setMsg("");
   try {
     await refreshMeta();
