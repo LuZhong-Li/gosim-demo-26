@@ -11,8 +11,9 @@ python -m web.run --reset
 
 ## 复现链路
 
-1. 顶栏切换操作者为 admin；成员区添加 `reader`（readonly）；团队区添加
-   `data`（描述「数据团队」）并确认列表出现 core / data 两行。
+1. 顶栏切换操作者为 admin；成员区添加 `reader`（readonly）；对已有成员点
+   「改角色」输入新角色并确认列表更新；团队区添加 `data`（描述「数据团队」）
+   并确认列表出现 core / data 两行。
 2. 把操作者切到 reader，创建 PR → 页面展示 `[P001] permission denied`。
 3. 切回 admin 创建 PR；直接点「合并」→ 展示 `[R001]` 规则拦截。
 4. 审批人填 `alice`，点「审批」；运行 `ci-check` 工作流；点该 PR 行
