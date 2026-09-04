@@ -23,6 +23,7 @@ function setMsg(text, isError) {
 async function refreshMeta() {
   const data = await api("GET", "/api/meta");
   renderMembers(data.members);
+  renderTeams(data.teams);
   renderPrs(data.prs);
   renderWorkflows(data.workflows);
   renderRulesets(data.rulesets);
@@ -67,6 +68,16 @@ function renderMembers(members) {
   for (const m of members) {
     const tr = document.createElement("tr");
     tr.append(cell(m.id), cell(m.name), cell(m.role), cell(m.team_id ?? ""));
+    tbody.appendChild(tr);
+  }
+}
+
+function renderTeams(teams) {
+  const tbody = document.getElementById("teams-tbody");
+  tbody.innerHTML = "";
+  for (const team of teams) {
+    const tr = document.createElement("tr");
+    tr.append(cell(team.id), cell(team.name), cell(team.description));
     tbody.appendChild(tr);
   }
 }
@@ -173,6 +184,20 @@ async function boot() {
       await api("POST", "/api/prs", { title: document.getElementById("pr-title").value });
       await refreshMeta();
       setMsg("PR 已创建");
+    } catch (err) {
+      setMsg(err.message, true);
+    }
+  };
+  document.getElementById("btn-team-add").onclick = async () => {
+    try {
+      await api("POST", "/api/teams", {
+        name: document.getElementById("team-name").value,
+        description: document.getElementById("team-desc").value
+      });
+      document.getElementById("team-name").value = "";
+      document.getElementById("team-desc").value = "";
+      await refreshMeta();
+      setMsg("团队已添加");
     } catch (err) {
       setMsg(err.message, true);
     }

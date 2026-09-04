@@ -128,6 +128,8 @@ def test_index_page_exposes_ui_hooks(app):
         "id=\"actor\"",
         "id=\"msg\"",
         "id=\"members-tbody\"",
+        "id=\"teams-tbody\"",
+        "id=\"btn-team-add\"",
         "id=\"pr-tbody\"",
         "id=\"workflows-tbody\"",
         "id=\"rulesets-tbody\"",
