@@ -100,12 +100,15 @@ python demo/run_demo.py
 {"timestamp": "2026-09-01T15:41:07.618667+00:00", "type": "api_call", "actor": "1", "action": "member.add", "resource": "sheet:members", "detail": {"id": 3, "name": "reader", "role": "readonly"}, "success": true, "error_msg": ""}
 ```
 
-## Web 演示（第四轮 S1）
+## Web 演示（第四轮 S1 + 第五轮 N1）
 
 ```bash
 python -m web.run --reset
 # 打开 http://127.0.0.1:8765/ ，复现手册见 docs/demo_web_guide.md
 ```
+
+第五轮 N1 追加：团队管理区（创建/列表）、PR 历史查看面板、审计 JSON 导出
+（`GET /api/audit/export`，与 CLI `gx audit export` 同口径）。
 
 ## 使用 CLI 与 Mock Agent
 
