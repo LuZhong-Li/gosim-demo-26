@@ -57,6 +57,15 @@ def app(tmp_path):
             status=WorkflowStatus.ACTIVE,
         )
     )
+    WorkflowRepo(storage).create(
+        Workflow(
+            id=2,
+            name="ci-fail",
+            steps=[{"type": "shell", "command": "exit 1"}],
+            trigger=TriggerType.MANUAL,
+            status=WorkflowStatus.ACTIVE,
+        )
+    )
     seed_default_rules(storage)
     return GxWebApp(path, trace_path=str(tmp_path / "trace-web.jsonl"))
 
@@ -160,10 +169,32 @@ def test_matrix_pr_history_records_create(app):
     assert [event["action_type"] for event in events] == ["pr.create"]
 
 
+def test_matrix_pr_close_records_history(app):
+    _, raw, _ = _post(app, "/api/prs", {"title": "close-row"})
+    pr_id = json.loads(raw)["pr"]["id"]
+    _post(app, f"/api/prs/{pr_id}/close", {"reason": "wontfix"})
+
+    status, raw, _ = _get(app, f"/api/prs/{pr_id}/history")
+    assert status == 200
+    events = json.loads(raw)["events"]
+    assert [e["action_type"] for e in events] == ["pr.create", "pr.close"]
+
+
 def test_matrix_actions_run_ci_check_success(app):
     status, raw, _ = _post(app, "/api/workflows/ci-check/run", {})
     assert status == 200
     assert json.loads(raw)["run"]["status"] == "success"
+
+
+def test_matrix_actions_failed_check_blocks_merge(app):
+    _, raw, _ = _post(app, "/api/prs", {"title": "bad-check"})
+    pr_id = json.loads(raw)["pr"]["id"]
+    _post(app, f"/api/prs/{pr_id}/approve", {"approver": "alice"})
+    _post(app, "/api/workflows/ci-fail/run", {"pr_id": pr_id})
+
+    status, raw, _ = _post(app, f"/api/prs/{pr_id}/merge", {})
+    assert status == 409
+    assert json.loads(raw)["code"] == "R001"
 
 
 def test_matrix_audit_admin_list_reader_denied(app):
