@@ -1,6 +1,6 @@
 """required-check：读取最新 workflow_runs 状态供规则引擎使用。
 
-原型实现取最新一条运行记录；后续可按 PR/工作流精确关联。
+按 ``run.pr_id`` 精确关联（第三轮 S2）；未关联运行记录时返回 None（不触发拦截）。
 参见 docs/plans/02-核心模块设计.md 3.4、04-里程碑任务.md Phase3。
 """
 

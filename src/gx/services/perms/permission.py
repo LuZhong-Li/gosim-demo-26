@@ -66,8 +66,7 @@ class PermissionService:
 
         返回值：有权限返回 True，否则返回 False（不抛错、不留审计）。
 
-        注意：团队权限采用“并集”语义（原型已知局限，见 docs/dev/limitation.md），
-        决赛再修复，避免改变 P001 行为导致 trace 对不上。
+        注意：团队权限并集语义见 limitation.md #1，S3 收敛前保持不变。
         """
         action = _normalize_action(action)
         return any(
@@ -162,7 +161,10 @@ class PermissionService:
         return True
 
     def _role_permissions(self, role: RoleEnum) -> frozenset[str]:
-        """读取 roles 表的权限配置；缺失时回退到内置默认矩阵。"""
+        """读取 roles 表的权限配置；缺失时回退到内置默认矩阵。
+
+        S3 目标：roles 表为唯一权限来源，种子补齐 member/readonly 行。
+        """
         try:
             configured = self._roles.get(role.value)
         except GXError:
