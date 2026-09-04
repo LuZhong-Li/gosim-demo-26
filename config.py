@@ -13,6 +13,10 @@ SEED_WORKBOOK_PATH = "demo/seed-workbook.xlsx"
 # trace 输出路径（审计拦截器自动追加，禁止手动编辑）
 TRACE_OUTPUT_PATH = "demo/output/trace.jsonl"
 
+# Web 层独立路径（不触碰正式 demo 基线；S1 起使用）
+WEB_TRACE_PATH = "demo/output/trace-web.jsonl"
+WEB_WORKBOOK_PATH = "demo/output/web-workbook.xlsx"
+
 # Agent 组织经验库（上层辅助记忆，不参与权限/规则判定）
 AGENT_MEMORY_PATH = "demo/output/agent_memory.jsonl"
 

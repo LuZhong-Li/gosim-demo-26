@@ -234,6 +234,10 @@ __pycache__/
 # demo 运行日志
 demo/output/*.log
 
+# Web 演示运行产物（不入库，正式基线只含 trace.jsonl / seed-workbook.xlsx）
+demo/output/trace-web.jsonl
+demo/output/web-workbook.xlsx
+
 # ==== 初赛提交物（禁止加入 ignore，必须纳入版本跟踪）====
 !demo/output/trace.jsonl
 !demo/seed-workbook.xlsx
