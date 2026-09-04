@@ -18,14 +18,6 @@ from gx.services.audit.interceptor import AuditInterceptor
 P = ParamSpec("P")
 T = TypeVar("T")
 
-# 通用动作矩阵（owner 全局权限与特殊表限制在 _role_allows 中额外处理）
-_ROLE_ACTIONS: dict[RoleEnum, frozenset[Action]] = {
-    RoleEnum.OWNER: frozenset({Action.READ, Action.WRITE, Action.ADMIN}),
-    RoleEnum.ADMIN: frozenset({Action.READ, Action.WRITE, Action.ADMIN}),
-    RoleEnum.MEMBER: frozenset({Action.READ, Action.WRITE}),
-    RoleEnum.READONLY: frozenset({Action.READ}),
-}
-
 # 仅 owner/admin 可写的特殊表（写审计/规则表）
 _ADMIN_ONLY_SHEETS: frozenset[str] = frozenset({AUDIT_LOG, RULESETS})
 
@@ -161,17 +153,12 @@ class PermissionService:
         return True
 
     def _role_permissions(self, role: RoleEnum) -> frozenset[str]:
-        """读取 roles 表的权限配置；缺失时回退到内置默认矩阵。
-
-        S3 目标：roles 表为唯一权限来源，种子补齐 member/readonly 行。
-        """
+        """读取 roles 表的权限配置（S3-A：唯一权限来源，缺失行视为空权限）。"""
         try:
             configured = self._roles.get(role.value)
         except GXError:
-            configured = None
-        if configured is not None:
-            return frozenset(configured.permissions)
-        return frozenset(action.value for action in _ROLE_ACTIONS.get(role, frozenset()))
+            return frozenset()
+        return frozenset(configured.permissions)
 
     def _audit_deny(
         self,

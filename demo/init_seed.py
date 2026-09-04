@@ -19,8 +19,10 @@ from config import SEED_WORKBOOK_PATH, TRACE_OUTPUT_PATH
 from constants import (
     ADMIN,
     AUDIT_LOG,
+    MEMBER,
     MEMBERS,
     OWNER,
+    READONLY,
     PULL_REQUESTS,
     ROLES,
     RULESETS,
@@ -122,6 +124,8 @@ def build_seed(storage: LocalXlsxStorage) -> None:
 
     role_repo.create(Role(id=OWNER, name=OWNER, permissions=["read", "write", "admin"]))
     role_repo.create(Role(id=ADMIN, name=ADMIN, permissions=["read", "write", "admin"]))
+    role_repo.create(Role(id=MEMBER, name=MEMBER, permissions=["read", "write"]))
+    role_repo.create(Role(id=READONLY, name=READONLY, permissions=["read"]))
     team_repo.create(Team(id=1, name="core", description="核心团队"))
     member_repo.create(
         Member(id=1, name="admin", role=RoleEnum.ADMIN, team_id=None, created_at=now_iso())
@@ -166,7 +170,7 @@ def main() -> None:
     create_seed_workbook(SEED_WORKBOOK_PATH)
     print(f"种子工作簿已生成: {SEED_WORKBOOK_PATH}")
     print(f"工作表: {', '.join(SHEET_NAMES)}")
-    print("角色 2 个 / 团队 1 个 / 成员 2 个 / 工作流 1 个")
+    print("角色 4 个 / 团队 1 个 / 成员 2 个 / 工作流 1 个")
 
 
 if __name__ == "__main__":
