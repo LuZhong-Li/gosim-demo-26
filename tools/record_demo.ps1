@@ -1,4 +1,4 @@
-# GX-Sheet Demo 录制引导脚本
+﻿# GX-Sheet Demo 录制引导脚本
 # 用法：先开录屏（OBS 等），再在仓库根目录执行：
 #   powershell -ExecutionPolicy Bypass -File .\tools\record_demo.ps1
 # 每段口播念完后按回车，脚本自动执行下一步命令。
