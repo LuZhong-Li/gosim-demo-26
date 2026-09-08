@@ -241,3 +241,11 @@ demo/output/web-workbook.xlsx
 # ==== 初赛提交物（禁止加入 ignore，必须纳入版本跟踪）====
 !demo/output/trace.jsonl
 !demo/seed-workbook.xlsx
+
+# ARC-Bench P1 工作区（第三方产物不入库）
+/arcbench/upstream/
+/arcbench/data/
+/arcbench/**/node_modules/
+/arcbench/**/docker-output/
+/arcbench/**/playwright-report/
+/arcbench/**/test-results/
