@@ -1,6 +1,12 @@
 # GX-Sheet：基于电子表格模拟 GitHub 组织管控与自动化 Agent 原型
 
 > GOSIM Create 2026 初赛作品（概念验证原型，非生产级产品）。
+>
+> **口径更新（2026-09-08）**：ARC-Bench 赛题与样例已公开，实际提交物为「智能体」
+> （现场按官方需求生成 Web 应用 + Playwright 验收）。本仓库主线自本日起切换为
+> 「参赛 Harness 研发 + GX-Sheet 语义资产化」，方向与阶段见
+> [docs/plans/17-ARC-Bench方向校准与推进路线.md](docs/plans/17-ARC-Bench方向校准与推进路线.md)。
+> 下文「作品/提交物」相关表述保留为历史口径。
 
 ## 分支策略
 
