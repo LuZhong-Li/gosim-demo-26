@@ -213,6 +213,10 @@ ARC（Agentic Requirement Compiler）为 SJTU/NUS 的官方 baseline 编译器
   30/30 全绿，确认「需求 → 应用 → 测试」链路可复现；
 - 产出：README 运行命令 + 结果存档（写入 12 存档文件或 17 附录）。
 
+> 实施细化：见 [18-P1-本地ARC-Bench验收闭环实施计划.md](18-P1-本地ARC-Bench验收闭环实施计划.md)。
+> 受平台“Task Bank 测试未打包下载”限制，计划拆为 Track A（官方 keep 参考实现立即跑分）
+> 与 Track B（ticketbooking 30/30，登录/模板到手后跑）。
+
 不做：不提前实现官方两题全部需求；不引入运行时第三方依赖进 `main`。
 
 ### P2 最小可提交 Agent（9/12–9/18）
