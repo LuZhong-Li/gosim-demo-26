@@ -9,6 +9,8 @@ export default function RepoPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [selected, setSelected] = useState<Issue | null>(null);
+  const [commentText, setCommentText] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -29,16 +31,23 @@ export default function RepoPage() {
     refresh();
   }, [refresh]);
 
-  async function handleCreateIssue(event: React.FormEvent) {
-    event.preventDefault();
+  async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
     try {
-      await api.createIssue(owner, name, { title, body });
-      setTitle('');
-      setBody('');
-      setInfo('Issue created.');
+      await action();
+      setInfo(successMessage);
       await refresh();
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  async function openIssue(number: number) {
+    try {
+      const issue = await api.getIssue(owner, name, number);
+      setSelected(issue);
+      setCommentText('');
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -47,7 +56,9 @@ export default function RepoPage() {
   if (!repo) {
     return (
       <section className="panel narrow">
-        <h1>{owner}/{name}</h1>
+        <h1>
+          {owner}/{name}
+        </h1>
         {error && <p className="error">{error}</p>}
         <p>Loading…</p>
       </section>
@@ -63,6 +74,24 @@ export default function RepoPage() {
         {repo.description || 'No description'} · {repo.visibility} · default branch:{' '}
         {repo.defaultBranch}
       </p>
+      <div className="repo-actions">
+        <button
+          type="button"
+          onClick={() =>
+            run(
+              () =>
+                api.setRepoVisibility(
+                  owner,
+                  name,
+                  repo.visibility === 'public' ? 'private' : 'public',
+                ),
+              'Visibility updated.',
+            )
+          }
+        >
+          Make {repo.visibility === 'public' ? 'private' : 'public'}
+        </button>
+      </div>
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
 
@@ -73,7 +102,9 @@ export default function RepoPage() {
         <ul className="repo-list">
           {issues.map((issue) => (
             <li key={issue.number}>
-              <span className="muted">#{issue.number}</span> {issue.title}
+              <button className="link-button" type="button" onClick={() => openIssue(issue.number)}>
+                #{issue.number} {issue.title}
+              </button>
               <span className="muted">
                 {' '}
                 · {issue.state} · opened by {issue.author}
@@ -83,8 +114,75 @@ export default function RepoPage() {
         </ul>
       )}
 
+      {selected && (
+        <div className="issue-detail">
+          <h3>
+            #{selected.number} {selected.title}
+          </h3>
+          <p className="muted">
+            {selected.state} by {selected.author}
+          </p>
+          {selected.body && <p>{selected.body}</p>}
+          <button
+            type="button"
+            onClick={() =>
+              run(
+                () => api.setIssueState(owner, name, selected.number, selected.state === 'open' ? 'closed' : 'open'),
+                'Issue state updated.',
+              ).then(() => openIssue(selected.number))
+            }
+          >
+            {selected.state === 'open' ? 'Close issue' : 'Reopen issue'}
+          </button>
+          <h4>Comments</h4>
+          {(selected.comments || []).length === 0 ? (
+            <p className="muted">No comments.</p>
+          ) : (
+            <ul className="repo-list">
+              {(selected.comments || []).map((comment) => (
+                <li key={comment.id}>
+                  <strong>{comment.author}</strong>
+                  <p>{comment.body}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="inline-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              run(
+                () => api.addIssueComment(owner, name, selected.number, commentText),
+                'Comment added.',
+              ).then(() => openIssue(selected.number));
+              setCommentText('');
+            }}
+          >
+            <input
+              aria-label="Comment body"
+              type="text"
+              value={commentText}
+              placeholder="Write a comment"
+              onChange={(event) => setCommentText(event.target.value)}
+            />
+            <button type="submit">Comment</button>
+          </form>
+        </div>
+      )}
+
       <h2>New issue</h2>
-      <form className="form-grid" onSubmit={handleCreateIssue}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          run(
+            () => api.createIssue(owner, name, { title, body }),
+            'Issue created.',
+          );
+          setTitle('');
+          setBody('');
+        }}
+      >
         <div className="field">
           <label htmlFor="issue-title">Title</label>
           <input

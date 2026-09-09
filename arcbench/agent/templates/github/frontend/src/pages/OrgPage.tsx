@@ -1,23 +1,33 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { Org, Repo } from '../api';
+import type { Member, Org, Repo, Team } from '../api';
 import * as api from '../api';
 
 export default function OrgPage() {
   const { name = '' } = useParams();
   const [org, setOrg] = useState<Org | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [repoName, setRepoName] = useState('');
   const [visibility, setVisibility] = useState('private');
   const [description, setDescription] = useState('');
+  const [memberUsername, setMemberUsername] = useState('');
+  const [memberRole, setMemberRole] = useState('Member');
+  const [teamName, setTeamName] = useState('');
+  const [teamDescription, setTeamDescription] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
   const refresh = useCallback(async () => {
     try {
-      const result = await api.getOrg(name);
-      setOrg(result.org);
-      setRepos(result.repos);
+      const detail = await api.getOrg(name);
+      setOrg(detail.org);
+      setRole(detail.role);
+      setRepos(detail.repos);
+      setMembers(detail.members);
+      setTeams(detail.teams);
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -27,15 +37,14 @@ export default function OrgPage() {
     refresh();
   }, [refresh]);
 
-  async function handleCreateRepo(event: React.FormEvent) {
-    event.preventDefault();
+  const canManage = role === 'Owner' || role === 'Admin';
+
+  async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
     try {
-      await api.createOrgRepo(name, { name: repoName, visibility, description });
-      setRepoName('');
-      setDescription('');
-      setInfo('Repository created.');
+      await action();
+      setInfo(successMessage);
       await refresh();
     } catch (caught) {
       setError(api.errorMessage(caught));
@@ -55,8 +64,10 @@ export default function OrgPage() {
   return (
     <section className="panel">
       <h1>{org.displayName || org.name}</h1>
+      {role && <p className="muted">Your role: {role}</p>}
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
+
       <h2>Repositories</h2>
       {repos.length === 0 ? (
         <p>No repositories in this organization.</p>
@@ -72,8 +83,109 @@ export default function OrgPage() {
           ))}
         </ul>
       )}
+
+      <h2>People</h2>
+      {members.length === 0 ? (
+        <p>No members yet.</p>
+      ) : (
+        <ul className="repo-list">
+          {members.map((member) => (
+            <li key={member.username}>
+              {member.username} <span className="muted">· {member.role}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => api.addOrgMember(name, { username: memberUsername, role: memberRole }), 'Member added.');
+            setMemberUsername('');
+          }}
+        >
+          <input
+            aria-label="Member username"
+            type="text"
+            value={memberUsername}
+            placeholder="username"
+            onChange={(event) => setMemberUsername(event.target.value)}
+          />
+          <select
+            aria-label="Member role"
+            value={memberRole}
+            onChange={(event) => setMemberRole(event.target.value)}
+          >
+            <option>Read</option>
+            <option>Triage</option>
+            <option>Write</option>
+            <option>Maintain</option>
+            <option>Admin</option>
+            <option>Member</option>
+            <option>Owner</option>
+          </select>
+          <button type="submit">Add member</button>
+        </form>
+      )}
+
+      <h2>Teams</h2>
+      {teams.length === 0 ? (
+        <p>No teams yet.</p>
+      ) : (
+        <ul className="repo-list">
+          {teams.map((team) => (
+            <li key={team.name}>
+              {team.name} <span className="muted">· {team.members.length} members</span>
+              {team.description && <p className="muted">{team.description}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {role && (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(
+              () => api.createTeam(name, { name: teamName, description: teamDescription }),
+              'Team created.',
+            );
+            setTeamName('');
+            setTeamDescription('');
+          }}
+        >
+          <input
+            aria-label="Team name"
+            type="text"
+            value={teamName}
+            placeholder="team name"
+            onChange={(event) => setTeamName(event.target.value)}
+          />
+          <input
+            aria-label="Team description"
+            type="text"
+            value={teamDescription}
+            placeholder="description (optional)"
+            onChange={(event) => setTeamDescription(event.target.value)}
+          />
+          <button type="submit">Create team</button>
+        </form>
+      )}
+
       <h2>Create repository</h2>
-      <form className="form-grid" onSubmit={handleCreateRepo}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          run(
+            () => api.createOrgRepo(name, { name: repoName, visibility, description }),
+            'Repository created.',
+          );
+          setRepoName('');
+          setDescription('');
+        }}
+      >
         <div className="field">
           <label htmlFor="repo-name">Repository name</label>
           <input

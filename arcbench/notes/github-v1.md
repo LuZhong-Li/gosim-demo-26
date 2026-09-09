@@ -31,3 +31,20 @@
 - 初赛前按官方需求 yaml 逐条补齐并用自建 Playwright smoke 迭代；
   Sheets 模板待 GitHub 结构稳定后同样迁移（templates/sheet → full-stack）。
 
+## v2 增补（同分支）
+
+- Forgot password / reset（固定验证码 123456、同账号改密）；
+- 组织 People（成员列表/添加成员，Owner/Admin 才可管理）与 Teams（创建/列表）；
+- Issue 详情：关闭/重开、评论列表与新增；
+- 仓库可见性切换（public/private，权限校验）；
+- 首页 /discover 聚合公开组织与可见仓库。
+
+验证：
+- API 冒烟脚本 `arcbench/runs/gh-api-smoke.ps1` 全通过
+  （register→forgot/reset→login→org→repo→member/team→issue→close→comment→
+  visibility→匿名可见）；
+- Playwright UI smoke `arcbench/upstream/smoke/github/gh-ui.spec.ts`：
+  注册→登录→建组织→建公开仓库→建 Issue→评论，1 passed。
+
+修复记录：`store.repos` → `store.state.repos`（org 详情读取崩溃）、注册成功提示
+被模式切换清空。

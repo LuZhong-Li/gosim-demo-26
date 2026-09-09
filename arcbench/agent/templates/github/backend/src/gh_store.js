@@ -6,6 +6,7 @@ const state = {
   sessions: {},
   orgs: [],
   memberships: [], // { org, username, role }
+  teams: [], // { id, org, name, description, createdAt }
   repos: [],
   issues: [], // { owner, repo, number, title, body, author, state, createdAt }
   issueCounter: {}, // "owner/repo" -> next number
@@ -111,10 +112,45 @@ function nextIssueNumber(owner, repo) {
   return next;
 }
 
+function findIssue(owner, repo, number) {
+  const key = `${owner}/${repo}`.toLowerCase();
+  return (
+    state.issues.find(
+      (issue) => issue.key === key && Number(issue.number) === Number(number),
+    ) || null
+  );
+}
+
+function orgMembers(orgName) {
+  const normalized = String(orgName || '').trim().toLowerCase();
+  return state.memberships
+    .filter((item) => item.org === normalized)
+    .map((item) => ({ username: item.username, role: item.role }));
+}
+
+function orgTeams(orgName) {
+  const normalized = String(orgName || '').trim().toLowerCase();
+  return state.teams
+    .filter((team) => team.org === normalized)
+    .map((team) => ({
+      name: team.name,
+      description: team.description,
+      members: team.members || [],
+    }));
+}
+
+function addTeam(orgName, team) {
+  state.teams.push({ org: String(orgName).trim().toLowerCase(), ...team });
+  save();
+  return team;
+}
+
 module.exports = {
   createSession,
   createUser,
   destroySession,
+  addTeam,
+  findIssue,
   findOrg,
   findRepo,
   findUserByEmail,
@@ -122,6 +158,8 @@ module.exports = {
   findUserByUsername,
   listIssues,
   membership,
+  orgMembers,
+  orgTeams,
   nextIssueNumber,
   reposVisibleTo,
   state,

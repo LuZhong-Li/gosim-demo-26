@@ -218,3 +218,8 @@ button:disabled {
 .repo-list li p { margin: 4px 0 0; }
 textarea { padding: 8px 10px; border: 1px solid #b9c2ce; border-radius: 6px; font: inherit; }
 a { color: #0f6bbf; }
+
+.inline-form { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.repo-actions { margin: 8px 0; }
+.link-button { background: none; border: none; color: #0f6bbf; padding: 0; font: inherit; cursor: pointer; }
+.issue-detail { border: 1px solid #d9dee7; border-radius: 8px; padding: 12px 16px; margin: 12px 0; background: #f8fafc; }

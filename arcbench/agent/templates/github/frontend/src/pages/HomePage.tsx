@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { Repo, User } from '../api';
+import type { Org, Repo, User } from '../api';
 import * as api from '../api';
 
 export default function HomePage({ user }: { user: User | null }) {
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [orgs, setOrgs] = useState<Org[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api
-      .listRepos()
-      .then(setRepos)
+      .discover()
+      .then((result) => {
+        setRepos(result.repos);
+        setOrgs(result.orgs);
+      })
       .catch((caught) => setError(api.errorMessage(caught)));
   }, []);
 
@@ -47,6 +51,18 @@ export default function HomePage({ user }: { user: User | null }) {
               </Link>
               <span className="muted"> · {repo.visibility}</span>
               {repo.description && <p className="muted">{repo.description}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <h2>Organizations</h2>
+      {orgs.length === 0 ? (
+        <p>No public organizations yet.</p>
+      ) : (
+        <ul className="repo-list">
+          {orgs.map((org) => (
+            <li key={org.name}>
+              <Link to={`/orgs/${org.name}`}>{org.displayName || org.name}</Link>
             </li>
           ))}
         </ul>

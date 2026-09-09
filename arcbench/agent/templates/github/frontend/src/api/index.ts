@@ -17,6 +17,22 @@ export type Issue = {
   author: string;
   state: string;
   createdAt: string;
+  comments?: Comment[];
+};
+export type Comment = {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+};
+export type Team = { name: string; description: string; members: string[] };
+export type Member = { username: string; role: string };
+export type OrgDetail = {
+  org: Org;
+  role: string | null;
+  repos: Repo[];
+  members: Member[];
+  teams: Team[];
 };
 export type ApiError = { error: string };
 
@@ -91,7 +107,7 @@ export async function createOrg(input: { name: string; displayName: string }): P
   return response.data.org as Org;
 }
 
-export async function getOrg(name: string): Promise<{ org: Org; repos: Repo[] }> {
+export async function getOrg(name: string): Promise<OrgDetail> {
   const response = await client.get(`/orgs/${encodeURIComponent(name)}`);
   return response.data;
 }
@@ -107,6 +123,11 @@ export async function createOrgRepo(
 export async function listRepos(): Promise<Repo[]> {
   const response = await client.get('/repos');
   return response.data.repos as Repo[];
+}
+
+export async function discover(): Promise<{ orgs: Org[]; repos: Repo[] }> {
+  const response = await client.get('/discover');
+  return response.data;
 }
 
 export async function getRepo(owner: string, name: string): Promise<{ repo: Repo }> {
@@ -131,6 +152,79 @@ export async function createIssue(
     input,
   );
   return response.data.issue as Issue;
+}
+
+export async function forgotPassword(email: string): Promise<{ code: string }> {
+  const response = await client.post('/auth/forgot', { email });
+  return response.data;
+}
+
+export async function resetPassword(input: {
+  email: string;
+  code: string;
+  password: string;
+}): Promise<void> {
+  await client.post('/auth/reset', input);
+}
+
+export async function addOrgMember(
+  org: string,
+  input: { username: string; role: string },
+): Promise<Member> {
+  const response = await client.post(`/orgs/${encodeURIComponent(org)}/members`, input);
+  return response.data.member as Member;
+}
+
+export async function createTeam(
+  org: string,
+  input: { name: string; description: string },
+): Promise<Team> {
+  const response = await client.post(`/orgs/${encodeURIComponent(org)}/teams`, input);
+  return response.data.team as Team;
+}
+
+export async function getIssue(owner: string, name: string, number: number): Promise<Issue> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+  );
+  return response.data.issue as Issue;
+}
+
+export async function setIssueState(
+  owner: string,
+  name: string,
+  number: number,
+  state: string,
+): Promise<Issue> {
+  const response = await client.patch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+    { state },
+  );
+  return response.data.issue as Issue;
+}
+
+export async function addIssueComment(
+  owner: string,
+  name: string,
+  number: number,
+  body: string,
+): Promise<Comment> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/comments`,
+    { body },
+  );
+  return response.data.comment as Comment;
+}
+
+export async function setRepoVisibility(
+  owner: string,
+  name: string,
+  visibility: string,
+): Promise<Repo> {
+  const response = await client.patch(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
+    visibility,
+  });
+  return response.data.repo as Repo;
 }
 
 export function errorMessage(error: unknown, fallback = 'Something went wrong.'): string {

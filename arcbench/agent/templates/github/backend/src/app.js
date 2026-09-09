@@ -119,6 +119,34 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/auth/forgot', (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  if (!store.findUserByEmail(email)) {
+    return res.status(404).json({ error: 'No account is associated with that email.' });
+  }
+  // The local product directly displays the fixed verification code.
+  return res.json({ code: '123456' });
+});
+
+app.post('/api/auth/reset', (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  const code = String((req.body || {}).code || '').trim();
+  const password = String((req.body || {}).password || '');
+  const user = store.findUserByEmail(email);
+  if (!user) return res.status(404).json({ error: 'No account is associated with that email.' });
+  if (code !== '123456') {
+    return res.status(400).json({ error: 'The verification code is incorrect.' });
+  }
+  if (!isPasswordValid(password)) {
+    return res.status(400).json({
+      error:
+        'Password must be 12-128 characters without whitespace and include uppercase, lowercase, digit, and special character.',
+    });
+  }
+  user.password = password;
+  return res.json({ ok: true });
+});
+
 // ---------- orgs ----------
 
 app.get('/api/orgs', requireUser, (req, res) => {
@@ -152,7 +180,9 @@ app.post('/api/orgs', requireUser, (req, res) => {
 app.get('/api/orgs/:name', (req, res) => {
   const org = store.findOrg(req.params.name);
   if (!org) return res.status(404).json({ error: 'Organization not found.' });
-  const repos = store.repos
+  const user = store.userByToken(authToken(req));
+  const role = user ? store.membership(org.name, user.username)?.role || null : null;
+  const repos = store.state.repos
     .filter((repo) => repo.owner === org.name)
     .map((repo) => ({
       owner: repo.owner,
@@ -160,7 +190,66 @@ app.get('/api/orgs/:name', (req, res) => {
       visibility: repo.visibility,
       description: repo.description,
     }));
-  res.json({ org: { name: org.name, displayName: org.displayName }, repos });
+  res.json({
+    org: { name: org.name, displayName: org.displayName },
+    role,
+    repos,
+    members: store.orgMembers(org.name),
+    teams: store.orgTeams(org.name),
+  });
+});
+
+app.get('/api/discover', (req, res) => {
+  const orgs = store.state.orgs
+    .filter((org) => store.state.repos.some((repo) => repo.owner === org.name && repo.visibility === 'public'))
+    .map((org) => ({ name: org.name, displayName: org.displayName }));
+  const user = store.userByToken(authToken(req));
+  const repos = store.reposVisibleTo(user ? user.username : null).map((repo) => ({
+    owner: repo.owner,
+    name: repo.name,
+    visibility: repo.visibility,
+    description: repo.description,
+  }));
+  res.json({ orgs, repos });
+});
+
+app.post('/api/orgs/:name/members', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current || !['Owner', 'Admin'].includes(current.role)) {
+    return res.status(403).json({ error: 'Only an organization owner or admin can manage members.' });
+  }
+  const username = String((req.body || {}).username || '').trim().toLowerCase();
+  const role = String((req.body || {}).role || 'Member').trim();
+  const user = store.findUserByUsername(username);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  if (!['Read', 'Triage', 'Write', 'Maintain', 'Admin', 'Member', 'Owner'].includes(role)) {
+    return res.status(400).json({ error: 'Unsupported role.' });
+  }
+  const existing = store.membership(org.name, username);
+  if (existing) existing.role = role;
+  else store.state.memberships.push({ org: org.name, username, role });
+  return res.status(201).json({ member: { username, role } });
+});
+
+app.post('/api/orgs/:name/teams', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current) return res.status(403).json({ error: 'You are not a member of this organization.' });
+  const teamName = String((req.body || {}).name || '').trim();
+  if (!teamName || teamName.length > 100) {
+    return res.status(400).json({ error: 'Team name is required (max 100 characters).' });
+  }
+  const team = {
+    name: teamName,
+    description: String((req.body || {}).description || '').trim(),
+    members: [],
+    createdAt: new Date().toISOString(),
+  };
+  store.addTeam(org.name, team);
+  return res.status(201).json({ team });
 });
 
 app.post('/api/orgs/:name/repos', requireUser, (req, res) => {
@@ -236,6 +325,7 @@ app.get('/api/repos/:owner/:name/issues', (req, res) => {
     author: issue.author,
     state: issue.state,
     createdAt: issue.createdAt,
+    comments: (issue.comments || []).length,
   }));
   res.json({ issues });
 });
@@ -259,6 +349,57 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
   };
   store.state.issues.push(issue);
   return res.status(201).json({ issue });
+});
+
+app.get('/api/repos/:owner/:name/issues/:number', (req, res) => {
+  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
+  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  res.json({ issue });
+});
+
+app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
+  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
+  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  const state = String((req.body || {}).state || '').trim().toLowerCase();
+  if (!['open', 'closed'].includes(state)) {
+    return res.status(400).json({ error: 'Issue state must be open or closed.' });
+  }
+  issue.state = state;
+  return res.json({ issue });
+});
+
+app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, res) => {
+  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
+  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  const body = String((req.body || {}).body || '').trim();
+  if (!body) return res.status(400).json({ error: 'Comment body is required.' });
+  issue.comments = issue.comments || [];
+  const comment = {
+    id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    author: req.user.username,
+    body,
+    createdAt: new Date().toISOString(),
+  };
+  issue.comments.push(comment);
+  return res.status(201).json({ comment });
+});
+
+app.patch('/api/repos/:owner/:name', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const canAdmin =
+    (repo.ownerType === 'user' && repo.owner === req.user.username) ||
+    (repo.ownerType === 'organization' &&
+      ['Owner', 'Admin'].includes(store.membership(repo.owner, req.user.username)?.role || ''));
+  if (!canAdmin) {
+    return res.status(403).json({ error: 'Only a repository admin can change visibility.' });
+  }
+  const visibility = String((req.body || {}).visibility || '').trim().toLowerCase();
+  if (visibility && !['public', 'private'].includes(visibility)) {
+    return res.status(400).json({ error: 'Visibility must be public or private.' });
+  }
+  if (visibility) repo.visibility = visibility;
+  return res.json({ repo });
 });
 
 // ---------- static frontend hosting ----------
