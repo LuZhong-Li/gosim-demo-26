@@ -14,6 +14,9 @@
   演示题只跑 UI 且用例会在提交后立即导航，网络往返会被导航中断并丢失会话，
   因此该 demo 的数据层在前端 localStorage 内同步完成（后端保留 Express
   `/api/health` 与结构契约）；官方 github/sheet 题将使用真正的后端存储。
+- `templates/github/`：GitHub 官方题 v1（frontend/ + backend/ 结构合规），
+  注册/登录、组织、仓库、Issue 的真实后端 MVP；覆盖进度见
+  `notes/github-v1.md`。
 
 ## 本地自测
 

@@ -1,0 +1,33 @@
+# GitHub 官方题 v1（结构合规 + 真实后端 MVP）
+
+日期：2026-09-09；分支 `codex/arc-harness`。
+
+## 交付内容
+
+`arcbench/agent/templates/github/`（由 web-react-express 复制改造）：
+
+- `frontend/`（Vite + React）：首页/公开仓库、Sign in/Sign up（account-access
+  形态）、Your organizations、Org 页（Repositories + 建仓）、Repo 页
+  （Code/Issues 入口 + Issue 列表/新建）；
+- `backend/`（Express，`/api/health` + 托管 frontend/dist）：
+  - 注册（用户名/邮箱/密码规则、terms、去重；email 直接 verified）与登录会话；
+  - 组织创建（Creator → Owner membership）；
+  - 组织仓库创建（visibility public/private、defaultBranch=main）；
+  - 仓库可见性（匿名/登录用户公共仓库，私有按 owner/membership）；
+  - Issue 列表/新建（仓库内递增 number）。
+- 数据为服务器内存存储（单进程一次运行，刷新/重登一致），符合
+  “所有写操作必须在服务端持久化为对象/关系”方向（后续切文件/DB 便于跨进程）。
+
+本地验证：前端 vite build 通过；后端 API 冒烟通过
+（register → login → org acme → repo acme/docs(public) → issue #1 → 匿名可见）。
+
+## 与 47 需求的关系（后续迭代路线）
+
+- 已覆盖骨架：REQ-1 账号注册/登录（部分）、REQ-2 组织命名空间雏形、
+  REQ-3 仓库资源雏形、REQ-5 Issue 雏形；
+- 待补：密码找回/改密/登出即时性、组织发现/团队/授权角色矩阵、分支/提交/
+  代码浏览、Issue 元数据（assignee/label/milestone/评论/关闭重开）、PR/评审/
+  分支保护、权限校验前置。
+- 初赛前按官方需求 yaml 逐条补齐并用自建 Playwright smoke 迭代；
+  Sheets 模板待 GitHub 结构稳定后同样迁移（templates/sheet → full-stack）。
+
