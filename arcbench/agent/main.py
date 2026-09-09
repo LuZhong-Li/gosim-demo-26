@@ -1,11 +1,16 @@
-"""Minimal ArcBench agent entrypoint.
+"""ArcBench agent entrypoint.
 
 Platform invocation (observed from run logs):
     python3 main.py <requirements-source> --output-dir <output-dir>
 
+The bundle vendors the real ``arcbench_agent_runtime`` SDK next to this file
+(copied from code-philia/agentic-requirement-compiler's ``src/``), because the
+platform does not pre-install the module for custom agent bundles.
+
 Local self-test run:
     python main.py <requirements-dir> --output-dir <output-dir>
-      plus ARC_NODE / ARC_PLAYWRIGHT_CLI / ARC_PLAYWRIGHT_CONFIG when self-testing.
+      plus ARC_TESTS_DIR / ARC_NODE / ARC_PLAYWRIGHT_CLI /
+      ARC_PLAYWRIGHT_CONFIG when self-testing.
 """
 
 from __future__ import annotations
@@ -179,8 +184,9 @@ def main(argv: list[str] | None = None) -> int:
     if output_dir:
         os.environ.setdefault("ARC_WORKSPACE", output_dir)
         os.environ.setdefault("ARC_PROJECT_DIR", output_dir)
+        os.environ.setdefault("ARCBENCH_OUTPUT_DIR", output_dir)
 
-    runtime = AgentRuntime.from_env()
+    runtime = AgentRuntime.from_env(project_dir=output_dir or None)
     runtime.events.mark_run_started("Agent run started")
 
     try:
@@ -196,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         coverage = load_coverage(slug)
         write_manifest(project_dir, slug, tree, task_map)
 
-        tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path(runtime.paths.workspace) / "tests"))
+        tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path.cwd() / "tests"))
 
         nodes = list(iter_nodes(tree))
         for node in nodes:
@@ -204,23 +210,29 @@ def main(argv: list[str] | None = None) -> int:
             if not node_id:
                 continue
             runtime.traceability.upsert_requirement(
-                node_id,
+                req_id=node_id,
                 name=node.get("name"),
                 description=node.get("description"),
-                type=node.get("type"),
             )
-            state_value = "CONVERGED" if node_id in coverage else "SCAFFOLDED"
-            runtime.traceability.upsert_node_state(node_id, state_value)
             runtime.events.mark_design_done(node_id, "design completed from requirements")
             runtime.events.mark_implementation_done(
                 node_id,
                 f"implemented from {slug} template" if node_id in coverage else "scaffold only",
             )
+            # Emit events first: they map to DESIGNED/IMPLEMENTED. The custom
+            # coverage state must be written last so it is not overwritten.
+            state_value = "CONVERGED" if node_id in coverage else "SCAFFOLDED"
+            runtime.traceability.upsert_node_state(node_id, state_value)
 
         results: dict[str, bool] = {}
-        if os.environ.get("ARC_SKIP_TESTS") == "1":
+        tests_requested = os.environ.get("ARC_SKIP_TESTS") != "1"
+        if not tests_requested:
             pass
-        elif tests_dir.is_dir() and any(tests_dir.glob("*.spec.ts")):
+        elif not tests_dir.is_dir() or not any(tests_dir.glob("*.spec.ts")):
+            print(f"[arc-agent] no local Playwright specs under {tests_dir}; skipping self-test")
+        elif not os.environ.get("ARC_PLAYWRIGHT_CLI"):
+            print("[arc-agent] ARC_PLAYWRIGHT_CLI not set; skipping local self-test")
+        else:
             port = int(os.environ.get("ARC_PORT", "3301"))
             server = subprocess.Popen(
                 [sys.executable, "-m", "http.server", str(port), "--directory", str(project_dir)],
