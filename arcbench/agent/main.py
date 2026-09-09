@@ -1,17 +1,16 @@
 """Minimal ArcBench agent entrypoint.
 
+Platform invocation (observed from run logs):
+    python3 main.py <requirements-source> --output-dir <output-dir>
+
 Local self-test run:
-    ARC_WORKSPACE=<workspace> \
-    ARC_REQUIREMENTS_DIR=<dir> \
-    ARC_TESTS_DIR=<dir> \
-    ARC_NODE=<node.exe> \
-    ARC_PLAYWRIGHT_CLI=<@playwright/test/cli.js> \
-    ARC_PLAYWRIGHT_CONFIG=<playwright.config.ts> \
-    python main.py
+    python main.py <requirements-dir> --output-dir <output-dir>
+      plus ARC_NODE / ARC_PLAYWRIGHT_CLI / ARC_PLAYWRIGHT_CONFIG when self-testing.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -147,24 +146,57 @@ def parse_results(output: str) -> dict[str, bool]:
     return results
 
 
-def main() -> int:
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="ArcBench generation agent")
+    parser.add_argument("requirements_source", nargs="?", help="path to requirements.yaml or its directory")
+    parser.add_argument("--output-dir", help="directory to write the generated application")
+    return parser.parse_args(argv)
+
+
+def resolve_requirements_source(value: str | None) -> Path:
+    if value:
+        path = Path(value)
+        if path.is_dir():
+            candidate = path / "requirements.yaml"
+            if not candidate.exists():
+                candidates = list(path.glob("*.yaml")) + list(path.glob("*.yml"))
+                if not candidates:
+                    raise FileNotFoundError(f"no requirements yaml found under {path}")
+                candidate = candidates[0]
+            return candidate
+        return path
+    # env fallback (local runs without positional args)
+    workspace = Path(os.environ.get("ARC_WORKSPACE", Path.cwd()))
+    path = Path(os.environ.get("ARC_REQUIREMENTS_DIR", workspace / "requirements"))
+    if path.is_dir():
+        return path / "requirements.yaml"
+    return path
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    output_dir = args.output_dir or os.environ.get("ARC_OUTPUT_DIR")
+    if output_dir:
+        os.environ.setdefault("ARC_WORKSPACE", output_dir)
+        os.environ.setdefault("ARC_PROJECT_DIR", output_dir)
+
     runtime = AgentRuntime.from_env()
     runtime.events.mark_run_started("Agent run started")
 
-    workspace = runtime.paths.workspace
-    req_dir = Path(os.environ.get("ARC_REQUIREMENTS_DIR", Path(workspace) / "requirements"))
-    tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path(workspace) / "tests"))
-
     try:
-        tree = load_requirements(req_dir / "requirements.yaml")
+        requirements_path = resolve_requirements_source(args.requirements_source)
+        tree = load_requirements(requirements_path)
         task_name = tree.get("name") or "Application"
-        runtime.traceability.init_db(reset=True)
+        runtime.traceability.init_db(reset=False)
 
         slug = task_slug(task_name)
         task_map = load_task_map(slug)
-        template_hit = copy_template(slug, Path(runtime.paths.project_dir))
+        project_dir = Path(output_dir or runtime.paths.project_dir)
+        template_hit = copy_template(slug, project_dir)
         coverage = load_coverage(slug)
-        write_manifest(Path(runtime.paths.project_dir), slug, tree, task_map)
+        write_manifest(project_dir, slug, tree, task_map)
+
+        tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path(runtime.paths.workspace) / "tests"))
 
         nodes = list(iter_nodes(tree))
         for node in nodes:
@@ -191,7 +223,7 @@ def main() -> int:
         elif tests_dir.is_dir() and any(tests_dir.glob("*.spec.ts")):
             port = int(os.environ.get("ARC_PORT", "3301"))
             server = subprocess.Popen(
-                [sys.executable, "-m", "http.server", str(port), "--directory", runtime.paths.project_dir],
+                [sys.executable, "-m", "http.server", str(port), "--directory", str(project_dir)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

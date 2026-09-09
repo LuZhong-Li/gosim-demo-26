@@ -9,16 +9,22 @@
 
 ## 本地自测
 
+平台真实调用（已在失败 run 日志确认）：
+
+```bash
+python3 main.py <requirements-source> --output-dir <output-dir>
+```
+
+本地自测：
+
 ```powershell
 $env:PYTHONPATH = "arcbench/agent"
-$env:ARC_WORKSPACE = "arcbench/runs/keep"
-$env:ARC_REQUIREMENTS_DIR = "arcbench/data/keep/requirements"
 $env:ARC_TESTS_DIR = "arcbench/data/keep/tests"
 $env:ARC_NODE = "<node.exe>"
 $env:ARC_PLAYWRIGHT_CLI = "arcbench/upstream/node_modules/@playwright/test/cli.js"
 $env:ARC_PLAYWRIGHT_CONFIG = "arcbench/upstream/playwright.config.ts"
-python arcbench/agent/main.py
+python arcbench/agent/main.py arcbench/data/keep/requirements --output-dir arcbench/runs/keep-cli
 ```
 
-平台真实环境会注入 `arcbench_agent_runtime` 并分别挂载需求/测试目录，本包只负责
-生成实现与上报状态。
+`requirements-source` 可以是目录（内含 `requirements.yaml`）或 yaml 文件；
+平台环境会注入真实 `arcbench_agent_runtime`，本包只负责生成实现与上报状态。

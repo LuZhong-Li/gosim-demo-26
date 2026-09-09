@@ -250,7 +250,7 @@ class AgentRuntime:
         return cls(workspace)
 
     def __init__(self, workspace: str) -> None:
-        project_dir = os.path.join(workspace, "project")
+        project_dir = os.environ.get("ARC_PROJECT_DIR") or os.path.join(workspace, "project")
         arc_dir = os.path.join(project_dir, ".arc")
         traceability_dir = os.path.join(arc_dir, "traceability")
         os.makedirs(traceability_dir, exist_ok=True)
