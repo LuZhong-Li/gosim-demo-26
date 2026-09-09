@@ -8,31 +8,121 @@
     :root { font-family: Arial, sans-serif; color: #1f2328; background: #f6f8fa; }
     body { margin: 0; }
     header { display: flex; gap: 12px; align-items: center; background: #24292f; color: #fff; padding: 10px 16px; }
-    header a { color: #fff; text-decoration: none; }
-    header input { flex: 1; padding: 6px 10px; border: 0; border-radius: 6px; }
+    header a, header button { color: #fff; background: transparent; border: 0; cursor: pointer; }
     main { max-width: 960px; margin: 24px auto; padding: 0 16px; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
-    .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; }
-    .card h2 { margin: 0 0 8px; font-size: 18px; }
-    .placeholder { color: #57606a; }
+    section { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+    h2 { margin: 0 0 8px; font-size: 18px; }
+    button { cursor: pointer; }
+    input, textarea, select { margin: 4px 0; padding: 6px; }
+    .form { display: grid; gap: 6px; max-width: 380px; }
+    .row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+    .dim { color: #57606a; }
   </style>
 </head>
 <body>
   <header>
     <strong>GitHub</strong>
-    <input type="search" aria-label="Search" placeholder="Search repositories and issues" />
-    <a href="#signin">Sign in</a>
-    <a href="#signup">Sign up</a>
+    <span id="whoami"></span>
+    <button id="signout">Sign out</button>
   </header>
-  <main>
-    <h1>Workspace</h1>
-    <p class="placeholder">This is a generated structural skeleton for the GitHub Collaboration Platform benchmark task.</p>
-    <div class="cards">
-      <section class="card"><h2>Organizations</h2><p class="placeholder">Repositories / People / Teams</p></section>
-      <section class="card"><h2>Repositories</h2><p class="placeholder">Code / Issues / Pull requests / Settings</p></section>
-      <section class="card"><h2>Issues</h2><p class="placeholder">List, detail, labels, milestones</p></section>
-      <section class="card"><h2>Pull requests</h2><p class="placeholder">Compare, review, checks, merge</p></section>
-    </div>
-  </main>
+  <main id="app"></main>
+  <script>
+    const KEY = 'github_platform_v1';
+    let state = load();
+
+    function seed() {
+      return {
+        accounts: [], session: null,
+        organizations: [], repos: [], issues: [], pulls: [], next: { org: 1, repo: 1, issue: 1, pr: 1, account: 1 },
+      };
+    }
+    function load() { try { const raw = localStorage.getItem(KEY); if (raw) return JSON.parse(raw); } catch (e) {} const s = seed(); save(s); return s; }
+    function save(s) { localStorage.setItem(KEY, JSON.stringify(s || state)); }
+    function currentAccount() { return state.accounts.find(a => a.id === state.session); }
+    function htmlEsc(x) { return String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+    function render() {
+      document.getElementById('whoami').textContent = currentAccount() ? ('Signed in as ' + currentAccount().username) : '';
+      const app = document.getElementById('app');
+      if (!currentAccount()) { app.innerHTML = authView(); return; }
+      app.innerHTML = workspaceView();
+      bindWorkspace();
+    }
+
+    function authView() {
+      return `<section><h2>Account access</h2>
+        <div class="form">
+          <button id="showRegister">Create an account</button>
+          <button id="showLogin">Sign in</button>
+          <button id="showReset">Forgot password</button>
+        </div>
+        <div id="authForm"></div></section>`;
+    }
+
+    function workspaceView() {
+      const orgs = state.organizations.map(o => `<option value="${o.id}">${htmlEsc(o.name)}</option>`).join('');
+      const repos = state.repos.map(r => `<div class="row"><span>${htmlEsc(r.owner)}/${htmlEsc(r.name)} · ${r.visibility}</span></div>`).join('');
+      const issues = state.issues.map(i => `<div class="row"><span>#${i.number} ${htmlEsc(i.title)} (${i.status})</span></div>`).join('');
+      const pulls = state.pulls.map(p => `<div class="row"><span>#${p.number} ${htmlEsc(p.title)} (${p.status}) · approvals=${p.approvals} · test=${p.check}</span></div>`).join('');
+      return `
+        <section><h2>Organizations</h2>
+          <div class="row"><input id="orgName" placeholder="org identifier" /><input id="orgDisplay" placeholder="display name" /><button id="createOrg">New organization</button></div>
+          <div class="row"><select id="orgSelect">${orgs}</select><input id="memberName" placeholder="username to add" /><button id="addMember">Add member</button></div>
+          <div class="row"><input id="teamName" placeholder="team name" /><button id="createTeam">New team</button></div>
+        </section>
+        <section><h2>Repositories</h2>
+          <div class="row"><input id="repoName" placeholder="repo name" /><select id="repoVis"><option>public</option><option>private</option></select><button id="createRepo">New repository</button></div>
+          <div>${repos}</div>
+        </section>
+        <section><h2>Issues</h2>
+          <div class="row"><input id="issueTitle" placeholder="issue title" /><button id="createIssue">New issue</button></div>
+          <div>${issues}</div>
+        </section>
+        <section><h2>Pull requests</h2>
+          <div class="row"><input id="prTitle" placeholder="PR title" /><button id="createPr">New pull request</button></div>
+          <div>${pulls}</div>
+        </section>`;
+    }
+
+    function bindWorkspace() {
+      document.getElementById('createOrg').onclick = () => { const id = state.next.org++; const name = document.getElementById('orgName').value.trim(); const display = document.getElementById('orgDisplay').value.trim(); if (!name || !display) return alert('Name required'); state.organizations.push({ id, name, display, members: [{ account: state.session, role: 'Owner' }], teams: [] }); save(); render(); };
+      document.getElementById('createRepo').onclick = () => { const id = state.next.repo++; const name = document.getElementById('repoName').value.trim(); const visibility = document.getElementById('repoVis').value; if (!name) return alert('Name required'); state.repos.push({ id, number: id, owner: currentAccount().username, name, visibility, branches: ['main'], defaultBranch: 'main' }); save(); render(); };
+      document.getElementById('createIssue').onclick = () => { const id = state.next.issue++; const title = document.getElementById('issueTitle').value.trim(); if (!title) return alert('Title required'); state.issues.push({ id, number: id, title, status: 'Open', comments: [] }); save(); render(); };
+      document.getElementById('createPr').onclick = () => { const id = state.next.pr++; const title = document.getElementById('prTitle').value.trim(); if (!title) return alert('Title required'); state.pulls.push({ id, number: id, title, status: 'Open', author: state.session, approvals: 0, check: 'success', protected: true }); save(); render(); };
+    }
+
+    document.getElementById('app').addEventListener('click', e => {
+      const t = e.target;
+      if (t.id === 'showRegister') document.getElementById('authForm').innerHTML = registerForm();
+      if (t.id === 'showLogin') document.getElementById('authForm').innerHTML = loginForm();
+      if (t.id === 'showReset') document.getElementById('authForm').innerHTML = resetForm();
+      if (t.id === 'doRegister') {
+        const username = document.getElementById('regUser').value.trim(); const email = document.getElementById('regEmail').value.trim(); const p1 = document.getElementById('regPass').value; const p2 = document.getElementById('regPass2').value;
+        if (!username || !email || p1 !== p2 || p1.length < 12) return alert('Invalid registration');
+        if (state.accounts.some(a => a.username === username || a.email.toLowerCase() === email.toLowerCase())) return alert('Duplicate account');
+        const id = state.next.account++; state.accounts.push({ id, username, email, password: p1 }); state.session = id; save(); render();
+      }
+      if (t.id === 'doLogin') {
+        const id = document.getElementById('loginUser').value.trim(); const pass = document.getElementById('loginPass').value;
+        const acc = state.accounts.find(a => a.username === id || a.email.toLowerCase() === id.toLowerCase());
+        if (!acc || acc.password !== pass) return alert('Incorrect credentials');
+        state.session = acc.id; save(); render();
+      }
+      if (t.id === 'doReset') {
+        const email = document.getElementById('resetEmail').value.trim(); const code = document.getElementById('resetCode').value; const p = document.getElementById('resetPass').value;
+        const acc = state.accounts.find(a => a.email.toLowerCase() === email.toLowerCase()); if (!acc) return alert('Unknown email');
+        if (code !== '123456' || p.length < 12) return alert('Invalid reset');
+        acc.password = p; save(); render();
+      }
+    });
+
+    document.getElementById('signout').addEventListener('click', () => { state.session = null; save(); render(); });
+
+    function registerForm() { return `<input id="regUser" placeholder="Username" /><input id="regEmail" placeholder="Email" /><input id="regPass" type="password" placeholder="Password" /><input id="regPass2" type="password" placeholder="Confirm password" /><button id="doRegister">Create account</button>`; }
+    function loginForm() { return `<input id="loginUser" placeholder="Username or email" /><input id="loginPass" type="password" placeholder="Password" /><button id="doLogin">Sign in</button>`; }
+    function resetForm() { return `<input id="resetEmail" placeholder="Email" /><input id="resetCode" placeholder="Verification code" /><input id="resetPass" type="password" placeholder="New password" /><button id="doReset">Reset password</button>`; }
+
+    render();
+  </script>
 </body>
 </html>

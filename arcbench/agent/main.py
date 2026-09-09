@@ -52,13 +52,21 @@ def copy_template(slug: str, project_dir: Path) -> bool:
     src = TEMPLATES / slug / "index.html"
     project_dir.mkdir(parents=True, exist_ok=True)
     if src.exists():
-        shutil.copyfile(src, project_dir / "index.html")
+        shutil.copytree(TEMPLATES / slug, project_dir, dirs_exist_ok=True)
         return True
     (project_dir / "index.html").write_text(
         "<!doctype html><meta charset=utf-8><title>{}</title><h1>{}</h1>".format(slug, slug),
         encoding="utf-8",
     )
     return False
+
+
+def load_coverage(slug: str) -> set[str]:
+    path = TEMPLATES / slug / "coverage.json"
+    if not path.exists():
+        return set()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return set(data.get("implemented") or [])
 
 
 def task_slug(task_name: str) -> str:
@@ -155,6 +163,7 @@ def main() -> int:
         slug = task_slug(task_name)
         task_map = load_task_map(slug)
         template_hit = copy_template(slug, Path(runtime.paths.project_dir))
+        coverage = load_coverage(slug)
         write_manifest(Path(runtime.paths.project_dir), slug, tree, task_map)
 
         nodes = list(iter_nodes(tree))
@@ -168,11 +177,12 @@ def main() -> int:
                 description=node.get("description"),
                 type=node.get("type"),
             )
-            runtime.traceability.upsert_node_state(node_id, "CONVERGED")
+            state_value = "CONVERGED" if node_id in coverage else "SCAFFOLDED"
+            runtime.traceability.upsert_node_state(node_id, state_value)
             runtime.events.mark_design_done(node_id, "design completed from requirements")
             runtime.events.mark_implementation_done(
                 node_id,
-                f"scaffold generated from {slug} template" if template_hit else "minimal scaffold applied",
+                f"implemented from {slug} template" if node_id in coverage else "scaffold only",
             )
 
         results: dict[str, bool] = {}
