@@ -245,6 +245,7 @@ demo/output/web-workbook.xlsx
 # ARC-Bench P1 工作区（第三方产物不入库）
 /arcbench/upstream/
 /arcbench/data/
+/arcbench/runs/
 /arcbench/**/node_modules/
 /arcbench/**/docker-output/
 /arcbench/**/playwright-report/
