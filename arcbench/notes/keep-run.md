@@ -1,14 +1,22 @@
 # P1 keep 参考实现闭环结果
 
-日期：2026-09-08。状态：**未跑通（Docker 缺失）**。
+日期：2026-09-09。状态：**本地闭环已跑通，31/32 通过**。
 
-尝试：
+结论：
 
-1. `docker --version` → 命令不存在（Docker 未安装）。
-2. 官方 runner 验证：`node scripts/run-playwright.js --list` → 成功列出
-   `12306 bookstack ctrip keep prestashop stackoverflow`，说明 runner 可执行、
-   Playwright 1.61.1 已装、app 配置可读。
-3. `npm run docker:build` / `npm run reference:keep` 因缺少 Docker 未执行。
+- 不依赖 Docker：手写最小 keep 应用
+  `arcbench/apps/keep/index.html`（localStorage 种子 + 静态交互），
+  用官方 Playwright runner 本地跑官方 32 条 keep 测试，**31 条通过**。
+- 运行命令（官方 runner 依赖 `npx`，本机无 npm，用本地 Playwright 二进制等价执行）：
 
-结论：Track A 的目标（keep 32/32）在缺少 Docker 且 upstream 未内置参考实现的
-条件下无法完成；详见 [blockers.md](blockers.md) B1。
+```powershell
+$env:ARC_APP="keep"; $env:TARGET_URL="http://127.0.0.1:3301"
+$env:PLAYWRIGHT_OUTPUT_DIR="test-results/keep"
+$env:PLAYWRIGHT_REPORT_DIR="playwright-report/keep"
+& "arcbench/upstream/node_modules/.bin/playwright.CMD" test arc-bench/webapp/keep/tests --config playwright.config.ts --workers 1
+```
+
+唯一失败：`REQ-2.7.2 Remove label from a note`。原因不是应用逻辑，而是公开 runner
+不做 `testdata.yaml` 的按需 fixture 注入：该用例只应包含 `labeled_note`，但本地
+一次性灌入全部种子，导致 `Design review`（label=Work）残留，`expectTextAbsent("Work")`
+失败。正式 ARC-Bench 平台会按 `requirementBindings` 逐用例注入 fixture。
