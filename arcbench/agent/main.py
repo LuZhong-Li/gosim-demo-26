@@ -12,6 +12,7 @@ Local self-test run:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -34,6 +35,7 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parent
 TEMPLATES = ROOT / "templates"
+ASSETS = ROOT / "assets"
 
 
 def load_requirements(path: Path) -> dict:
@@ -46,20 +48,56 @@ def iter_nodes(node: dict):
         yield from iter_nodes(child)
 
 
-def copy_template(task_name: str, project_dir: Path) -> bool:
-    slug = re.sub(r"[^a-z0-9]+", "-", (task_name or "app").lower()).strip("-")
+def copy_template(slug: str, project_dir: Path) -> bool:
     src = TEMPLATES / slug / "index.html"
     project_dir.mkdir(parents=True, exist_ok=True)
     if src.exists():
         shutil.copyfile(src, project_dir / "index.html")
         return True
     (project_dir / "index.html").write_text(
-        "<!doctype html><meta charset=utf-8><title>{}</title><h1>{}</h1>".format(
-            task_name or "Application", task_name or "Application"
-        ),
+        "<!doctype html><meta charset=utf-8><title>{}</title><h1>{}</h1>".format(slug, slug),
         encoding="utf-8",
     )
     return False
+
+
+def task_slug(task_name: str) -> str:
+    name = (task_name or "").lower()
+    if "github" in name:
+        return "github"
+    if "spreadsheet" in name or "sheet" in name:
+        return "sheet"
+    if "keep" in name:
+        return "keep"
+    return re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "app"
+
+
+def load_task_map(slug: str) -> dict | None:
+    path = ASSETS / slug / "requirement-map.json"
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return None
+
+
+def write_manifest(project_dir: Path, slug: str, tree: dict, task_map: dict | None) -> None:
+    manifest = {
+        "task": tree.get("name"),
+        "template": slug,
+        "modules": [],
+        "asset_map_used": task_map is not None,
+    }
+    for child in tree.get("children") or []:
+        manifest["modules"].append(
+            {
+                "id": child.get("id"),
+                "name": child.get("name"),
+                "type": child.get("type"),
+            }
+        )
+    (project_dir / "generation-manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def wait_for_port(port: int, timeout: float = 15.0) -> None:
@@ -114,7 +152,10 @@ def main() -> int:
         task_name = tree.get("name") or "Application"
         runtime.traceability.init_db(reset=True)
 
-        template_hit = copy_template(task_name, Path(runtime.paths.project_dir))
+        slug = task_slug(task_name)
+        task_map = load_task_map(slug)
+        template_hit = copy_template(slug, Path(runtime.paths.project_dir))
+        write_manifest(Path(runtime.paths.project_dir), slug, tree, task_map)
 
         nodes = list(iter_nodes(tree))
         for node in nodes:
@@ -131,7 +172,7 @@ def main() -> int:
             runtime.events.mark_design_done(node_id, "design completed from requirements")
             runtime.events.mark_implementation_done(
                 node_id,
-                "template applied" if template_hit else "minimal scaffold applied",
+                f"scaffold generated from {slug} template" if template_hit else "minimal scaffold applied",
             )
 
         results: dict[str, bool] = {}
@@ -173,7 +214,7 @@ def main() -> int:
         runtime.git.ensure_arc_gitignore()
         runtime.git.commit(f"ARC agent generated {task_name}")
         runtime.events.mark_run_completed(
-            f"generated {task_name}; template={template_hit}; tests={len(results)}"
+            f"generated {task_name}; template={slug}; asset_map={task_map is not None}; tests={len(results)}"
         )
         return 0
     except Exception as exc:  # noqa: BLE001 - report any failure through the runtime

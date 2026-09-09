@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spreadsheet Data Workspace</title>
+  <style>
+    :root { font-family: Arial, sans-serif; color: #202124; background: #fff; }
+    body { margin: 0; }
+    header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #dadce0; }
+    header input { width: 220px; padding: 6px 8px; }
+    main { padding: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #e0e0e0; min-width: 90px; height: 26px; padding: 2px 6px; }
+    .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+    .tabs { display: flex; gap: 6px; margin-top: 10px; }
+    .tabs span { padding: 6px 12px; border: 1px solid #dadce0; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Sheets</strong>
+    <input type="text" aria-label="Workbook name" value="Untitled workbook" />
+    <button>Import CSV</button>
+    <button>Export CSV</button>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button>Add sheet</button>
+      <button>Insert row</button>
+      <button>Delete row</button>
+      <button>Insert column</button>
+      <button>Delete column</button>
+      <button>Undo</button>
+      <button>Redo</button>
+    </div>
+    <table aria-label="Grid">
+      <thead><tr><th></th><th>A</th><th>B</th><th>C</th></tr></thead>
+      <tbody>
+        <tr><th>1</th><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+        <tr><th>2</th><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+        <tr><th>3</th><td contenteditable="true"></td><td contenteditable="true"></td><td contenteditable="true"></td></tr>
+      </tbody>
+    </table>
+    <div class="tabs"><span>Sheet1</span></div>
+  </main>
+</body>
+</html>
