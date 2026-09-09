@@ -40,6 +40,7 @@ except Exception:
 ROOT = Path(__file__).resolve().parent
 TEMPLATES = ROOT / "templates"
 ASSETS = ROOT / "assets"
+WEB_FALLBACK_TEMPLATE = "web-react-express"  # official frontend/ + backend/ layout
 
 
 def load_requirements(path: Path) -> dict:
@@ -53,10 +54,10 @@ def iter_nodes(node: dict):
 
 
 def copy_template(slug: str, project_dir: Path) -> bool:
-    src = TEMPLATES / slug / "index.html"
+    src_dir = TEMPLATES / slug
     project_dir.mkdir(parents=True, exist_ok=True)
-    if src.exists():
-        shutil.copytree(TEMPLATES / slug, project_dir, dirs_exist_ok=True)
+    if src_dir.is_dir():
+        shutil.copytree(src_dir, project_dir, dirs_exist_ok=True)
         return True
     (project_dir / "index.html").write_text(
         "<!doctype html><meta charset=utf-8><title>{}</title><h1>{}</h1>".format(slug, slug),
@@ -196,6 +197,9 @@ def main(argv: list[str] | None = None) -> int:
         runtime.traceability.init_db(reset=False)
 
         slug = task_slug(task_name)
+        if not (TEMPLATES / slug).is_dir():
+            print(f"[arc-agent] no template for task slug '{slug}'; using {WEB_FALLBACK_TEMPLATE}")
+            slug = WEB_FALLBACK_TEMPLATE
         task_map = load_task_map(slug)
         project_dir = Path(output_dir or runtime.paths.project_dir)
         template_hit = copy_template(slug, project_dir)
