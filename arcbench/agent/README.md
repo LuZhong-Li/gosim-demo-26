@@ -10,6 +10,11 @@
 - `templates/web-react-express/`：官方 frontend/ + backend/ 单端口 Web 模板，
   平台要求生成产物含这两个目录；未知任务默认落此模板。
 
+  ticketbooking demo 已在此模板内实现（注册/登录/查票/订票全流程）：
+  演示题只跑 UI 且用例会在提交后立即导航，网络往返会被导航中断并丢失会话，
+  因此该 demo 的数据层在前端 localStorage 内同步完成（后端保留 Express
+  `/api/health` 与结构契约）；官方 github/sheet 题将使用真正的后端存储。
+
 ## 本地自测
 
 平台真实调用（已在失败 run 日志确认）：
