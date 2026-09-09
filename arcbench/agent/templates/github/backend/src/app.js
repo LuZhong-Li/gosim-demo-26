@@ -278,11 +278,33 @@ app.post('/api/orgs/:name/repos', requireUser, (req, res) => {
     creator: req.user.username,
     createdAt: new Date().toISOString(),
   };
+  store.initializeRepoContent(repo, req.user.username);
   store.state.repos.push(repo);
   return res.status(201).json({ repo });
 });
 
 // ---------- repos & issues ----------
+
+app.get('/api/search', (req, res) => {
+  const user = store.userByToken(authToken(req));
+  const query = String(req.query.q || '').trim().toLowerCase();
+  const visible = store.reposVisibleTo(user ? user.username : null);
+  const repos = visible
+    .filter(
+      (repo) =>
+        !query ||
+        repo.name.toLowerCase().includes(query) ||
+        `${repo.owner}/${repo.name}`.toLowerCase().includes(query) ||
+        String(repo.description || '').toLowerCase().includes(query),
+    )
+    .map((repo) => ({
+      owner: repo.owner,
+      name: repo.name,
+      visibility: repo.visibility,
+      description: repo.description,
+    }));
+  res.json({ repos });
+});
 
 app.get('/api/repos', (req, res) => {
   const user = store.userByToken(authToken(req));
@@ -318,6 +340,73 @@ app.get('/api/repos/:owner/:name', (req, res) => {
   });
 });
 
+app.get('/api/repos/:owner/:name/tree', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const branch =
+    req.query.branch || (repo.branches && repo.branches[0] ? repo.branches[0].name : 'main');
+  res.json({
+    branch,
+    defaultBranch: repo.defaultBranch,
+    files: (repo.files || []).map((file) => file.path),
+    branches: (repo.branches || []).map((branchItem) => branchItem.name),
+  });
+});
+
+app.get('/api/repos/:owner/:name/contents', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const filePath = String(req.query.path || '');
+  const file = store.findFile(repo, filePath);
+  if (!file) return res.status(404).json({ error: 'File not found.' });
+  res.json({ path: file.path, content: file.content });
+});
+
+app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to this repository.' });
+  }
+  const filePath = String((req.body || {}).path || '');
+  const content = String((req.body || {}).content || '');
+  const message = String((req.body || {}).message || '').trim() || `Update ${filePath}`;
+  if (!filePath || !/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) {
+    return res.status(400).json({ error: 'Invalid file path.' });
+  }
+  store.addFile(repo, filePath, content, req.user.username, message);
+  return res.status(201).json({ path: filePath, message });
+});
+
+app.get('/api/repos/:owner/:name/commits', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({
+    commits: (repo.commits || []).map((commit) => ({
+      sha: commit.sha,
+      message: commit.message,
+      author: commit.author,
+      timestamp: commit.timestamp,
+      changed: commit.changed,
+    })),
+  });
+});
+
+app.post('/api/repos/:owner/:name/branches', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to this repository.' });
+  }
+  const branchName = String((req.body || {}).name || '').trim();
+  if (!/^[A-Za-z0-9_.-]{1,200}$/.test(branchName)) {
+    return res.status(400).json({ error: 'Invalid branch name.' });
+  }
+  const head = store.addBranch(repo, branchName, req.user.username);
+  if (!head) return res.status(409).json({ error: 'A branch with that name already exists.' });
+  return res.status(201).json({ name: branchName });
+});
+
 app.get('/api/repos/:owner/:name/issues', (req, res) => {
   const issues = store.listIssues(req.params.owner, req.params.name).map((issue) => ({
     number: issue.number,
@@ -325,6 +414,9 @@ app.get('/api/repos/:owner/:name/issues', (req, res) => {
     author: issue.author,
     state: issue.state,
     createdAt: issue.createdAt,
+    assignee: issue.assignee || null,
+    labels: issue.labels || [],
+    milestone: issue.milestone || null,
     comments: (issue.comments || []).length,
   }));
   res.json({ issues });
@@ -335,6 +427,9 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const title = String((req.body || {}).title || '').trim();
   if (!title) return res.status(400).json({ error: 'Issue title is required.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to create issues.' });
+  }
   const number = store.nextIssueNumber(repo.owner, repo.name);
   const issue = {
     key: `${repo.owner}/${repo.name}`.toLowerCase(),
@@ -346,26 +441,43 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
     author: req.user.username,
     state: 'open',
     createdAt: new Date().toISOString(),
+    assignee: String((req.body || {}).assignee || '').trim() || null,
+    labels: Array.isArray((req.body || {}).labels)
+      ? (req.body || {}).labels.map((label) => String(label).trim()).filter(Boolean)
+      : [],
+    milestone: String((req.body || {}).milestone || '').trim() || null,
   };
   store.state.issues.push(issue);
   return res.status(201).json({ issue });
+});
+
+app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
+  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
+  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  const body = req.body || {};
+  if (body.state) {
+    const state = String(body.state).trim().toLowerCase();
+    if (!['open', 'closed'].includes(state)) {
+      return res.status(400).json({ error: 'Issue state must be open or closed.' });
+    }
+    issue.state = state;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'assignee')) {
+    issue.assignee = String(body.assignee || '').trim() || null;
+  }
+  if (body.milestone !== undefined) {
+    issue.milestone = String(body.milestone || '').trim() || null;
+  }
+  if (Array.isArray(body.labels)) {
+    issue.labels = body.labels.map((label) => String(label).trim()).filter(Boolean);
+  }
+  return res.json({ issue });
 });
 
 app.get('/api/repos/:owner/:name/issues/:number', (req, res) => {
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
   res.json({ issue });
-});
-
-app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
-  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
-  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
-  const state = String((req.body || {}).state || '').trim().toLowerCase();
-  if (!['open', 'closed'].includes(state)) {
-    return res.status(400).json({ error: 'Issue state must be open or closed.' });
-  }
-  issue.state = state;
-  return res.json({ issue });
 });
 
 app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, res) => {

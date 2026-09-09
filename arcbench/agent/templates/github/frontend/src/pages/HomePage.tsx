@@ -6,6 +6,7 @@ import * as api from '../api';
 export default function HomePage({ user }: { user: User | null }) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [orgs, setOrgs] = useState<Org[]>([]);
+  const [query, setQuery] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -17,6 +18,15 @@ export default function HomePage({ user }: { user: User | null }) {
       })
       .catch((caught) => setError(api.errorMessage(caught)));
   }, []);
+
+  async function handleSearch(event: React.FormEvent) {
+    event.preventDefault();
+    try {
+      setRepos(await api.searchRepos(query));
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
 
   return (
     <section className="panel">
@@ -39,6 +49,16 @@ export default function HomePage({ user }: { user: User | null }) {
       )}
 
       <h2>Public repositories</h2>
+      <form className="inline-form" onSubmit={handleSearch}>
+        <input
+          aria-label="Search repositories"
+          type="search"
+          value={query}
+          placeholder="Search repositories"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <button type="submit">Search</button>
+      </form>
       {error && <p className="error">{error}</p>}
       {repos.length === 0 ? (
         <p>No repositories yet.</p>

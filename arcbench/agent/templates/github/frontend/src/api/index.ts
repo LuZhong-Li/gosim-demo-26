@@ -18,6 +18,9 @@ export type Issue = {
   state: string;
   createdAt: string;
   comments?: Comment[];
+  assignee?: string | null;
+  labels?: string[];
+  milestone?: string | null;
 };
 export type Comment = {
   id: string;
@@ -125,6 +128,11 @@ export async function listRepos(): Promise<Repo[]> {
   return response.data.repos as Repo[];
 }
 
+export async function searchRepos(query: string): Promise<Repo[]> {
+  const response = await client.get('/search', { params: { q: query } });
+  return response.data.repos as Repo[];
+}
+
 export async function discover(): Promise<{ orgs: Org[]; repos: Repo[] }> {
   const response = await client.get('/discover');
   return response.data;
@@ -145,13 +153,81 @@ export async function listIssues(owner: string, name: string): Promise<Issue[]> 
 export async function createIssue(
   owner: string,
   name: string,
-  input: { title: string; body: string },
+  input: { title: string; body: string; assignee?: string; labels?: string[]; milestone?: string },
 ): Promise<Issue> {
   const response = await client.post(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`,
     input,
   );
   return response.data.issue as Issue;
+}
+
+export async function updateIssue(
+  owner: string,
+  name: string,
+  number: number,
+  input: { state?: string; assignee?: string | null; labels?: string[]; milestone?: string | null },
+): Promise<Issue> {
+  const response = await client.patch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
+    input,
+  );
+  return response.data.issue as Issue;
+}
+
+export async function getTree(
+  owner: string,
+  name: string,
+): Promise<{ branch: string; defaultBranch: string; files: string[]; branches: string[] }> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/tree`,
+  );
+  return response.data;
+}
+
+export async function getFile(
+  owner: string,
+  name: string,
+  filePath: string,
+): Promise<{ path: string; content: string }> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`,
+    { params: { path: filePath } },
+  );
+  return response.data;
+}
+
+export async function createFile(
+  owner: string,
+  name: string,
+  filePath: string,
+  input: { content: string; message: string },
+): Promise<{ path: string; message: string }> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`,
+    { ...input, path: filePath },
+  );
+  return response.data;
+}
+
+export async function listCommits(
+  owner: string,
+  name: string,
+): Promise<{ sha: string; message: string; author: string; timestamp: string; changed: string[] }[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits`,
+  );
+  return response.data.commits;
+}
+
+export async function createBranch(
+  owner: string,
+  name: string,
+  branchName: string,
+): Promise<void> {
+  await client.post(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches`, {
+    name: branchName,
+  });
 }
 
 export async function forgotPassword(email: string): Promise<{ code: string }> {

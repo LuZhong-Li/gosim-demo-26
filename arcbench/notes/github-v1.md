@@ -48,3 +48,24 @@
 
 修复记录：`store.repos` → `store.state.repos`（org 详情读取崩溃）、注册成功提示
 被模式切换清空。
+
+## v3 增补（同分支）
+
+- 仓库内容模型：新建仓库种子 README.md + initial commit + main 分支；
+- Code 能力：文件树/文件读取、Add file（写入文件并生成 commit）、commit 历史、
+  分支创建/列表；Express 5 通配符改为 `?path=` 传参；
+- Issue 元数据：assignee / labels / milestone 创建与展示，PATCH 合并状态与
+  元数据更新；
+- 仓库搜索 `/api/search?q=` + 首页搜索框；
+- 权限：create issue / commit file / create branch 需 Write+（org 角色矩阵
+  Read<Triage<Write<Maintain<Admin/Owner，Member=Write）。
+
+验证：
+- API v3 冒烟：README 写回读取、commits=2、分支 main/dev、搜索命中、
+  issue 元数据（dave | bug,ui | v1）全部通过；
+- Playwright UI smoke 2 条通过：注册→组织→仓库→Issue→评论；Code 标签
+  Add file（docs/guide.md + commit history）。
+
+下一步剩余主线：PR（compare/base、评审 Approve/Comment/Request changes、
+合并规则与分支保护）、Issue 评论时序/关闭重开入口完善、组织团队层级与
+repository access grants、recovery 登录会话即时失效细节。

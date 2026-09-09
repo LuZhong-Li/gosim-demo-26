@@ -145,14 +145,82 @@ function addTeam(orgName, team) {
   return team;
 }
 
+function repoKey(owner, name) {
+  return `${owner}/${name}`.toLowerCase();
+}
+
+function initializeRepoContent(repo, author) {
+  const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  repo.files = [{ path: 'README.md', content: `# ${repo.name}\n` }];
+  repo.branches = [{ name: 'main', head: sha }];
+  repo.commits = [
+    {
+      sha,
+      message: 'Initial commit',
+      author,
+      parents: [],
+      timestamp: new Date().toISOString(),
+      changed: ['README.md'],
+    },
+  ];
+  return sha;
+}
+
+function addFile(repo, filePath, content, author, message) {
+  const existing = (repo.files || []).find((file) => file.path === filePath);
+  if (existing) existing.content = content;
+  else repo.files.push({ path: filePath, content });
+  const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const branch = repo.branches[0];
+  if (branch) branch.head = sha;
+  repo.commits.unshift({
+    sha,
+    message: String(message || `Update ${filePath}`),
+    author,
+    parents: branch && branch.head ? [branch.head] : [],
+    timestamp: new Date().toISOString(),
+    changed: [filePath],
+  });
+  return sha;
+}
+
+function addBranch(repo, name, author) {
+  const head = repo.branches[0]?.head || null;
+  if (repo.branches.some((branch) => branch.name === name)) return null;
+  repo.branches.push({ name, head });
+  return head;
+}
+
+function findFile(repo, filePath) {
+  return (repo.files || []).find((file) => file.path === filePath) || null;
+}
+
+function canWrite(repo, username) {
+  if (!username) return false;
+  if (repo.ownerType === 'user') {
+    return String(repo.owner).toLowerCase() === String(username).toLowerCase();
+  }
+  const member = membership(repo.owner, username);
+  const order = ['Read', 'Triage', 'Write', 'Maintain', 'Admin', 'Owner', 'Member'];
+  const role = member ? member.role : '';
+  if (role === 'Member') return true;
+  return order.indexOf(role) >= order.indexOf('Write');
+}
+
 module.exports = {
   createSession,
   createUser,
   destroySession,
   addTeam,
+  addBranch,
+  addFile,
+  canWrite,
   findIssue,
   findOrg,
   findRepo,
+  findFile,
+  initializeRepoContent,
+  repoKey,
   findUserByEmail,
   findUserByIdentifier,
   findUserByUsername,
