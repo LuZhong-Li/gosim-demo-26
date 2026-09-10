@@ -419,6 +419,16 @@ export async function setRepoVisibility(
 }
 
 // REQ-1-3: change the current account password.
+// REQ-3-2-1: create a repository in the current personal namespace.
+export async function createPersonalRepo(input: {
+  name: string;
+  visibility: string;
+  description?: string;
+}): Promise<Repo> {
+  const response = await client.post('/repos', input);
+  return response.data.repo as Repo;
+}
+
 export async function changePassword(input: {
   currentPassword: string;
   newPassword: string;

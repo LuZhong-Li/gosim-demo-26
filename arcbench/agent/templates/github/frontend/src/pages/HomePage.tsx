@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { Org, Repo, User } from '../api';
 import * as api from '../api';
 
@@ -8,6 +8,10 @@ export default function HomePage({ user }: { user: User | null }) {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const [newRepoName, setNewRepoName] = useState('');
+  const [newRepoVisibility, setNewRepoVisibility] = useState('public');
+  const [notice, setNotice] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     api
@@ -46,6 +50,51 @@ export default function HomePage({ user }: { user: User | null }) {
         <p>
           <Link to="/orgs">Manage your organizations</Link>
         </p>
+      )}
+      {user && (
+        <>
+          <h2>New repository</h2>
+          {notice && <p className="success">{notice}</p>}
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setError('');
+              setNotice('');
+              api
+                .createPersonalRepo({ name: newRepoName, visibility: newRepoVisibility })
+                .then((repo) => {
+                  setNewRepoName('');
+                  navigate(`/${repo.owner}/${repo.name}`);
+                })
+                .catch((caught) => setError(api.errorMessage(caught)));
+            }}
+          >
+            <div className="field">
+              <label htmlFor="personal-repo-name">Repository name</label>
+              <input
+                id="personal-repo-name"
+                aria-label="Personal repository name"
+                type="text"
+                value={newRepoName}
+                onChange={(event) => setNewRepoName(event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="personal-repo-visibility">Visibility</label>
+              <select
+                id="personal-repo-visibility"
+                aria-label="Personal repository visibility"
+                value={newRepoVisibility}
+                onChange={(event) => setNewRepoVisibility(event.target.value)}
+              >
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <button type="submit">Create repository</button>
+          </form>
+        </>
       )}
 
       <h2>Public repositories</h2>

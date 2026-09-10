@@ -32,7 +32,7 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 1-1-1 | Register | ✅ | `POST /api/auth/register` + `isPasswordValid`（app.js:27）按规格校验；AuthPage |
 | 1-1-2 | Sign in | ✅ | `POST /api/auth/login`；AuthPage |
 | 1-1-3 | Recover access | ✅ | `POST /api/auth/forgot` + `/reset`（固定码 123456） |
-| 1-2 | Sign out | ⚠️ | `POST /api/auth/logout` 有；**规格要求的“仅影响当前会话”确认弹窗未实现** |
+| 1-2 | Sign out | ✅ | **批次 B 已补**：登出改为两步确认（"Sign out of this session only?" + Confirm/Cancel），取消保留会话 |
 | 1-3 | Change password | ✅ | **批次 A 已补**：`POST /api/auth/password` + `/settings` 页（Password and authentication） |
 | 2-1-1 | Browse org repos | ✅ | `GET /api/orgs/:name` + OrgPage Repositories 标签 |
 | 2-1-2 | Create org | ✅ | `POST /api/orgs` + OrgsPage |
@@ -42,7 +42,7 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 2-2-4 | Remove org member | ✅ | **批次 A 已补**：`DELETE /api/orgs/:name/members/:username` + People 页两步确认；级联清团队关系、拒绝移除最后 Owner |
 | 2-3 | Grant repo access | ⚠️ | `GET/POST /api/orgs/:name/access` 只支持 **team** 授权；规格要求的“直接授权给个人”缺失 |
 | 3-1 | Search repos | ✅ | `GET /api/search` + `searchRepos` |
-| 3-2-1 | Create repo | ⚠️ | 仅 `POST /api/orgs/:name/repos`（组织仓库）；**个人仓库创建缺失** |
+| 3-2-1 | Create repo | ✅ | **批次 B 已补**：新增 `POST /api/repos`（个人命名空间）+ 首页 "New repository" 表单；组织仓库原有 |
 | 3-2-2 | Fork repo | ✅ | **批次 A 已补**：`POST /api/repos/:owner/:name/fork` + 仓库页 Fork 按钮，`forkedFrom` 记录来源 |
 | 3-2-3 | Clone URL | ✅ | **批次 A 已补**：repo 载荷 `cloneUrl` + Code 区可复制输入框 |
 | 3-3 | Public repo overview | ✅ | `GET /api/repos/:owner/:name` + RepoPage |

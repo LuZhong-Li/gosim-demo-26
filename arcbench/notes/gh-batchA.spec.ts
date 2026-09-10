@@ -65,8 +65,27 @@ test('REQ-1-3 change account password from settings', async ({ page }) => {
   await page.getByRole('button', { name: /update password/i }).click();
   await expect(page.getByText('Password updated.')).toBeVisible();
 
-  await page.getByRole('link', { name: /sign out/i }).click();
+  // REQ-1-2: cancelling keeps the session, confirming ends only this session
+  await page.getByRole('button', { name: /^sign out$/i }).click();
+  await page.getByRole('button', { name: /^cancel$/i }).click();
+  await expect(page.getByText(user, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^sign out$/i }).click();
+  await page.getByRole('button', { name: /confirm sign out/i }).click();
   await signIn(page, user, newPassword);
+});
+
+test('REQ-3-2-1 create a repository in the personal namespace', async ({ page }) => {
+  const user = unique('psn');
+  await register(page, user);
+  await signIn(page, user);
+
+  await page.getByLabel('Personal repository name').fill('personal-app');
+  await page.getByLabel('Personal repository visibility').selectOption({ label: 'Public' });
+  await page.getByRole('button', { name: /^create repository$/i }).first().click();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${user}/personal-app`);
+  await expect(page.getByLabel('Clone URL')).toHaveValue(
+    new RegExp(`${user}/personal-app\\.git$`),
+  );
 });
 
 test('REQ-2-2-4 remove an organization member from People', async ({ page }) => {

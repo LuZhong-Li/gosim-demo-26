@@ -10,6 +10,7 @@ import RepoPage from './pages/RepoPage';
 import SettingsPage from './pages/SettingsPage';
 
 function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   return (
     <header className="app-header">
       <Link to="/" className="brand">
@@ -21,9 +22,32 @@ function Header({ user, onLogout }: { user: User | null; onLogout: () => void })
             <Link to="/orgs">Your organizations</Link>
             <Link to="/settings">Settings</Link>
             <span className="username">{user.username}</span>
-            <Link to="/" onClick={onLogout}>
-              Sign out
-            </Link>
+            {/* REQ-1-2: signing out affects only the current session */}
+            {confirmingSignOut ? (
+              <span className="inline-form">
+                <span className="muted">Sign out of this session only?</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmingSignOut(false);
+                    onLogout();
+                  }}
+                >
+                  Confirm sign out
+                </button>
+                <button type="button" onClick={() => setConfirmingSignOut(false)}>
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => setConfirmingSignOut(true)}
+              >
+                Sign out
+              </button>
+            )}
           </>
         ) : (
           <>

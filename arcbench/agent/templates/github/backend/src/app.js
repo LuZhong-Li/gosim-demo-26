@@ -353,6 +353,35 @@ app.get('/api/orgs/:name/access', (req, res) => {
   res.json({ grants: store.state.accessGrants.filter((grant) => grant.org === org.name) });
 });
 
+// REQ-3-2-1 Create a Repository with Owner, Visibility, and Initialization Options
+// (personal namespace; organization repositories are handled below)
+app.post('/api/repos', requireUser, (req, res) => {
+  const repoName = String((req.body || {}).name || '').trim().toLowerCase();
+  const visibility = String((req.body || {}).visibility || 'private').trim().toLowerCase();
+  if (!/^[a-z0-9._-]{1,100}$/.test(repoName)) {
+    return res.status(400).json({ error: 'Repository name may only contain letters, digits, dots, underscores, and hyphens.' });
+  }
+  if (!['public', 'private'].includes(visibility)) {
+    return res.status(400).json({ error: 'Visibility must be public or private.' });
+  }
+  if (store.findRepo(req.user.username, repoName)) {
+    return res.status(409).json({ error: 'A repository with that name already exists.' });
+  }
+  const repo = {
+    owner: req.user.username,
+    ownerType: 'user',
+    name: repoName,
+    visibility,
+    description: String((req.body || {}).description || '').trim(),
+    defaultBranch: 'main',
+    createdBy: req.user.username,
+    createdAt: new Date().toISOString(),
+  };
+  store.state.repos.push(repo);
+  store.initializeRepoContent(repo, req.user.username);
+  return res.status(201).json({ repo });
+});
+
 app.post('/api/orgs/:name/repos', requireUser, (req, res) => {
   const org = store.findOrg(req.params.name);
   if (!org) return res.status(404).json({ error: 'Organization not found.' });
