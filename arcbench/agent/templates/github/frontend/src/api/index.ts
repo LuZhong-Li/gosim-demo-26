@@ -51,6 +51,7 @@ export type PullRequest = {
   createdAt: string;
   reviews?: Review[];
   checks?: { name: string; state: string }[];
+  reviewers?: ReviewerRequest[];
   mergedBy?: string;
 };
 export type PullDetail = {
@@ -318,6 +319,34 @@ export type ReviewComment = {
 };
 
 // REQ-6-3-3: inline review comments anchored to a file and line.
+export type ReviewerRequest = { username: string; requestedBy?: string; createdAt?: string };
+
+// REQ-6-4: request or remove a pull-request reviewer.
+export async function requestPullReviewer(
+  owner: string,
+  name: string,
+  number: number,
+  username: string,
+): Promise<ReviewerRequest[]> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/reviewers`,
+    { username },
+  );
+  return response.data.reviewers as ReviewerRequest[];
+}
+
+export async function removePullReviewer(
+  owner: string,
+  name: string,
+  number: number,
+  username: string,
+): Promise<ReviewerRequest[]> {
+  const response = await client.delete(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/reviewers/${encodeURIComponent(username)}`,
+  );
+  return response.data.reviewers as ReviewerRequest[];
+}
+
 export async function getPullComments(
   owner: string,
   name: string,

@@ -928,6 +928,50 @@ app.get('/api/repos/:owner/:name/pulls/:number/files', (req, res) => {
 });
 
 // REQ-6-3-3 Add Review Comments to Changed Code Lines
+// REQ-6-4 Request or Remove Pull Request Reviewers
+app.post('/api/repos/:owner/:name/pulls/:number/reviewers', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You cannot change reviewers for this pull request.' });
+  }
+  const username = String((req.body || {}).username || '').trim().toLowerCase();
+  const candidate = store.findUserByUsername(username);
+  if (!candidate) return res.status(404).json({ error: 'User not found.' });
+  if (username === String(pull.author).toLowerCase()) {
+    return res.status(400).json({ error: 'The pull request author cannot be a reviewer.' });
+  }
+  if (!store.canWrite(repo, username)) {
+    return res.status(400).json({ error: 'That account does not have write access to this repository.' });
+  }
+  pull.reviewers = pull.reviewers || [];
+  if (!pull.reviewers.some((item) => String(item.username).toLowerCase() === username)) {
+    pull.reviewers.push({
+      username,
+      requestedBy: req.user.username,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return res.status(201).json({ reviewers: pull.reviewers });
+});
+
+app.delete('/api/repos/:owner/:name/pulls/:number/reviewers/:username', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You cannot change reviewers for this pull request.' });
+  }
+  const username = String(req.params.username || '').trim().toLowerCase();
+  pull.reviewers = (pull.reviewers || []).filter(
+    (item) => String(item.username).toLowerCase() !== username,
+  );
+  return res.json({ reviewers: pull.reviewers });
+});
+
 app.post('/api/repos/:owner/:name/pulls/:number/comments', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });

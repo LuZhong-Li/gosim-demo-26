@@ -314,3 +314,44 @@ test('REQ-6-3-3 inline review comment on a changed file', async ({ page }) => {
   await expect(page.getByText('Looks fine')).toBeVisible();
   await expect(page.getByText(/on src\/main\.js/)).toBeVisible();
 });
+
+test('REQ-6-4 request and remove a pull request reviewer', async ({ page }) => {
+  const author = unique('rva');
+  const reviewer = unique('rvr');
+  const org = unique('rvorg');
+
+  await register(page, reviewer);
+  await register(page, author);
+  await signIn(page, author);
+  await createOrgRepo(page, org, 'app');
+
+  await page.getByLabel('New branch name').fill('feature');
+  await page.getByRole('button', { name: /^create branch$/i }).click();
+  await page.getByRole('button', { name: /^pull requests$/i }).click();
+  await page.getByLabel('Title').fill('Needs review');
+  await page.getByLabel('Head branch').fill('feature');
+  await page.getByRole('button', { name: /^create pull request$/i }).click();
+  await expect(page.getByText('Pull request created.')).toBeVisible();
+
+  // the author cannot review their own pull request
+  await page.getByRole('button', { name: /#1 needs review/i }).click();
+  await page.getByLabel('Reviewer username').fill(author);
+  await page.getByRole('button', { name: /request reviewer/i }).click();
+  await expect(page.getByText(/cannot be a reviewer/i)).toBeVisible();
+
+  // grant the candidate write access through organization membership
+  await page.goto(`${base}orgs/${org}`);
+  await page.getByLabel('Member username').fill(reviewer);
+  await page.getByRole('button', { name: /add member/i }).click();
+  await expect(page.getByText('Member added.')).toBeVisible();
+
+  await page.goto(`${base}${org}/app`);
+  await page.getByRole('button', { name: /^pull requests$/i }).click();
+  await page.getByRole('button', { name: /#1 needs review/i }).click();
+  await page.getByLabel('Reviewer username').fill(reviewer);
+  await page.getByRole('button', { name: /request reviewer/i }).click();
+  await expect(page.getByRole('button', { name: /remove reviewer/i })).toBeVisible();
+
+  await page.getByRole('button', { name: /remove reviewer/i }).click();
+  await expect(page.getByText(/No reviewers requested/i)).toBeVisible();
+});

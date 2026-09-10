@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PullDetail, PullFiles, PullRequest, ReviewComment } from '../api';
+import type {
+  PullDetail,
+  PullFiles,
+  PullRequest,
+  ReviewComment,
+  ReviewerRequest,
+} from '../api';
 import * as api from '../api';
 
 export default function PullsTab({ owner, name }: { owner: string; name: string }) {
@@ -13,6 +19,8 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [files, setFiles] = useState<PullFiles | null>(null);
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [reviewerDraft, setReviewerDraft] = useState('');
+  const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
   const [error, setError] = useState('');
@@ -48,6 +56,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       setReviewBody('');
       setFiles(null);
       setComments(await api.getPullComments(owner, name, number));
+      setReviewers((await api.getPull(owner, name, number)).pull.reviewers || []);
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -110,6 +119,54 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
           )}
           {/* REQ-6-2-4: a draft must be marked ready before it can be reviewed or merged */}
           {/* REQ-6-3-2: changed files and aggregate diff */}
+          {/* REQ-6-4: requested reviewers */}
+          <h4>Reviewers</h4>
+          {reviewers.length === 0 ? (
+            <p className="muted">No reviewers requested.</p>
+          ) : (
+            <ul className="repo-list">
+              {reviewers.map((reviewer) => (
+                <li key={reviewer.username}>
+                  {reviewer.username}
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() =>
+                      api
+                        .removePullReviewer(owner, name, selected.pull.number, reviewer.username)
+                        .then((list) => setReviewers(list))
+                        .catch((caught) => setError(api.errorMessage(caught)))
+                    }
+                  >
+                    Remove reviewer
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="inline-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!reviewerDraft.trim()) return;
+              api
+                .requestPullReviewer(owner, name, selected.pull.number, reviewerDraft.trim())
+                .then((list) => {
+                  setReviewers(list);
+                  setReviewerDraft('');
+                })
+                .catch((caught) => setError(api.errorMessage(caught)));
+            }}
+          >
+            <input
+              aria-label="Reviewer username"
+              type="text"
+              value={reviewerDraft}
+              placeholder="reviewer username"
+              onChange={(event) => setReviewerDraft(event.target.value)}
+            />
+            <button type="submit">Request reviewer</button>
+          </form>
           <button
             type="button"
             onClick={() => {
