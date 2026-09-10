@@ -74,6 +74,35 @@ test('REQ-1-3 change account password from settings', async ({ page }) => {
   await signIn(page, user, newPassword);
 });
 
+test('REQ-5-2-3/5-3-1 issue reactions toggle and multiple assignees', async ({ page }) => {
+  const user = unique('rx');
+  const org = unique('rxorg');
+  await register(page, user);
+  await signIn(page, user);
+  await createOrgRepo(page, org, 'notes');
+
+  await page.getByRole('button', { name: /^issues \(\d+\)$/i }).click();
+  await page.getByLabel('Title').fill('Reaction target');
+  await page.getByLabel('Assignees (comma separated)').fill('alice, bob');
+  await page.getByRole('button', { name: /create issue/i }).click();
+  await expect(page.getByText('Issue created.')).toBeVisible();
+
+  await page.getByRole('button', { name: /#1 reaction target/i }).click();
+  await expect(page.getByText(/assignees: alice, bob/i)).toBeVisible();
+  await page.getByLabel('Comment body').fill('First comment');
+  await page.getByRole('button', { name: /^comment$/i }).click();
+  await expect(page.getByText('First comment')).toBeVisible();
+
+  const issueReaction = page.getByRole('button', { name: /^👍 0$/ });
+  await issueReaction.first().click();
+  await expect(page.getByRole('button', { name: /^👍 1$/ })).toBeVisible();
+  await expect(page.getByText('Reaction updated.')).toBeVisible();
+
+  // toggling the same reaction again removes it
+  await page.getByRole('button', { name: /^👍 1$/ }).first().click();
+  await expect(page.getByRole('button', { name: /^👍 0$/ }).first()).toBeVisible();
+});
+
 test('REQ-2-2-2 change a team parent and reject hierarchy cycles', async ({ page }) => {
   const user = unique('tm');
   const org = unique('tmorg');

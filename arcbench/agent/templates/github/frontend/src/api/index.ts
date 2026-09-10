@@ -21,9 +21,12 @@ export type Issue = {
   createdAt: string;
   comments?: Comment[];
   assignee?: string | null;
+  assignees?: string[];
   labels?: string[];
   milestone?: string | null;
+  reactions?: Reaction[];
 };
+export type Reaction = { user: string; type: string; commentId?: string | null };
 export type Comment = {
   id: string;
   author: string;
@@ -423,6 +426,20 @@ export async function addIssueComment(
     { body },
   );
   return response.data.comment as Comment;
+}
+
+// REQ-5-2-3: toggle a 👍 reaction on an issue or one of its comments.
+export async function toggleIssueReaction(
+  owner: string,
+  name: string,
+  number: number,
+  input: { type?: string; commentId?: string | null } = {},
+): Promise<Issue> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}/reactions`,
+    input,
+  );
+  return response.data.issue as Issue;
 }
 
 export async function setRepoVisibility(

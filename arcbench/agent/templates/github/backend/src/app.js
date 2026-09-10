@@ -677,6 +677,10 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
     body: String((req.body || {}).body || '').trim(),
     author: req.user.username,
     state: 'open',
+    // REQ-5-3-1: issues may be assigned to several participants.
+    assignees: Array.isArray((req.body || {}).assignees)
+      ? (req.body.assignees || []).map((entry) => String(entry).trim()).filter(Boolean)
+      : [],
     createdAt: new Date().toISOString(),
     assignee: String((req.body || {}).assignee || '').trim() || null,
     labels: Array.isArray((req.body || {}).labels)
@@ -702,6 +706,11 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   if (Object.prototype.hasOwnProperty.call(body, 'assignee')) {
     issue.assignee = String(body.assignee || '').trim() || null;
   }
+  // REQ-5-3-1: an issue may carry several assignees.
+  if (Array.isArray(body.assignees)) {
+    issue.assignees = body.assignees.map((name) => String(name).trim()).filter(Boolean);
+    issue.assignee = issue.assignees[0] || null;
+  }
   if (body.milestone !== undefined) {
     issue.milestone = String(body.milestone || '').trim() || null;
   }
@@ -709,6 +718,32 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
     issue.labels = body.labels.map((label) => String(label).trim()).filter(Boolean);
   }
   return res.json({ issue });
+});
+
+// REQ-5-2-3: reactions on an issue or one of its comments (toggle per user).
+app.post('/api/repos/:owner/:name/issues/:number/reactions', requireUser, (req, res) => {
+  const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
+  if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  const type = String((req.body || {}).type || '👍').trim();
+  const commentId = (req.body || {}).commentId ? String((req.body || {}).commentId) : null;
+  issue.reactions = issue.reactions || [];
+  const existing = issue.reactions.find(
+    (reaction) =>
+      reaction.user === req.user.username &&
+      reaction.type === type &&
+      (reaction.commentId || null) === commentId,
+  );
+  if (existing) {
+    issue.reactions = issue.reactions.filter((reaction) => reaction !== existing);
+    return res.json({ ok: true, removed: true, issue });
+  }
+  issue.reactions.push({
+    user: req.user.username,
+    type,
+    commentId,
+    createdAt: new Date().toISOString(),
+  });
+  return res.status(201).json({ ok: true, issue });
 });
 
 app.get('/api/repos/:owner/:name/issues/:number', (req, res) => {

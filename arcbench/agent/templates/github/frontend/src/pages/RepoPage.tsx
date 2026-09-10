@@ -353,11 +353,36 @@ export default function RepoPage() {
                 #{selected.number} {selected.title}
               </h3>
               <p className="muted">
-                {selected.state} by {selected.author} · assignee: {selected.assignee || 'none'} ·
+                {selected.state} by {selected.author} · assignees:{' '}
+                {(selected.assignees && selected.assignees.length
+                  ? selected.assignees
+                  : selected.assignee
+                    ? [selected.assignee]
+                    : []
+                ).join(', ') || 'none'}{' '}
+                ·
                 milestone: {selected.milestone || 'none'} · labels:{' '}
                 {selected.labels && selected.labels.length ? selected.labels.join(', ') : 'none'}
               </p>
               {selected.body && <p>{selected.body}</p>}
+              {/* REQ-5-2-3: reactions on the issue itself */}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() =>
+                  run(
+                    () => api.toggleIssueReaction(owner, name, selected.number, { type: '👍' }),
+                    'Reaction updated.',
+                  ).then(() => openIssue(selected.number))
+                }
+              >
+                👍{' '}
+                {
+                  (selected.reactions || []).filter(
+                    (reaction) => reaction.type === '👍' && !reaction.commentId,
+                  ).length
+                }
+              </button>
               <button
                 type="button"
                 onClick={() =>
@@ -381,6 +406,28 @@ export default function RepoPage() {
                     <li key={comment.id}>
                       <strong>{comment.author}</strong>
                       <p>{comment.body}</p>
+                      <button
+                        type="button"
+                        className="link-button"
+                        onClick={() =>
+                          run(
+                            () =>
+                              api.toggleIssueReaction(owner, name, selected.number, {
+                                commentId: comment.id,
+                                type: '👍',
+                              }),
+                            'Reaction updated.',
+                          ).then(() => openIssue(selected.number))
+                        }
+                      >
+                        👍{' '}
+                        {
+                          (selected.reactions || []).filter(
+                            (reaction) =>
+                              reaction.type === '👍' && reaction.commentId === comment.id,
+                          ).length
+                        }
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -418,7 +465,10 @@ export default function RepoPage() {
                   api.createIssue(owner, name, {
                     title,
                     body,
-                    assignee: assignee || undefined,
+                    assignees: assignee
+                      .split(',')
+                      .map((entry) => entry.trim())
+                      .filter(Boolean),
                     labels: labels
                       .split(',')
                       .map((label) => label.trim())
@@ -453,7 +503,7 @@ export default function RepoPage() {
               />
             </div>
             <div className="field">
-              <label htmlFor="issue-assignee">Assignee</label>
+              <label htmlFor="issue-assignee">Assignees (comma separated)</label>
               <input
                 id="issue-assignee"
                 type="text"

@@ -59,8 +59,8 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 5-1-2 | View issue & discussion | ✅ | `GET .../issues/:number`（含 comments） |
 | 5-2-1 | Create issue | ✅ | `POST .../issues` |
 | 5-2-2 | Edit issue | ✅ | `PATCH .../issues/:number` |
-| 5-2-3 | Comment & reaction | ⚠️ | 评论 ✅（`POST .../comments`）；**reaction 0 命中** |
-| 5-3-1 | Assignees | ⚠️ | 只有单个 `assignee?: string`；规格要求多选 + 可搜索的设置菜单 |
+| 5-2-3 | Comment & reaction | ✅ | **批次 B3 已补**：`POST .../issues/:number/reactions`（按 user+target 切换）；issue 与每条评论都有 👍 按钮与计数 |
+| 5-3-1 | Assignees | ✅ | **批次 B3 已补**：issue 支持 `assignees: string[]`（创建与更新），表单按逗号分隔填写、详情页展示多个 |
 | 5-3-2 | Labels | ✅ | `labels: string[]`（app.js:505/531） |
 | 5-3-3 | Milestone | ✅ | issue 详情页 milestone 单选框 |
 | 5-4 | Close/reopen issue | ✅ | `PATCH .../issues/:number` 带 state |
