@@ -306,6 +306,42 @@ export async function getPull(owner: string, name: string, number: number): Prom
 }
 
 // REQ-6-3-2: changed files and aggregate diff for the pull request.
+export type ReviewComment = {
+  id: string;
+  author: string;
+  path: string;
+  line: number;
+  body: string;
+  state: string;
+  outdated?: boolean;
+  published?: boolean;
+};
+
+// REQ-6-3-3: inline review comments anchored to a file and line.
+export async function getPullComments(
+  owner: string,
+  name: string,
+  number: number,
+): Promise<ReviewComment[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/comments`,
+  );
+  return response.data.comments as ReviewComment[];
+}
+
+export async function addPullComment(
+  owner: string,
+  name: string,
+  number: number,
+  input: { path: string; line: number; body: string; pending?: boolean },
+): Promise<ReviewComment> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/comments`,
+    input,
+  );
+  return response.data.comment as ReviewComment;
+}
+
 export async function getPullFiles(
   owner: string,
   name: string,

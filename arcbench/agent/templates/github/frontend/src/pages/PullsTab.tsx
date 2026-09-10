@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PullDetail, PullFiles, PullRequest } from '../api';
+import type { PullDetail, PullFiles, PullRequest, ReviewComment } from '../api';
 import * as api from '../api';
 
 export default function PullsTab({ owner, name }: { owner: string; name: string }) {
@@ -11,6 +11,8 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [headBranch, setHeadBranch] = useState('');
   const [reviewBody, setReviewBody] = useState('');
   const [files, setFiles] = useState<PullFiles | null>(null);
+  const [comments, setComments] = useState<ReviewComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
   const [error, setError] = useState('');
@@ -45,6 +47,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       setSelected(await api.getPull(owner, name, number));
       setReviewBody('');
       setFiles(null);
+      setComments(await api.getPullComments(owner, name, number));
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -141,8 +144,54 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
                         )
                         .join('\n')}
                     </pre>
+                    {/* REQ-6-3-3: inline review comment anchored to this file */}
+                    <form
+                      className="inline-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const body = (commentDraft[file.path] || '').trim();
+                        if (!body) return;
+                        api
+                          .addPullComment(owner, name, selected.pull.number, {
+                            path: file.path,
+                            line: 1,
+                            body,
+                          })
+                          .then(() => api.getPullComments(owner, name, selected.pull.number))
+                          .then((list) => {
+                            setComments(list);
+                            setCommentDraft({ ...commentDraft, [file.path]: '' });
+                          })
+                          .catch((caught) => setError(api.errorMessage(caught)));
+                      }}
+                    >
+                      <input
+                        aria-label={`Inline comment for ${file.path}`}
+                        type="text"
+                        value={commentDraft[file.path] || ''}
+                        placeholder="Comment on this file"
+                        onChange={(event) =>
+                          setCommentDraft({ ...commentDraft, [file.path]: event.target.value })
+                        }
+                      />
+                      <button type="submit">Add single comment</button>
+                    </form>
                   </div>
                 ))
+              )}
+              {comments.length > 0 && (
+                <div>
+                  <h4>Review comments</h4>
+                  <ul className="repo-list">
+                    {comments.map((comment) => (
+                      <li key={comment.id}>
+                        <strong>{comment.author}</strong> on {comment.path}
+                        {comment.outdated && <span className="muted"> · Outdated</span>}
+                        <p>{comment.body}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           )}

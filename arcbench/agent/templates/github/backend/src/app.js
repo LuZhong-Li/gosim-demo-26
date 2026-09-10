@@ -927,6 +927,55 @@ app.get('/api/repos/:owner/:name/pulls/:number/files', (req, res) => {
   });
 });
 
+// REQ-6-3-3 Add Review Comments to Changed Code Lines
+app.post('/api/repos/:owner/:name/pulls/:number/comments', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  if (pull.author === req.user.username) {
+    return res.status(403).json({ error: 'The author cannot review their own pull request.' });
+  }
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to comment.' });
+  }
+  const path_ = String((req.body || {}).path || '').trim();
+  const body = String((req.body || {}).body || '').trim();
+  const line = Number((req.body || {}).line || 0);
+  if (!path_ || !body) {
+    return res.status(400).json({ error: 'A file path and a non-empty comment are required.' });
+  }
+  pull.reviewComments = pull.reviewComments || [];
+  const comment = {
+    id: `rc${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    author: req.user.username,
+    path: path_,
+    line,
+    body,
+    commit: store.branchHead(repo, pull.headBranch),
+    // "Add single comment" publishes immediately; "Start a review" keeps a draft.
+    state: (req.body || {}).pending === true ? 'pending' : 'published',
+    createdAt: new Date().toISOString(),
+  };
+  pull.reviewComments.push(comment);
+  return res.status(201).json({ comment });
+});
+
+app.get('/api/repos/:owner/:name/pulls/:number/comments', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const head = store.branchHead(repo, pull.headBranch);
+  const comments = (pull.reviewComments || []).map((comment) => ({
+    ...comment,
+    // published comments survive a new compare commit but become Outdated
+    outdated: comment.state === 'published' && comment.commit !== head,
+    published: comment.state === 'published',
+  }));
+  return res.json({ comments });
+});
+
 app.post('/api/repos/:owner/:name/pulls/:number/reviews', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });

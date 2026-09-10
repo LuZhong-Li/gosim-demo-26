@@ -93,6 +93,13 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 
 ## 下一步
 
+### 批次 C2 已补（2026-09-10）
+
+**REQ-6-3-3 行级评审评论**：`POST/GET /api/repos/:owner/:name/pulls/:number/comments`，
+评论锚定 file + line + commit，支持 `published`（Add single comment）与
+`pending`（Start a review）；GET 时对比当前 compare commit，已发布评论换提交后
+标记 `outdated`（UI 显示 · Outdated）；PR 详情按文件渲染评论。作者不能评审自己的 PR。
+
 按上面 1→7 的顺序补实现，每补一组就跑本地 smoke
 （`arcbench/runs/gh-playwright.config.cjs`，当前 3 passed）守住不回归，
 再重新打包成 r13 上传。
