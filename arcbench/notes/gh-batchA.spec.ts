@@ -355,3 +355,27 @@ test('REQ-6-4 request and remove a pull request reviewer', async ({ page }) => {
   await page.getByRole('button', { name: /remove reviewer/i }).click();
   await expect(page.getByText(/No reviewers requested/i)).toBeVisible();
 });
+
+test('REQ-4-2-2 inspect a commit diff', async ({ page }) => {
+  const user = unique('cd');
+  const org = unique('cdorg');
+  await register(page, user);
+  await signIn(page, user);
+  await createOrgRepo(page, org, 'hist');
+
+  await page.getByLabel('File path').fill('docs/notes.md');
+  await page.getByLabel('Commit message').fill('Add notes');
+  await page.getByLabel('Content').fill('first');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByLabel('File path').fill('docs/notes.md');
+  await page.getByLabel('Commit message').fill('Extend notes');
+  await page.getByLabel('Content').fill('first\nsecond');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByRole('button', { name: /load commit history/i }).click();
+  await page.getByRole('button', { name: /view latest commit diff/i }).click();
+  await expect(page.getByLabel('Commit diff for docs/notes.md')).toContainText('+second');
+});

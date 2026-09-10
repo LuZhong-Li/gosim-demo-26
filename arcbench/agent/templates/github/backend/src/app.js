@@ -615,6 +615,27 @@ app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   return res.status(201).json({ path: filePath, message });
 });
 
+// REQ-4-2-2 Inspect Commit and Revision Differences
+app.get('/api/repos/:owner/:name/commits/:sha', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const commit = store.commitBySha(repo, req.params.sha);
+  if (!commit) return res.status(404).json({ error: 'Commit not found.' });
+  // commits are stored newest-first; the next entry is the revision this one was based on
+  const index = (repo.commits || []).findIndex((item) => item.sha === commit.sha);
+  const parent = (repo.commits || [])[index + 1] || null;
+  const result = store.diffSnapshots(
+    parent ? parent.snapshot || [] : [],
+    commit.snapshot || [],
+  );
+  return res.json({
+    commit: { sha: commit.sha, message: commit.message, author: commit.author, timestamp: commit.timestamp },
+    parentSha: parent ? parent.sha : null,
+    files: result.files,
+    stats: result.stats,
+  });
+});
+
 app.get('/api/repos/:owner/:name/commits', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });

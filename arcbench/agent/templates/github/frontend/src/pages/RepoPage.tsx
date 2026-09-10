@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Issue, Repo } from '../api';
+import type { CommitDiff } from '../api';
 import * as api from '../api';
 import PullsTab from './PullsTab';
 
@@ -22,6 +23,7 @@ export default function RepoPage() {
   const [branches, setBranches] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
   const [commits, setCommits] = useState<Commit[]>([]);
+  const [commitDiff, setCommitDiff] = useState<CommitDiff | null>(null);
   const [showCommits, setShowCommits] = useState(false);
   const [newFilePath, setNewFilePath] = useState('');
   const [newFileBranch, setNewFileBranch] = useState('main');
@@ -302,7 +304,45 @@ export default function RepoPage() {
             <button type="submit">Commit file</button>
           </form>
 
-          <h2>Commits</h2>
+      <h2>Commits</h2>
+      {/* REQ-4-2-2: inspect the difference introduced by a revision */}
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            const list = commits.length ? commits : await api.listCommits(owner, name);
+            const latest = list[0];
+            if (!latest) return;
+            setCommitDiff(await api.getCommitDiff(owner, name, latest.sha));
+          } catch (caught) {
+            setError(api.errorMessage(caught));
+          }
+        }}
+      >
+        View latest commit diff
+      </button>
+      {commitDiff && (
+        <div className="diff-view">
+          <p className="muted">
+            {commitDiff.commit.message} · +{commitDiff.stats.added} / -{commitDiff.stats.removed}
+          </p>
+          {commitDiff.files.map((file) => (
+            <div key={file.path}>
+              <p>
+                <strong>{file.path}</strong> <span className="muted">{file.status}</span>
+              </p>
+              <pre aria-label={`Commit diff for ${file.path}`}>
+                {file.lines
+                  .map(
+                    (line) =>
+                      `${line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}${line.text}`,
+                  )
+                  .join('\n')}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
           {!showCommits ? (
             <button type="button" onClick={loadCommits}>
               Load commit history

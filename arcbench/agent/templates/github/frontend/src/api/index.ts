@@ -322,6 +322,25 @@ export type ReviewComment = {
 export type ReviewerRequest = { username: string; requestedBy?: string; createdAt?: string };
 
 // REQ-6-4: request or remove a pull-request reviewer.
+export type CommitDiff = {
+  commit: { sha: string; message: string; author: string; timestamp: string };
+  parentSha: string | null;
+  files: DiffFile[];
+  stats: { changedFiles: number; added: number; removed: number };
+};
+
+// REQ-4-2-2: diff introduced by a single commit.
+export async function getCommitDiff(
+  owner: string,
+  name: string,
+  sha: string,
+): Promise<CommitDiff> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits/${encodeURIComponent(sha)}`,
+  );
+  return response.data as CommitDiff;
+}
+
 export async function requestPullReviewer(
   owner: string,
   name: string,
