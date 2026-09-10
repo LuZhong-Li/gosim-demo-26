@@ -183,6 +183,13 @@ function bestGrantPermission(orgName, repoName, username) {
   const order = ['Read', 'Triage', 'Write', 'Maintain', 'Admin'];
   let best = -1;
   for (const grant of grantsFor(orgName, repoName)) {
+    // direct grant to an account
+    if (grant.user && String(grant.user).toLowerCase() === String(username).toLowerCase()) {
+      const rank = order.indexOf(grant.permission);
+      if (rank > best) best = rank;
+      continue;
+    }
+    // grant inherited through team membership
     const team = findTeam(orgName, grant.team);
     if (!team || !(team.members || []).some((member) => String(member).toLowerCase() === String(username).toLowerCase())) {
       continue;

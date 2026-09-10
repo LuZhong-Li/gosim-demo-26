@@ -19,6 +19,11 @@ export default function OrgPage() {
   const [teamName, setTeamName] = useState('');
   const [teamDescription, setTeamDescription] = useState('');
   const [parentDraft, setParentDraft] = useState<Record<string, string>>({});
+  const [grantRepo, setGrantRepo] = useState('');
+  const [grantUser, setGrantUser] = useState('');
+  const [grantTeam, setGrantTeam] = useState('');
+  const [grantPermission, setGrantPermission] = useState('Write');
+  const [grants, setGrants] = useState<api.AccessGrant[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -226,6 +231,86 @@ export default function OrgPage() {
           <button type="submit">Create team</button>
         </form>
       )}
+
+      {/* REQ-2-3: grant a repository role to a member or a team */}
+      <h2>Manage access</h2>
+      {grants.length > 0 && (
+        <ul className="repo-list">
+          {grants.map((grant) => (
+            <li key={`${grant.repo}-${grant.user || grant.team}`}>
+              {grant.repo} · {grant.user || grant.team} · {grant.permission}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError('');
+          api
+            .grantRepoAccess(name, {
+              repo: grantRepo,
+              username: grantUser || undefined,
+              team: grantUser ? undefined : grantTeam || undefined,
+              permission: grantPermission,
+            })
+            .then((grant) => {
+              setGrants([
+                ...grants.filter(
+                  (item) =>
+                    !(item.repo === grant.repo && (item.user || item.team) === (grant.user || grant.team)),
+                ),
+                grant,
+              ]);
+              setInfo('Access granted.');
+            })
+            .catch((caught) => setError(api.errorMessage(caught)));
+        }}
+      >
+        <div className="field">
+          <label htmlFor="grant-repo">Repository</label>
+          <input
+            id="grant-repo"
+            type="text"
+            value={grantRepo}
+            onChange={(event) => setGrantRepo(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="grant-user">Grant to member</label>
+          <input
+            id="grant-user"
+            type="text"
+            value={grantUser}
+            onChange={(event) => setGrantUser(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="grant-team">Grant to team</label>
+          <input
+            id="grant-team"
+            type="text"
+            value={grantTeam}
+            onChange={(event) => setGrantTeam(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="grant-permission">Permission</label>
+          <select
+            id="grant-permission"
+            value={grantPermission}
+            onChange={(event) => setGrantPermission(event.target.value)}
+          >
+            {['Read', 'Triage', 'Write', 'Maintain', 'Admin'].map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit">Grant access</button>
+      </form>
 
       <h2>Create repository</h2>
       <form

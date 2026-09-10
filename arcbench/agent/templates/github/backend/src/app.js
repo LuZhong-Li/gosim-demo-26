@@ -363,20 +363,40 @@ app.post('/api/orgs/:name/access', requireUser, (req, res) => {
   }
   const repoName = String((req.body || {}).repo || '').trim().toLowerCase();
   const teamName = String((req.body || {}).team || '').trim();
+  const username = String((req.body || {}).username || '').trim().toLowerCase();
   const permission = String((req.body || {}).permission || 'Read').trim();
   if (!store.findRepo(org.name, repoName)) {
     return res.status(404).json({ error: 'Repository not found.' });
   }
-  if (!store.findTeam(org.name, teamName)) {
+  if (!teamName && !username) {
+    return res.status(400).json({ error: 'Grant access to a member or a team.' });
+  }
+  if (username && !store.membership(org.name, username)) {
+    return res.status(400).json({ error: 'That account is not a member of this organization.' });
+  }
+  if (teamName && !store.findTeam(org.name, teamName)) {
     return res.status(404).json({ error: 'Team not found.' });
   }
   if (!['Read', 'Triage', 'Write', 'Maintain', 'Admin'].includes(permission)) {
     return res.status(400).json({ error: 'Unsupported repository permission.' });
   }
   store.state.accessGrants = store.state.accessGrants.filter(
-    (item) => !(item.org === org.name && item.repo === repoName && item.team === teamName),
+    (item) =>
+      !(
+        item.org === org.name &&
+        item.repo === repoName &&
+        (username
+          ? String(item.user || '').toLowerCase() === username
+          : String(item.team || '') === teamName)
+      ),
   );
-  const grant = { org: org.name, repo: repoName, team: teamName, permission };
+  const grant = {
+    org: org.name,
+    repo: repoName,
+    team: username ? null : teamName,
+    user: username || null,
+    permission,
+  };
   store.state.accessGrants.push(grant);
   return res.status(201).json({ grant });
 });

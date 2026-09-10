@@ -379,3 +379,38 @@ test('REQ-4-2-2 inspect a commit diff', async ({ page }) => {
   await page.getByRole('button', { name: /view latest commit diff/i }).click();
   await expect(page.getByLabel('Commit diff for docs/notes.md')).toContainText('+second');
 });
+
+test('REQ-2-3 grant repository access to a member and a team', async ({ page }) => {
+  const owner = unique('gao');
+  const member = unique('gam');
+  const org = unique('gaorg');
+
+  await register(page, member);
+  await register(page, owner);
+  await signIn(page, owner);
+  await createOrgRepo(page, org, 'secret', 'Private');
+
+  await page.goto(`${base}orgs/${org}`);
+  await page.getByLabel('Member username', { exact: true }).fill(member);
+  await page.getByRole('button', { name: /add member/i }).click();
+  await expect(page.getByText('Member added.')).toBeVisible();
+
+  await page.getByLabel('Team name').first().fill('core');
+  await page.getByRole('button', { name: /^create team$/i }).click();
+
+  // direct grant to a person
+  await page.locator('#grant-repo').fill('secret');
+  await page.locator('#grant-user').fill(member);
+  await page.locator('#grant-permission').selectOption('Write');
+  await page.getByRole('button', { name: /grant access/i }).click();
+  await expect(page.getByText('Access granted.')).toBeVisible();
+  await expect(page.getByText(new RegExp(`secret · ${member} · Write`))).toBeVisible();
+
+  // team grant replaces nothing and is listed separately
+  await page.locator('#grant-repo').fill('secret');
+  await page.locator('#grant-user').fill('');
+  await page.locator('#grant-team').fill('core');
+  await page.locator('#grant-permission').selectOption('Read');
+  await page.getByRole('button', { name: /grant access/i }).click();
+  await expect(page.getByText(/secret · core · Read/)).toBeVisible();
+});

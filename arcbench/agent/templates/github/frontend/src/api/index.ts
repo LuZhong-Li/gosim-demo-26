@@ -330,6 +330,22 @@ export type CommitDiff = {
 };
 
 // REQ-4-2-2: diff introduced by a single commit.
+export type AccessGrant = {
+  repo: string;
+  user?: string | null;
+  team?: string | null;
+  permission: string;
+};
+
+// REQ-2-3: grant repository access to a member or a team.
+export async function grantRepoAccess(
+  org: string,
+  input: { repo: string; username?: string; team?: string; permission: string },
+): Promise<AccessGrant> {
+  const response = await client.post(`/orgs/${encodeURIComponent(org)}/access`, input);
+  return response.data.grant as AccessGrant;
+}
+
 export async function getCommitDiff(
   owner: string,
   name: string,
