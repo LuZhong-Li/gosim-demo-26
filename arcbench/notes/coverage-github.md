@@ -37,7 +37,7 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 2-1-1 | Browse org repos | ✅ | `GET /api/orgs/:name` + OrgPage Repositories 标签 |
 | 2-1-2 | Create org | ✅ | `POST /api/orgs` + OrgsPage |
 | 2-2-1 | Create team | ✅ | `POST /api/orgs/:name/teams`（含 parentTeam 字段） |
-| 2-2-2 | Team members & hierarchy | ⚠️ | 加成员有（teams/:team/members）；**改父团队与环检测缺失** |
+| 2-2-2 | Team members & hierarchy | ✅ | **批次 B2 已补**：`PATCH /api/orgs/:name/teams/:team` 改父团队 + 环检测；团队行内可编辑父级 |
 | 2-2-3 | Add org member | ✅ | `POST /api/orgs/:name/members` |
 | 2-2-4 | Remove org member | ✅ | **批次 A 已补**：`DELETE /api/orgs/:name/members/:username` + People 页两步确认；级联清团队关系、拒绝移除最后 Owner |
 | 2-3 | Grant repo access | ⚠️ | `GET/POST /api/orgs/:name/access` 只支持 **team** 授权；规格要求的“直接授权给个人”缺失 |

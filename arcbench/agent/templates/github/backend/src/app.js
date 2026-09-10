@@ -305,6 +305,40 @@ app.post('/api/orgs/:name/teams', requireUser, (req, res) => {
   return res.status(201).json({ team });
 });
 
+// REQ-2-2-2 Manage Organization Team Members and Hierarchy
+app.patch('/api/orgs/:name/teams/:team', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current || current.role !== 'Owner') {
+    return res.status(403).json({ error: 'Only an organization owner can change team hierarchy.' });
+  }
+  const team = store.findTeam(org.name, req.params.team);
+  if (!team) return res.status(404).json({ error: 'Team not found.' });
+  const parent = String((req.body || {}).parentTeam || '').trim();
+  if (parent) {
+    if (parent.toLowerCase() === String(team.name).toLowerCase()) {
+      return res.status(400).json({ error: 'A team cannot be its own parent.' });
+    }
+    let cursor = store.findTeam(org.name, parent);
+    if (!cursor) {
+      return res.status(400).json({ error: 'Parent team must be another team in this organization.' });
+    }
+    const seen = new Set();
+    while (cursor && cursor.parent) {
+      const parentName = String(cursor.parent).toLowerCase();
+      if (seen.has(parentName)) break;
+      seen.add(parentName);
+      if (parentName === String(team.name).toLowerCase()) {
+        return res.status(400).json({ error: 'That would create a cycle in the team hierarchy.' });
+      }
+      cursor = store.findTeam(org.name, cursor.parent);
+    }
+  }
+  team.parent = parent || null;
+  return res.json({ team });
+});
+
 app.post('/api/orgs/:name/teams/:team/members', requireUser, (req, res) => {
   const org = store.findOrg(req.params.name);
   if (!org) return res.status(404).json({ error: 'Organization not found.' });

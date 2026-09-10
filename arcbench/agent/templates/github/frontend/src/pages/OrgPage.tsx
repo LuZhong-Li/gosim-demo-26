@@ -18,6 +18,7 @@ export default function OrgPage() {
   const [memberRole, setMemberRole] = useState('Member');
   const [teamName, setTeamName] = useState('');
   const [teamDescription, setTeamDescription] = useState('');
+  const [parentDraft, setParentDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -165,9 +166,32 @@ export default function OrgPage() {
       ) : (
         <ul className="repo-list">
           {teams.map((team) => (
-            <li key={team.name}>
+            <li key={team.name} data-team={team.name}>
               {team.name} <span className="muted">· {team.members.length} members</span>
+              <span className="muted"> · parent: {team.parent || 'none'}</span>
               {team.description && <p className="muted">{team.description}</p>}
+              {/* REQ-2-2-2: hierarchy is editable and cycles are rejected server-side */}
+              <form
+                className="inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  run(
+                    () => api.setTeamParent(name, team.name, parentDraft[team.name] ?? ''),
+                    'Team hierarchy updated.',
+                  );
+                }}
+              >
+                <input
+                  aria-label={`Parent team for ${team.name}`}
+                  type="text"
+                  value={parentDraft[team.name] ?? ''}
+                  placeholder="parent team (blank to clear)"
+                  onChange={(event) =>
+                    setParentDraft({ ...parentDraft, [team.name]: event.target.value })
+                  }
+                />
+                <button type="submit">Save parent</button>
+              </form>
             </li>
           ))}
         </ul>

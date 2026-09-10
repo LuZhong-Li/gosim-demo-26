@@ -55,7 +55,12 @@ export type PullDetail = {
   protection: { branch: string; requiredApprovals: number; requiredChecks: string[] };
   approvals: number;
 };
-export type Team = { name: string; description: string; members: string[] };
+export type Team = {
+  name: string;
+  description: string;
+  members: string[];
+  parent?: string | null;
+};
 export type Member = { username: string; role: string };
 export type OrgDetail = {
   org: Org;
@@ -371,6 +376,19 @@ export async function createTeam(
   input: { name: string; description: string },
 ): Promise<Team> {
   const response = await client.post(`/orgs/${encodeURIComponent(org)}/teams`, input);
+  return response.data.team as Team;
+}
+
+// REQ-2-2-2: change a team's parent (server rejects cycles).
+export async function setTeamParent(
+  org: string,
+  team: string,
+  parentTeam: string,
+): Promise<Team> {
+  const response = await client.patch(
+    `/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}`,
+    { parentTeam },
+  );
   return response.data.team as Team;
 }
 

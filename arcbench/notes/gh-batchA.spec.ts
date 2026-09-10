@@ -74,6 +74,34 @@ test('REQ-1-3 change account password from settings', async ({ page }) => {
   await signIn(page, user, newPassword);
 });
 
+test('REQ-2-2-2 change a team parent and reject hierarchy cycles', async ({ page }) => {
+  const user = unique('tm');
+  const org = unique('tmorg');
+  await register(page, user);
+  await signIn(page, user);
+
+  await page.getByRole('link', { name: 'Your organizations', exact: true }).click();
+  await page.getByLabel('Organization name').fill(org);
+  await page.getByRole('button', { name: /create organization/i }).click();
+  await page.getByRole('link', { name: new RegExp(`^${org} \\(${org}\\)$`, 'i') }).click();
+
+  for (const team of ['alpha', 'beta']) {
+    await page.getByLabel('Team name').fill(team);
+    await page.getByRole('button', { name: /^create team$/i }).click();
+  }
+
+  const betaRow = page.locator('li[data-team="beta"]');
+  await betaRow.getByLabel('Parent team for beta').fill('alpha');
+  await betaRow.getByRole('button', { name: /save parent/i }).click();
+  await expect(page.getByText('Team hierarchy updated.')).toBeVisible();
+  await expect(page.getByText(/parent: alpha/i)).toBeVisible();
+
+  const alphaRow = page.locator('li[data-team="alpha"]');
+  await alphaRow.getByLabel('Parent team for alpha').fill('beta');
+  await alphaRow.getByRole('button', { name: /save parent/i }).click();
+  await expect(page.getByText(/cycle in the team hierarchy/i)).toBeVisible();
+});
+
 test('REQ-3-2-1 create a repository in the personal namespace', async ({ page }) => {
   const user = unique('psn');
   await register(page, user);
