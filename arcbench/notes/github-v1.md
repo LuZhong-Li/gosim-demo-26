@@ -88,3 +88,19 @@ repository access grants、recovery 登录会话即时失效细节。
 
 后续候选：团队层级/parent team 与 repository access grants、PR stale
 （compare commit 变化后旧评审失效）、评论详情页独立路由、Sheets 迁移。
+
+## v5 增补（同分支）
+
+- PR 评审 stale 语义：review 记录 headSha；head 分支有新 commit 后旧 Approve
+  失效，合并返回 422 “Approvals are stale”；重新 Approve 后可合并；
+- 团队层级：团队创建支持 parentTeam（校验同组织且非自引用），org detail
+  返回 parent 与成员数；
+- Repository access grants：Org Admin/Owner 可对“团队×仓库”授 Read/Triage/
+  Write/Maintain/Admin；private 仓库对受权团队成员可见，Write+ 可提交文件，
+  Admin grant 可改可见性/保护；
+- Add file 支持指定分支提交（新 commit 只推进该分支 head）。
+
+验证：
+- API smoke `gh-v5-smoke.ps1`：guest 经 team grant 读取并写入 private 仓库；
+  PR 批准后 head 新 commit → stale 拒绝 → 重新批准 + check → 合并成功；
+- Playwright UI smoke 3/3 保持通过。

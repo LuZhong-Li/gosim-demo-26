@@ -226,7 +226,7 @@ export async function createFile(
   owner: string,
   name: string,
   filePath: string,
-  input: { content: string; message: string },
+  input: { content: string; message: string; branch?: string },
 ): Promise<{ path: string; message: string }> {
   const response = await client.post(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`,

@@ -7,6 +7,7 @@ const state = {
   orgs: [],
   memberships: [], // { org, username, role }
   teams: [], // { id, org, name, description, createdAt }
+  accessGrants: [], // { org, repo, team, permission }
   protections: {}, // repoKey -> { branch, requiredApprovals, requiredChecks }
   repos: [],
   issues: [], // { owner, repo, number, title, body, author, state, createdAt }
@@ -95,7 +96,8 @@ function reposVisibleTo(username) {
       return String(repo.owner).toLowerCase() === String(username).toLowerCase();
     }
     const member = membership(repo.owner, username);
-    return Boolean(member && member.role !== 'Read');
+    if (member && member.role !== 'Read') return true;
+    return Boolean(bestGrantPermission(repo.owner, repo.name, username));
   });
 }
 
@@ -136,6 +138,7 @@ function orgTeams(orgName) {
     .map((team) => ({
       name: team.name,
       description: team.description,
+      parent: team.parent || null,
       members: team.members || [],
     }));
 }
@@ -144,6 +147,50 @@ function addTeam(orgName, team) {
   state.teams.push({ org: String(orgName).trim().toLowerCase(), ...team });
   save();
   return team;
+}
+
+function findTeam(orgName, teamName) {
+  const normalizedOrg = String(orgName || '').trim().toLowerCase();
+  return (
+    state.teams.find(
+      (team) =>
+        team.org === normalizedOrg &&
+        String(team.name).toLowerCase() === String(teamName || '').trim().toLowerCase(),
+    ) || null
+  );
+}
+
+function addTeamMember(orgName, teamName, username) {
+  const team = findTeam(orgName, teamName);
+  if (!team) return null;
+  team.members = team.members || [];
+  const normalized = String(username).toLowerCase();
+  if (!team.members.some((member) => String(member).toLowerCase() === normalized)) {
+    team.members.push(username);
+  }
+  return team;
+}
+
+function grantsFor(orgName, repoName) {
+  return state.accessGrants.filter(
+    (grant) =>
+      grant.org === String(orgName).toLowerCase() &&
+      grant.repo === String(repoName).toLowerCase(),
+  );
+}
+
+function bestGrantPermission(orgName, repoName, username) {
+  const order = ['Read', 'Triage', 'Write', 'Maintain', 'Admin'];
+  let best = -1;
+  for (const grant of grantsFor(orgName, repoName)) {
+    const team = findTeam(orgName, grant.team);
+    if (!team || !(team.members || []).some((member) => String(member).toLowerCase() === String(username).toLowerCase())) {
+      continue;
+    }
+    const rank = order.indexOf(grant.permission);
+    if (rank > best) best = rank;
+  }
+  return best >= 0 ? order[best] : null;
 }
 
 function repoKey(owner, name) {
@@ -177,12 +224,15 @@ function initializeRepoContent(repo, author) {
   return sha;
 }
 
-function addFile(repo, filePath, content, author, message) {
+function addFile(repo, filePath, content, author, message, branchName) {
   const existing = (repo.files || []).find((file) => file.path === filePath);
   if (existing) existing.content = content;
   else repo.files.push({ path: filePath, content });
   const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const branch = repo.branches[0];
+  const branch =
+    repo.branches.find(
+      (item) => String(item.name).toLowerCase() === String(branchName || 'main').toLowerCase(),
+    ) || repo.branches[0];
   if (branch) branch.head = sha;
   repo.commits.unshift({
     sha,
@@ -211,6 +261,8 @@ function canWrite(repo, username) {
   if (repo.ownerType === 'user') {
     return String(repo.owner).toLowerCase() === String(username).toLowerCase();
   }
+  const grant = bestGrantPermission(repo.owner, repo.name, username);
+  if (grant && ['Write', 'Maintain', 'Admin'].includes(grant)) return true;
   const member = membership(repo.owner, username);
   const order = ['Read', 'Triage', 'Write', 'Maintain', 'Admin', 'Owner', 'Member'];
   const role = member ? member.role : '';
@@ -218,14 +270,37 @@ function canWrite(repo, username) {
   return order.indexOf(role) >= order.indexOf('Write');
 }
 
+function canAdmin(repo, username) {
+  if (!username) return false;
+  if (repo.ownerType === 'user') {
+    return String(repo.owner).toLowerCase() === String(username).toLowerCase();
+  }
+  const grant = bestGrantPermission(repo.owner, repo.name, username);
+  if (grant === 'Admin') return true;
+  return ['Owner', 'Admin'].includes(membership(repo.owner, username)?.role || '');
+}
+
+function branchHead(repo, branchName) {
+  const branch = (repo.branches || []).find(
+    (item) => String(item.name).toLowerCase() === String(branchName || '').toLowerCase(),
+  );
+  return branch ? branch.head : null;
+}
+
 module.exports = {
   createSession,
   createUser,
   destroySession,
   addTeam,
+  addTeamMember,
   addBranch,
   addFile,
+  bestGrantPermission,
+  branchHead,
+  canAdmin,
   canWrite,
+  findTeam,
+  grantsFor,
   findPull,
   nextPullNumber,
   repoKey,

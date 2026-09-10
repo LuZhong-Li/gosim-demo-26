@@ -23,6 +23,7 @@ export default function RepoPage() {
   const [commits, setCommits] = useState<Commit[]>([]);
   const [showCommits, setShowCommits] = useState(false);
   const [newFilePath, setNewFilePath] = useState('');
+  const [newFileBranch, setNewFileBranch] = useState('main');
   const [newFileContent, setNewFileContent] = useState('');
   const [newFileMessage, setNewFileMessage] = useState('');
   const [branchName, setBranchName] = useState('');
@@ -208,10 +209,12 @@ export default function RepoPage() {
                   api.createFile(owner, name, newFilePath, {
                     content: newFileContent,
                     message: newFileMessage,
+                    branch: newFileBranch,
                   }),
                 'File created.',
               );
               setNewFilePath('');
+              setNewFileBranch('main');
               setNewFileContent('');
               setNewFileMessage('');
             }}
@@ -233,6 +236,15 @@ export default function RepoPage() {
                 type="text"
                 value={newFileMessage}
                 onChange={(event) => setNewFileMessage(event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="file-branch">Branch</label>
+              <input
+                id="file-branch"
+                type="text"
+                value={newFileBranch}
+                onChange={(event) => setNewFileBranch(event.target.value)}
               />
             </div>
             <div className="field full">

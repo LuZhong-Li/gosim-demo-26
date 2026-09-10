@@ -246,10 +246,62 @@ app.post('/api/orgs/:name/teams', requireUser, (req, res) => {
     name: teamName,
     description: String((req.body || {}).description || '').trim(),
     members: [],
+    parent: String((req.body || {}).parentTeam || '').trim() || null,
     createdAt: new Date().toISOString(),
   };
+  if (team.parent && (!store.findTeam(org.name, team.parent) || team.parent === team.name)) {
+    return res.status(400).json({ error: 'Parent team must be another team in this organization.' });
+  }
   store.addTeam(org.name, team);
   return res.status(201).json({ team });
+});
+
+app.post('/api/orgs/:name/teams/:team/members', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  if (!store.membership(org.name, req.user.username)) {
+    return res.status(403).json({ error: 'You are not a member of this organization.' });
+  }
+  const username = String((req.body || {}).username || '').trim().toLowerCase();
+  if (!store.findUserByUsername(username)) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+  const team = store.addTeamMember(org.name, req.params.team, username);
+  if (!team) return res.status(404).json({ error: 'Team not found.' });
+  return res.status(201).json({ team });
+});
+
+app.post('/api/orgs/:name/access', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current || !['Owner', 'Admin'].includes(current.role)) {
+    return res.status(403).json({ error: 'Only an organization owner or admin can grant access.' });
+  }
+  const repoName = String((req.body || {}).repo || '').trim().toLowerCase();
+  const teamName = String((req.body || {}).team || '').trim();
+  const permission = String((req.body || {}).permission || 'Read').trim();
+  if (!store.findRepo(org.name, repoName)) {
+    return res.status(404).json({ error: 'Repository not found.' });
+  }
+  if (!store.findTeam(org.name, teamName)) {
+    return res.status(404).json({ error: 'Team not found.' });
+  }
+  if (!['Read', 'Triage', 'Write', 'Maintain', 'Admin'].includes(permission)) {
+    return res.status(400).json({ error: 'Unsupported repository permission.' });
+  }
+  store.state.accessGrants = store.state.accessGrants.filter(
+    (item) => !(item.org === org.name && item.repo === repoName && item.team === teamName),
+  );
+  const grant = { org: org.name, repo: repoName, team: teamName, permission };
+  store.state.accessGrants.push(grant);
+  return res.status(201).json({ grant });
+});
+
+app.get('/api/orgs/:name/access', (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  res.json({ grants: store.state.accessGrants.filter((grant) => grant.org === org.name) });
 });
 
 app.post('/api/orgs/:name/repos', requireUser, (req, res) => {
@@ -325,7 +377,11 @@ app.get('/api/repos/:owner/:name', (req, res) => {
     const authorized =
       (repo.ownerType === 'user' && user && String(repo.owner).toLowerCase() === user.username) ||
       (repo.ownerType === 'organization' &&
-        Boolean(user && store.membership(repo.owner, user.username)));
+        Boolean(
+          user &&
+            (store.membership(repo.owner, user.username) ||
+              store.bestGrantPermission(repo.owner, repo.name, user.username)),
+        ));
     if (!authorized) return res.status(403).json({ error: 'Repository is private.' });
   }
   res.json({
@@ -371,10 +427,14 @@ app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   const filePath = String((req.body || {}).path || '');
   const content = String((req.body || {}).content || '');
   const message = String((req.body || {}).message || '').trim() || `Update ${filePath}`;
+  const branchName = String((req.body || {}).branch || 'main').trim();
   if (!filePath || !/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) {
     return res.status(400).json({ error: 'Invalid file path.' });
   }
-  store.addFile(repo, filePath, content, req.user.username, message);
+  if (!(repo.branches || []).some((branch) => branch.name === branchName)) {
+    return res.status(400).json({ error: 'Branch not found.' });
+  }
+  store.addFile(repo, filePath, content, req.user.username, message, branchName);
   return res.status(201).json({ path: filePath, message });
 });
 
@@ -499,10 +559,7 @@ app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, r
 app.patch('/api/repos/:owner/:name', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
-  const canAdmin =
-    (repo.ownerType === 'user' && repo.owner === req.user.username) ||
-    (repo.ownerType === 'organization' &&
-      ['Owner', 'Admin'].includes(store.membership(repo.owner, req.user.username)?.role || ''));
+  const canAdmin = store.canAdmin(repo, req.user.username);
   if (!canAdmin) {
     return res.status(403).json({ error: 'Only a repository admin can change visibility.' });
   }
@@ -526,10 +583,18 @@ function protectionOf(repo, branchName) {
   );
 }
 
-function approvalCount(pull) {
+function approvalCount(pull, repo) {
   const reviewers = new Set();
+  const headSha = store.branchHead(repo, pull.headBranch);
   for (const review of pull.reviews || []) {
-    if (review.state === 'APPROVED' && review.author !== pull.author) reviewers.add(review.author);
+    if (
+      review.state === 'APPROVED' &&
+      review.author !== pull.author &&
+      review.headSha &&
+      review.headSha === headSha
+    ) {
+      reviewers.add(review.author);
+    }
   }
   return reviewers.size;
 }
@@ -578,6 +643,7 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
     state: 'open',
     baseBranch,
     headBranch,
+    headSha: store.branchHead(repo, headBranch),
     createdAt: new Date().toISOString(),
     reviews: [],
     checks: [],
@@ -596,7 +662,7 @@ app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
   res.json({
     pull,
     protection,
-    approvals: approvalCount(pull),
+    approvals: approvalCount(pull, repo),
   });
 });
 
@@ -633,11 +699,12 @@ app.post('/api/repos/:owner/:name/pulls/:number/reviews', requireUser, (req, res
     author: req.user.username,
     state,
     body: String((req.body || {}).body || '').trim(),
+    headSha: store.branchHead(repo, pull.headBranch),
     createdAt: new Date().toISOString(),
   };
   pull.reviews = pull.reviews || [];
   pull.reviews.push(review);
-  return res.status(201).json({ review, approvals: approvalCount(pull) });
+  return res.status(201).json({ review, approvals: approvalCount(pull, repo) });
 });
 
 app.post('/api/repos/:owner/:name/pulls/:number/checks', requireUser, (req, res) => {
@@ -664,10 +731,7 @@ app.get('/api/repos/:owner/:name/branches/:branch/protection', (req, res) => {
 app.put('/api/repos/:owner/:name/branches/:branch/protection', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
-  const canAdmin =
-    (repo.ownerType === 'user' && repo.owner === req.user.username) ||
-    (repo.ownerType === 'organization' &&
-      ['Owner', 'Admin'].includes(store.membership(repo.owner, req.user.username)?.role || ''));
+  const canAdmin = store.canAdmin(repo, req.user.username);
   if (!canAdmin) return res.status(403).json({ error: 'Only repository admins can protect branches.' });
   const requiredApprovals = Math.max(0, Number((req.body || {}).requiredApprovals) || 0);
   const requiredChecks = Array.isArray((req.body || {}).requiredChecks)
@@ -691,7 +755,20 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
   }
   if (pull.state !== 'open') return res.status(409).json({ error: 'Pull request is not open.' });
   const protection = protectionOf(repo, pull.baseBranch);
-  if (approvalCount(pull) < protection.requiredApprovals) {
+  const headSha = store.branchHead(repo, pull.headBranch);
+  const approvals = approvalCount(pull, repo);
+  const staleApprovals = (pull.reviews || []).some(
+    (review) =>
+      review.state === 'APPROVED' &&
+      review.headSha &&
+      review.headSha !== headSha,
+  );
+  if (protection.requiredApprovals > 0 && approvals < protection.requiredApprovals && staleApprovals) {
+    return res
+      .status(422)
+      .json({ error: 'Approvals are stale because the head branch changed.' });
+  }
+  if (approvals < protection.requiredApprovals) {
     return res.status(422).json({
       error: `This branch requires ${protection.requiredApprovals} approval(s).`,
     });
