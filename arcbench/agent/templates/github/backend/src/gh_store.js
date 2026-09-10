@@ -287,6 +287,54 @@ function branchHead(repo, branchName) {
   return branch ? branch.head : null;
 }
 
+function removeMembership(orgName, username) {
+  const normalizedOrg = String(orgName || '').trim().toLowerCase();
+  const target = String(username || '').trim().toLowerCase();
+  const before = state.memberships.length;
+  state.memberships = state.memberships.filter(
+    (item) => !(item.org === normalizedOrg && String(item.username).toLowerCase() === target),
+  );
+  save();
+  return state.memberships.length !== before;
+}
+
+function removeTeamMemberEverywhere(orgName, username) {
+  const normalizedOrg = String(orgName || '').trim().toLowerCase();
+  const target = String(username || '').trim().toLowerCase();
+  let changed = 0;
+  for (const team of state.teams) {
+    if (team.org !== normalizedOrg) continue;
+    const before = (team.members || []).length;
+    team.members = (team.members || []).filter(
+      (member) => String(member).toLowerCase() !== target,
+    );
+    if (team.members.length !== before) changed += 1;
+  }
+  return changed;
+}
+
+function ownerCount(orgName) {
+  const normalizedOrg = String(orgName || '').trim().toLowerCase();
+  return state.memberships.filter(
+    (item) => item.org === normalizedOrg && item.role === 'Owner',
+  ).length;
+}
+
+function forkRepo(source, owner, ownerType, visibility, author) {
+  const copy = JSON.parse(JSON.stringify(source));
+  copy.owner = String(owner).trim().toLowerCase();
+  copy.ownerType = ownerType;
+  copy.visibility = visibility;
+  copy.forkedFrom = `${source.owner}/${source.name}`;
+  copy.createdBy = author;
+  copy.createdAt = new Date().toISOString();
+  copy.pulls = [];
+  copy.pullCounter = 0;
+  state.repos.push(copy);
+  save();
+  return copy;
+}
+
 module.exports = {
   createSession,
   createUser,
@@ -318,6 +366,10 @@ module.exports = {
   orgTeams,
   nextIssueNumber,
   reposVisibleTo,
+  removeMembership,
+  removeTeamMemberEverywhere,
+  ownerCount,
+  forkRepo,
   state,
   userByToken,
 };

@@ -119,6 +119,28 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
+// REQ-1-3 Change Account Password
+app.post('/api/auth/password', requireUser, (req, res) => {
+  const body = req.body || {};
+  const currentPassword = String(body.currentPassword || '');
+  const newPassword = String(body.newPassword || '');
+  const confirmPassword = String(body.confirmPassword || '');
+  if (currentPassword !== String(req.user.password || '')) {
+    return res.status(400).json({ error: 'Current password is incorrect.' });
+  }
+  if (!isPasswordValid(newPassword)) {
+    return res.status(400).json({
+      error:
+        'New password must be 12-128 characters without whitespace and include uppercase, lowercase, digit, and special character.',
+    });
+  }
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: "New passwords don't match." });
+  }
+  req.user.password = newPassword;
+  return res.json({ ok: true });
+});
+
 app.post('/api/auth/forgot', (req, res) => {
   const email = String((req.body || {}).email || '').trim().toLowerCase();
   if (!store.findUserByEmail(email)) {
@@ -231,6 +253,33 @@ app.post('/api/orgs/:name/members', requireUser, (req, res) => {
   if (existing) existing.role = role;
   else store.state.memberships.push({ org: org.name, username, role });
   return res.status(201).json({ member: { username, role } });
+});
+
+// REQ-2-2-4 Remove a Member from an Organization
+app.delete('/api/orgs/:name/members/:username', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current || current.role !== 'Owner') {
+    return res.status(403).json({ error: 'Only an organization owner can remove members.' });
+  }
+  const username = String(req.params.username || '').trim().toLowerCase();
+  const target = store.membership(org.name, username);
+  if (!target) return res.status(404).json({ error: 'That account is not a member of this organization.' });
+  if (target.role === 'Owner' && store.ownerCount(org.name) <= 1) {
+    return res.status(400).json({ error: 'An organization must keep at least one owner.' });
+  }
+  store.removeMembership(org.name, username);
+  // cascade: team memberships in this organization + direct repository grants
+  store.removeTeamMemberEverywhere(org.name, username);
+  store.state.accessGrants = store.state.accessGrants.filter(
+    (grant) =>
+      !(
+        grant.org === org.name &&
+        String(grant.team || '').toLowerCase() === username
+      ),
+  );
+  return res.json({ ok: true, removed: username });
 });
 
 app.post('/api/orgs/:name/teams', requireUser, (req, res) => {
@@ -369,6 +418,69 @@ app.get('/api/repos', (req, res) => {
   res.json({ repos });
 });
 
+// REQ-3-2-2 Fork a Repository into Another Namespace
+app.post('/api/repos/:owner/:name/fork', requireUser, (req, res) => {
+  const source = store.findRepo(req.params.owner, req.params.name);
+  if (!source) return res.status(404).json({ error: 'Repository not found.' });
+  if (source.visibility === 'private') {
+    const allowed =
+      (source.ownerType === 'user' &&
+        String(source.owner).toLowerCase() === req.user.username) ||
+      (source.ownerType === 'organization' &&
+        Boolean(
+          store.membership(source.owner, req.user.username) ||
+            store.bestGrantPermission(source.owner, source.name, req.user.username),
+        ));
+    if (!allowed) return res.status(403).json({ error: 'Repository is private.' });
+  }
+  const targetOwner = String((req.body || {}).targetOwner || req.user.username)
+    .trim()
+    .toLowerCase();
+  const org = store.findOrg(targetOwner);
+  if (org) {
+    const member = store.membership(org.name, req.user.username);
+    if (!member || !['Owner', 'Admin'].includes(member.role)) {
+      return res
+        .status(403)
+        .json({ error: 'You need owner or admin rights in the target organization.' });
+    }
+  } else if (targetOwner !== req.user.username) {
+    return res.status(403).json({ error: 'You can only fork into your own account or an organization you own.' });
+  }
+  const forkName = String((req.body || {}).name || source.name).trim().toLowerCase();
+  if (!/^[a-z0-9._-]{1,100}$/.test(forkName)) {
+    return res.status(400).json({ error: 'Repository name may only contain letters, digits, dots, underscores, and hyphens.' });
+  }
+  if (store.findRepo(targetOwner, forkName)) {
+    return res.status(409).json({ error: 'A repository with that name already exists.' });
+  }
+  const visibility = String((req.body || {}).visibility || 'public').trim().toLowerCase();
+  const fork = store.forkRepo(
+    source,
+    targetOwner,
+    org ? 'organization' : 'user',
+    ['public', 'private'].includes(visibility) ? visibility : 'public',
+    req.user.username,
+  );
+  fork.name = forkName;
+  const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  fork.commits = [
+    {
+      sha,
+      message: `Fork of ${source.owner}/${source.name}`,
+      author: req.user.username,
+      parents: [],
+      timestamp: new Date().toISOString(),
+      changed: [],
+    },
+    ...(fork.commits || []),
+  ];
+  fork.branches = (fork.branches || []).map((branch, index) =>
+    index === 0 ? { ...branch, head: sha } : branch,
+  );
+  return res.status(201).json({ repo: store.findRepo(fork.owner, fork.name) });
+});
+
 app.get('/api/repos/:owner/:name', (req, res) => {
   const user = store.userByToken(authToken(req));
   const repo = store.findRepo(req.params.owner, req.params.name);
@@ -388,6 +500,8 @@ app.get('/api/repos/:owner/:name', (req, res) => {
     repo: {
       owner: repo.owner,
       name: repo.name,
+      cloneUrl: `https://arc-bench.local/${repo.owner}/${repo.name}.git`,
+      forkedFrom: repo.forkedFrom || null,
       visibility: repo.visibility,
       description: repo.description,
       defaultBranch: repo.defaultBranch,
@@ -640,7 +754,8 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
     title,
     body: String((req.body || {}).body || '').trim(),
     author: req.user.username,
-    state: 'open',
+    // REQ-6-2-4 Create a Draft Pull Request
+    state: (req.body || {}).draft === true ? 'draft' : 'open',
     baseBranch,
     headBranch,
     headSha: store.branchHead(repo, headBranch),
@@ -671,7 +786,20 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const pull = store.findPull(repo, req.params.number);
   if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
-  const state = String((req.body || {}).state || '').trim().toLowerCase();
+  const body = req.body || {};
+  // REQ-6-2-4: only the author (or a maintainer) may mark a draft ready for review.
+  if (body.ready === true) {
+    if (pull.state !== 'draft') {
+      return res.status(400).json({ error: 'Only a draft pull request can be marked ready for review.' });
+    }
+    if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+      return res.status(403).json({ error: 'You cannot change this pull request.' });
+    }
+    pull.state = 'open';
+    pull.readyAt = new Date().toISOString();
+    return res.json({ pull });
+  }
+  const state = String(body.state || '').trim().toLowerCase();
   if (!['open', 'closed'].includes(state)) {
     return res.status(400).json({ error: 'Pull request state must be open or closed.' });
   }
