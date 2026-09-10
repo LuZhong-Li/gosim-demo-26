@@ -33,18 +33,18 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 1-1-2 | Sign in | ✅ | `POST /api/auth/login`；AuthPage |
 | 1-1-3 | Recover access | ✅ | `POST /api/auth/forgot` + `/reset`（固定码 123456） |
 | 1-2 | Sign out | ⚠️ | `POST /api/auth/logout` 有；**规格要求的“仅影响当前会话”确认弹窗未实现** |
-| 1-3 | Change password | ❌ | 无 change-password 路由，无 account settings 页 |
+| 1-3 | Change password | ✅ | **批次 A 已补**：`POST /api/auth/password` + `/settings` 页（Password and authentication） |
 | 2-1-1 | Browse org repos | ✅ | `GET /api/orgs/:name` + OrgPage Repositories 标签 |
 | 2-1-2 | Create org | ✅ | `POST /api/orgs` + OrgsPage |
 | 2-2-1 | Create team | ✅ | `POST /api/orgs/:name/teams`（含 parentTeam 字段） |
 | 2-2-2 | Team members & hierarchy | ⚠️ | 加成员有（teams/:team/members）；**改父团队与环检测缺失** |
 | 2-2-3 | Add org member | ✅ | `POST /api/orgs/:name/members` |
-| 2-2-4 | Remove org member | ❌ | 无删除成员路由（规格要求级联删除 team membership + 直接授权，且禁止移除最后一个 Owner） |
-| 2-3 | Grant repo access | ✅ | `GET/POST /api/orgs/:name/access` |
+| 2-2-4 | Remove org member | ✅ | **批次 A 已补**：`DELETE /api/orgs/:name/members/:username` + People 页两步确认；级联清团队关系、拒绝移除最后 Owner |
+| 2-3 | Grant repo access | ⚠️ | `GET/POST /api/orgs/:name/access` 只支持 **team** 授权；规格要求的“直接授权给个人”缺失 |
 | 3-1 | Search repos | ✅ | `GET /api/search` + `searchRepos` |
 | 3-2-1 | Create repo | ⚠️ | 仅 `POST /api/orgs/:name/repos`（组织仓库）；**个人仓库创建缺失** |
-| 3-2-2 | Fork repo | ❌ | 全仓无 `fork`（0 命中） |
-| 3-2-3 | Clone URL | ❌ | 无 cloneUrl/复制按钮（只有品牌名里的 "GitHub Clone"） |
+| 3-2-2 | Fork repo | ✅ | **批次 A 已补**：`POST /api/repos/:owner/:name/fork` + 仓库页 Fork 按钮，`forkedFrom` 记录来源 |
+| 3-2-3 | Clone URL | ✅ | **批次 A 已补**：repo 载荷 `cloneUrl` + Code 区可复制输入框 |
 | 3-3 | Public repo overview | ✅ | `GET /api/repos/:owner/:name` + RepoPage |
 | 3-4 | Change visibility | ✅ | `PATCH /api/repos/:owner/:name` + `setRepoVisibility` |
 | 4-1 | Browse files/dirs | ✅ | `GET .../tree`、`.../contents` |
@@ -68,7 +68,7 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 6-2-1 | List/filter PRs | ✅ | `GET .../pulls` + PullsTab |
 | 6-2-2 | Compare branches | ⚠️ | 仅创建时校验 base≠head；**无独立比较页/diff 摘要** |
 | 6-2-3 | Create PR | ✅ | `POST .../pulls` |
-| 6-2-4 | Draft PR | ❌ | 无 `draft`（0 命中） |
+| 6-2-4 | Draft PR | ✅ | **批次 A 已补**：`draft:true` 建 Draft、`PATCH {ready:true}` 转 Open、draft 无法合并（merge 路由 `state!=='open'` 拦截） |
 | 6-3-1 | PR overview & commits | ✅ | `GET .../pulls/:number` + PullsTab 三标签 |
 | 6-3-2 | Files changed / diff | ❌ | 无 diff 计算与聚合统计 |
 | 6-3-3 | Inline review comments | ❌ | 无行级锚点（line/position 0 命中） |
