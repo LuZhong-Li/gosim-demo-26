@@ -226,7 +226,7 @@ function createWorkbook(name) {
     id: newId('wb'),
     name: String(name || 'Untitled workbook').trim() || 'Untitled workbook',
     createdAt: new Date().toISOString(),
-    worksheets: [{ name: 'Sheet1', cells: {} }],
+    worksheets: [{ name: 'Sheet1', cells: {}, validations: {} }],
   };
   state.workbooks.push(workbook);
   return workbook;
@@ -252,6 +252,11 @@ function usedBounds(sheet) {
   return { maxCol, maxRow };
 }
 
+function ensureValidations(sheet) {
+  if (!sheet.validations) sheet.validations = {};
+  return sheet.validations;
+}
+
 function csvEscape(value) {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -264,6 +269,7 @@ module.exports = {
   createWorkbook,
   csvEscape,
   evaluateExpression,
+  ensureValidations,
   findSheet,
   findWorkbook,
   indexToCol,

@@ -1,7 +1,14 @@
 import axios from 'axios';
 
 export type Cell = { value: number | string; formula?: string; error?: string | null };
-export type Worksheet = { name: string; cells: Record<string, Cell> };
+export type ValidationRule =
+  | { type: 'list'; values: string[] }
+  | { type: 'number'; min: number; max: number };
+export type Worksheet = {
+  name: string;
+  cells: Record<string, Cell>;
+  validations?: Record<string, ValidationRule>;
+};
 export type WorkbookSummary = {
   id: string;
   name: string;
@@ -125,4 +132,32 @@ export function exportUrl(id: string, sheet: string): string {
 export async function importCsv(id: string, sheet: string, csv: string): Promise<Worksheet> {
   const response = await client.post(`/workbooks/${encodeURIComponent(id)}/import`, { sheet, csv });
   return response.data.sheet as Worksheet;
+}
+
+export async function setValidations(
+  id: string,
+  sheet: string,
+  range: string,
+  rule: ValidationRule,
+): Promise<Record<string, ValidationRule>> {
+  const response = await client.put(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/validations`,
+    { range, rule },
+  );
+  return response.data.validations as Record<string, ValidationRule>;
+}
+
+export async function createPivot(
+  id: string,
+  input: {
+    source: string;
+    rowField: string;
+    colField: string;
+    valueField: string;
+    agg: 'sum' | 'count';
+    target: string;
+  },
+): Promise<{ sheet: Worksheet; worksheets: string[] }> {
+  const response = await client.post(`/workbooks/${encodeURIComponent(id)}/pivot`, input);
+  return response.data;
 }

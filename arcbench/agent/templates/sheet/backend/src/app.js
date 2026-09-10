@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 function sheetPayload(sheet) {
-  return { name: sheet.name, cells: sheet.cells };
+  return { name: sheet.name, cells: sheet.cells, validations: sheet.validations || {} };
 }
 
 function workbookSummary(workbook) {
@@ -78,7 +78,7 @@ app.post('/api/workbooks/:id/worksheets', (req, res) => {
   if (store.findSheet(workbook, name)) {
     return res.status(409).json({ error: 'A worksheet with that name already exists.' });
   }
-  const sheet = { name, cells: {} };
+  const sheet = { name, cells: {}, validations: {} };
   workbook.worksheets.push(sheet);
   res.status(201).json({ sheet: sheetPayload(sheet) });
 });
@@ -298,6 +298,102 @@ app.post('/api/workbooks/:id/import', (req, res) => {
   sheet.cells = cells;
   store.recompute(sheet);
   res.json({ sheet: sheetPayload(sheet) });
+});
+
+// ---------- validations ----------
+
+app.put('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  const range = String((req.body || {}).range || '').toUpperCase();
+  const rule = (req.body || {}).rule || null;
+  const match = /^([A-Z]+\d+):([A-Z]+\d+)$/.exec(range);
+  const refs = match
+    ? store.rangeRefs(match[1], match[2])
+    : store.parseRef(range)
+      ? [range]
+      : [];
+  if (!refs.length) return res.status(400).json({ error: 'A cell or range like A1:B3 is required.' });
+  if (
+    !rule ||
+    !['list', 'number'].includes(rule.type) ||
+    (rule.type === 'list' && !Array.isArray(rule.values)) ||
+    (rule.type === 'number' &&
+      (typeof rule.min !== 'number' || typeof rule.max !== 'number'))
+  ) {
+    return res.status(400).json({ error: 'Rule must be a list with values or a numeric min/max range.' });
+  }
+  const validations = store.ensureValidations(sheet);
+  for (const ref of refs) validations[ref] = rule;
+  res.json({ validations });
+});
+
+app.get('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  res.json({ validations: store.ensureValidations(sheet) });
+});
+
+// ---------- pivot ----------
+
+app.post('/api/workbooks/:id/pivot', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const source = store.findSheet(workbook, String((req.body || {}).source || workbook.worksheets[0].name));
+  if (!source) return res.status(404).json({ error: 'Source worksheet not found.' });
+  const rowCol = store.colToIndex(String((req.body || {}).rowField || 'A'));
+  const colCol = store.colToIndex(String((req.body || {}).colField || 'B'));
+  const valueCol = store.colToIndex(String((req.body || {}).valueField || 'C'));
+  const agg = String((req.body || {}).agg || 'sum').toLowerCase();
+  const targetName = String((req.body || {}).target || 'Pivot');
+  const { maxRow } = store.usedBounds(source);
+
+  const matrix = new Map();
+  const headers = new Set();
+  for (let row = 2; row <= maxRow; row += 1) {
+    const rowKey = String(store.cellValue(source.cells, store.refOf(rowCol, row)) ?? '');
+    const colKey = String(store.cellValue(source.cells, store.refOf(colCol, row)) ?? '');
+    const raw = store.cellValue(source.cells, store.refOf(valueCol, row));
+    const value = typeof raw === 'number' ? raw : Number(raw);
+    if (!rowKey || !colKey) continue;
+    headers.add(colKey);
+    if (!matrix.has(rowKey)) matrix.set(rowKey, {});
+    const bucket = matrix.get(rowKey);
+    if (!bucket[colKey]) bucket[colKey] = [];
+    if (!Number.isNaN(value)) bucket[colKey].push(value);
+  }
+
+  const headerList = Array.from(headers).sort();
+  const cells = { A1: { value: `${req.body.rowField || 'A'} \\ ${req.body.colField || 'B'}` } };
+  headerList.forEach((header, index) => {
+    cells[store.refOf(index + 2, 1)] = { value: header };
+  });
+  let rowIndex = 2;
+  for (const rowKey of Array.from(matrix.keys()).sort()) {
+    cells[store.refOf(1, rowIndex)] = { value: rowKey };
+    headerList.forEach((header, index) => {
+      const values = matrix.get(rowKey)[header] || [];
+      const aggregated =
+        agg === 'count'
+          ? values.length
+          : values.reduce((sum, item) => sum + item, 0);
+      cells[store.refOf(index + 2, rowIndex)] = { value: aggregated };
+    });
+    rowIndex += 1;
+  }
+
+  let target = store.findSheet(workbook, targetName);
+  if (!target) {
+    target = { name: targetName, cells: {}, validations: {} };
+    workbook.worksheets.push(target);
+  }
+  target.cells = cells;
+  store.recompute(target);
+  res.json({ sheet: sheetPayload(target), worksheets: workbook.worksheets.map((item) => item.name) });
 });
 
 // ---------- static frontend hosting ----------
