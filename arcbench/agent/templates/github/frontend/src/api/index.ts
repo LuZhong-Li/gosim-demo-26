@@ -9,6 +9,8 @@ export type Repo = {
   description: string;
   defaultBranch?: string;
   ownerType?: string;
+  cloneUrl?: string;
+  forkedFrom?: string | null;
 };
 export type Issue = {
   number: number;
@@ -265,7 +267,13 @@ export async function listPulls(owner: string, name: string): Promise<PullReques
 export async function createPull(
   owner: string,
   name: string,
-  input: { title: string; body: string; baseBranch: string; headBranch: string },
+  input: {
+    title: string;
+    body: string;
+    baseBranch: string;
+    headBranch: string;
+    draft?: boolean;
+  },
 ): Promise<PullRequest> {
   const response = await client.post(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls`,
@@ -408,6 +416,48 @@ export async function setRepoVisibility(
     visibility,
   });
   return response.data.repo as Repo;
+}
+
+// REQ-1-3: change the current account password.
+export async function changePassword(input: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}): Promise<void> {
+  await client.post('/auth/password', input);
+}
+
+// REQ-2-2-4: remove a member (and their team memberships) from an organization.
+export async function removeOrgMember(org: string, username: string): Promise<void> {
+  await client.delete(
+    `/orgs/${encodeURIComponent(org)}/members/${encodeURIComponent(username)}`,
+  );
+}
+
+// REQ-3-2-2: fork a repository into the current account or an owned organization.
+export async function forkRepo(
+  owner: string,
+  name: string,
+  input: { name?: string; targetOwner?: string; visibility?: string } = {},
+): Promise<Repo> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/fork`,
+    input,
+  );
+  return response.data.repo as Repo;
+}
+
+// REQ-6-2-4: mark a draft pull request as ready for review.
+export async function markPullReady(
+  owner: string,
+  name: string,
+  number: number,
+): Promise<PullRequest> {
+  const response = await client.patch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+    { ready: true },
+  );
+  return response.data.pull as PullRequest;
 }
 
 export function errorMessage(error: unknown, fallback = 'Something went wrong.'): string {

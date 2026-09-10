@@ -103,6 +103,20 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
               ))}
             </ul>
           )}
+          {/* REQ-6-2-4: a draft must be marked ready before it can be reviewed or merged */}
+          {selected.pull.state === 'draft' && (
+            <button
+              type="button"
+              onClick={() =>
+                run(
+                  () => api.markPullReady(owner, name, selected.pull.number),
+                  'Draft marked ready for review.',
+                ).then(() => openPull(selected.pull.number))
+              }
+            >
+              Ready for review
+            </button>
+          )}
           {selected.pull.state === 'open' && (
             <>
               <form
@@ -217,6 +231,27 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
           />
         </div>
         <button type="submit">Create pull request</button>
+        <button
+          type="button"
+          onClick={() => {
+            run(
+              () =>
+                api.createPull(owner, name, {
+                  title,
+                  body,
+                  baseBranch,
+                  headBranch,
+                  draft: true,
+                }),
+              'Draft pull request created.',
+            );
+            setTitle('');
+            setBody('');
+            setHeadBranch('');
+          }}
+        >
+          Create draft pull request
+        </button>
       </form>
 
       <h2>Branch protection</h2>

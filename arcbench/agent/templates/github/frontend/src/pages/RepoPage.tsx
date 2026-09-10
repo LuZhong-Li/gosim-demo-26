@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Issue, Repo } from '../api';
 import * as api from '../api';
 import PullsTab from './PullsTab';
@@ -14,6 +14,7 @@ type Commit = {
 
 export default function RepoPage() {
   const { owner = '', name = '' } = useParams();
+  const navigate = useNavigate();
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>('code');
@@ -135,6 +136,22 @@ export default function RepoPage() {
         >
           Make {repo.visibility === 'public' ? 'private' : 'public'}
         </button>
+        {/* REQ-3-2-2 Fork a Repository into Another Namespace */}
+        <button
+          type="button"
+          onClick={async () => {
+            setError('');
+            setInfo('');
+            try {
+              const fork = await api.forkRepo(owner, name);
+              navigate(`/${fork.owner}/${fork.name}`);
+            } catch (caught) {
+              setError(api.errorMessage(caught));
+            }
+          }}
+        >
+          Fork
+        </button>
         <button type="button" className={tab === 'code' ? 'active' : ''} onClick={() => setTab('code')}>
           Code
         </button>
@@ -158,6 +175,32 @@ export default function RepoPage() {
 
       {tab === 'code' && (
         <>
+          {/* REQ-3-2-3 Copy a Repository Clone URL */}
+          <h2>Clone</h2>
+          <div className="inline-form">
+            <input
+              aria-label="Clone URL"
+              readOnly
+              value={repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const value =
+                  repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard
+                    .writeText(value)
+                    .then(() => setInfo('Clone URL copied.'))
+                    .catch(() => setInfo('Clone URL ready to copy.'));
+                } else {
+                  setInfo('Clone URL ready to copy.');
+                }
+              }}
+            >
+              Copy
+            </button>
+          </div>
           <h2>Branches</h2>
           {branches.length === 0 ? <p className="muted">No branches.</p> : <p>{branches.join(', ')}</p>}
           <form

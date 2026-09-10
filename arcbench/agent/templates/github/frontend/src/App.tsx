@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage';
 import OrgPage from './pages/OrgPage';
 import OrgsPage from './pages/OrgsPage';
 import RepoPage from './pages/RepoPage';
+import SettingsPage from './pages/SettingsPage';
 
 function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
   return (
@@ -18,6 +19,7 @@ function Header({ user, onLogout }: { user: User | null; onLogout: () => void })
         {user ? (
           <>
             <Link to="/orgs">Your organizations</Link>
+            <Link to="/settings">Settings</Link>
             <span className="username">{user.username}</span>
             <Link to="/" onClick={onLogout}>
               Sign out
@@ -77,6 +79,7 @@ function App() {
             <Route path="/auth" element={<AuthPage user={user} onAuth={handleAuth} />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:name" element={<OrgPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="/:owner/:name" element={<RepoPage />} />
           </Routes>
         </main>

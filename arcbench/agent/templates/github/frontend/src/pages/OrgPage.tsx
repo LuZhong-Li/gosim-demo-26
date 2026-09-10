@@ -9,6 +9,7 @@ export default function OrgPage() {
   const [role, setRole] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [repoName, setRepoName] = useState('');
   const [visibility, setVisibility] = useState('private');
@@ -92,6 +93,35 @@ export default function OrgPage() {
           {members.map((member) => (
             <li key={member.username}>
               {member.username} <span className="muted">· {member.role}</span>
+              {/* REQ-2-2-4 Remove a Member from an Organization */}
+              {role === 'Owner' && pendingRemoval !== member.username && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => setPendingRemoval(member.username)}
+                >
+                  Remove from organization
+                </button>
+              )}
+              {pendingRemoval === member.username && (
+                <span className="inline-form">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      run(
+                        () => api.removeOrgMember(name, member.username),
+                        'Member removed.',
+                      );
+                      setPendingRemoval(null);
+                    }}
+                  >
+                    Remove
+                  </button>
+                  <button type="button" onClick={() => setPendingRemoval(null)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
             </li>
           ))}
         </ul>
