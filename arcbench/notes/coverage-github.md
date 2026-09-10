@@ -70,7 +70,7 @@ GitHub 模板，平台任务 TASK-001/TASK-002）。
 | 6-2-3 | Create PR | ✅ | `POST .../pulls` |
 | 6-2-4 | Draft PR | ✅ | **批次 A 已补**：`draft:true` 建 Draft、`PATCH {ready:true}` 转 Open、draft 无法合并（merge 路由 `state!=='open'` 拦截） |
 | 6-3-1 | PR overview & commits | ✅ | `GET .../pulls/:number` + PullsTab 三标签 |
-| 6-3-2 | Files changed / diff | ❌ | 无 diff 计算与聚合统计 |
+| 6-3-2 | Files changed / diff | ✅ | **批次 C1 已补**：commit 保存文件快照，`GET .../pulls/:number/files` 用 LCS 行级 diff 返回变更文件与 `+added/-removed` 统计；PR 详情 "Files changed" 渲染 |
 | 6-3-3 | Inline review comments | ❌ | 无行级锚点（line/position 0 命中） |
 | 6-3-4 | Submit review | ✅ | `POST .../pulls/:number/reviews` |
 | 6-4 | Reviewers request | ❌ | `reviewer` 仅用于统计有效 Approve，无请求/移除关系 |

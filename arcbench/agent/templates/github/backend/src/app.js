@@ -908,6 +908,25 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
   return res.json({ pull });
 });
 
+// REQ-6-3-2 Inspect Changed Files and Aggregate Diff
+app.get('/api/repos/:owner/:name/pulls/:number/files', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const baseCommit = store.commitBySha(repo, store.branchHead(repo, pull.baseBranch));
+  const headCommit = store.commitBySha(repo, store.branchHead(repo, pull.headBranch));
+  const baseFiles = baseCommit ? baseCommit.snapshot || [] : [];
+  const headFiles = headCommit ? headCommit.snapshot || [] : repo.files || [];
+  const result = store.diffSnapshots(baseFiles, headFiles);
+  return res.json({
+    baseBranch: pull.baseBranch,
+    headBranch: pull.headBranch,
+    files: result.files,
+    stats: result.stats,
+  });
+});
+
 app.post('/api/repos/:owner/:name/pulls/:number/reviews', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });

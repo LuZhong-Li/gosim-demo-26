@@ -58,6 +58,14 @@ export type PullDetail = {
   protection: { branch: string; requiredApprovals: number; requiredChecks: string[] };
   approvals: number;
 };
+export type DiffLine = { type: string; text: string };
+export type DiffFile = { path: string; status: string; lines: DiffLine[] };
+export type PullFiles = {
+  baseBranch: string;
+  headBranch: string;
+  files: DiffFile[];
+  stats: { changedFiles: number; added: number; removed: number };
+};
 export type Team = {
   name: string;
   description: string;
@@ -295,6 +303,18 @@ export async function getPull(owner: string, name: string, number: number): Prom
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
   );
   return response.data;
+}
+
+// REQ-6-3-2: changed files and aggregate diff for the pull request.
+export async function getPullFiles(
+  owner: string,
+  name: string,
+  number: number,
+): Promise<PullFiles> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/files`,
+  );
+  return response.data as PullFiles;
 }
 
 export async function setPullState(

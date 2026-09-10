@@ -219,6 +219,7 @@ function initializeRepoContent(repo, author) {
       parents: [],
       timestamp: new Date().toISOString(),
       changed: ['README.md'],
+      snapshot: repo.files.map((file) => ({ ...file })),
     },
   ];
   return sha;
@@ -241,8 +242,84 @@ function addFile(repo, filePath, content, author, message, branchName) {
     parents: branch && branch.head ? [branch.head] : [],
     timestamp: new Date().toISOString(),
     changed: [filePath],
+    snapshot: repo.files.map((file) => ({ ...file })),
   });
   return sha;
+}
+
+function commitBySha(repo, sha) {
+  return (repo.commits || []).find((commit) => commit.sha === sha) || null;
+}
+
+// Minimal LCS-based line diff; repository files are small in this simulation.
+function lineDiff(baseText, headText) {
+  const base = String(baseText == null ? '' : baseText).split('\n');
+  const head = String(headText == null ? '' : headText).split('\n');
+  const rows = base.length + 1;
+  const cols = head.length + 1;
+  const table = Array.from({ length: rows }, () => new Array(cols).fill(0));
+  for (let i = base.length - 1; i >= 0; i -= 1) {
+    for (let j = head.length - 1; j >= 0; j -= 1) {
+      table[i][j] =
+        base[i] === head[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+  const lines = [];
+  let i = 0;
+  let j = 0;
+  while (i < base.length && j < head.length) {
+    if (base[i] === head[j]) {
+      lines.push({ type: 'context', text: head[j] });
+      i += 1;
+      j += 1;
+    } else if (table[i + 1][j] >= table[i][j + 1]) {
+      lines.push({ type: 'removed', text: base[i] });
+      i += 1;
+    } else {
+      lines.push({ type: 'added', text: head[j] });
+      j += 1;
+    }
+  }
+  while (i < base.length) {
+    lines.push({ type: 'removed', text: base[i] });
+    i += 1;
+  }
+  while (j < head.length) {
+    lines.push({ type: 'added', text: head[j] });
+    j += 1;
+  }
+  return lines;
+}
+
+function diffSnapshots(baseFiles, headFiles) {
+  const baseMap = new Map((baseFiles || []).map((file) => [file.path, file.content]));
+  const headMap = new Map((headFiles || []).map((file) => [file.path, file.content]));
+  const paths = [...new Set([...baseMap.keys(), ...headMap.keys()])].sort();
+  const files = [];
+  let added = 0;
+  let removed = 0;
+  for (const filePath of paths) {
+    const inBase = baseMap.has(filePath);
+    const inHead = headMap.has(filePath);
+    if (inBase && !inHead) {
+      const lines = lineDiff(baseMap.get(filePath), null);
+      files.push({ path: filePath, status: 'removed', lines });
+      removed += lines.filter((line) => line.type === 'removed').length;
+      continue;
+    }
+    if (!inBase && inHead) {
+      const lines = lineDiff(null, headMap.get(filePath));
+      files.push({ path: filePath, status: 'added', lines });
+      added += lines.filter((line) => line.type === 'added').length;
+      continue;
+    }
+    if (baseMap.get(filePath) === headMap.get(filePath)) continue;
+    const lines = lineDiff(baseMap.get(filePath), headMap.get(filePath));
+    files.push({ path: filePath, status: 'modified', lines });
+    added += lines.filter((line) => line.type === 'added').length;
+    removed += lines.filter((line) => line.type === 'removed').length;
+  }
+  return { files, stats: { changedFiles: files.length, added, removed } };
 }
 
 function addBranch(repo, name, author) {
@@ -345,6 +422,8 @@ module.exports = {
   addFile,
   bestGrantPermission,
   branchHead,
+  commitBySha,
+  diffSnapshots,
   canAdmin,
   canWrite,
   findTeam,

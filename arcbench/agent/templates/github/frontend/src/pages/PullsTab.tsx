@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PullDetail, PullRequest } from '../api';
+import type { PullDetail, PullFiles, PullRequest } from '../api';
 import * as api from '../api';
 
 export default function PullsTab({ owner, name }: { owner: string; name: string }) {
@@ -10,6 +10,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [baseBranch, setBaseBranch] = useState('main');
   const [headBranch, setHeadBranch] = useState('');
   const [reviewBody, setReviewBody] = useState('');
+  const [files, setFiles] = useState<PullFiles | null>(null);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
   const [error, setError] = useState('');
@@ -43,6 +44,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
     try {
       setSelected(await api.getPull(owner, name, number));
       setReviewBody('');
+      setFiles(null);
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -104,6 +106,46 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
             </ul>
           )}
           {/* REQ-6-2-4: a draft must be marked ready before it can be reviewed or merged */}
+          {/* REQ-6-3-2: changed files and aggregate diff */}
+          <button
+            type="button"
+            onClick={() => {
+              api
+                .getPullFiles(owner, name, selected.pull.number)
+                .then((result) => setFiles(result))
+                .catch((caught) => setError(api.errorMessage(caught)));
+            }}
+          >
+            Files changed
+          </button>
+          {files && (
+            <div className="diff-view">
+              <h4>Files changed ({files.stats.changedFiles})</h4>
+              <p className="muted">
+                +{files.stats.added} / -{files.stats.removed} · {files.headBranch} →{' '}
+                {files.baseBranch}
+              </p>
+              {files.files.length === 0 ? (
+                <p className="muted">No changed files.</p>
+              ) : (
+                files.files.map((file) => (
+                  <div key={file.path}>
+                    <p>
+                      <strong>{file.path}</strong> <span className="muted">{file.status}</span>
+                    </p>
+                    <pre aria-label={`Diff for ${file.path}`}>
+                      {file.lines
+                        .map(
+                          (line) =>
+                            `${line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}${line.text}`,
+                        )
+                        .join('\n')}
+                    </pre>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
           {selected.pull.state === 'draft' && (
             <button
               type="button"

@@ -214,3 +214,44 @@ test('REQ-6-2-4 create a draft pull request and mark it ready', async ({ page })
   await expect(page.getByText('Draft marked ready for review.')).toBeVisible();
   await expect(page.getByText(/open · feature → main ·/i).first()).toBeVisible();
 });
+
+test('REQ-6-3-2 files changed and aggregate diff', async ({ page }) => {
+  const user = unique('df');
+  const org = unique('dforg');
+  await register(page, user);
+  await signIn(page, user);
+  await createOrgRepo(page, org, 'docs');
+
+  await page.getByLabel('File path').fill('docs/guide.md');
+  await page.getByLabel('Commit message').fill('Add guide');
+  await page.getByLabel('Content').fill('line one');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByLabel('New branch name').fill('feature');
+  await page.getByRole('button', { name: /^create branch$/i }).click();
+  const branchField = page.locator('#file-branch');
+  if ((await branchField.evaluate((el) => el.tagName)) === 'SELECT') {
+    await branchField.selectOption('feature');
+  } else {
+    await branchField.fill('feature');
+  }
+
+  await page.getByLabel('File path').fill('docs/guide.md');
+  await page.getByLabel('Commit message').fill('Extend guide');
+  await page.getByLabel('Content').fill('line one\nline two');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByRole('button', { name: /^pull requests$/i }).click();
+  await page.getByLabel('Title').fill('Guide update');
+  await page.getByLabel('Head branch').fill('feature');
+  await page.getByRole('button', { name: /^create pull request$/i }).click();
+  await expect(page.getByText('Pull request created.')).toBeVisible();
+
+  await page.getByRole('button', { name: /#1 guide update/i }).click();
+  await page.getByRole('button', { name: /files changed/i }).click();
+  await expect(page.getByText(/Files changed \(1\)/i)).toBeVisible();
+  await expect(page.getByText(/\+1 \/ -0/)).toBeVisible();
+  await expect(page.getByLabel('Diff for docs/guide.md')).toContainText('+line two');
+});
