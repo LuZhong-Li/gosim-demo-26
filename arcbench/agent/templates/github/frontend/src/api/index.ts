@@ -28,6 +28,31 @@ export type Comment = {
   body: string;
   createdAt: string;
 };
+export type Review = {
+  id: string;
+  author: string;
+  state: string;
+  body: string;
+  createdAt: string;
+};
+export type PullRequest = {
+  number: number;
+  title: string;
+  body?: string;
+  author: string;
+  state: string;
+  baseBranch: string;
+  headBranch: string;
+  createdAt: string;
+  reviews?: Review[];
+  checks?: { name: string; state: string }[];
+  mergedBy?: string;
+};
+export type PullDetail = {
+  pull: PullRequest;
+  protection: { branch: string; requiredApprovals: number; requiredChecks: string[] };
+  approvals: number;
+};
 export type Team = { name: string; description: string; members: string[] };
 export type Member = { username: string; role: string };
 export type OrgDetail = {
@@ -228,6 +253,88 @@ export async function createBranch(
   await client.post(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches`, {
     name: branchName,
   });
+}
+
+export async function listPulls(owner: string, name: string): Promise<PullRequest[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls`,
+  );
+  return response.data.pulls as PullRequest[];
+}
+
+export async function createPull(
+  owner: string,
+  name: string,
+  input: { title: string; body: string; baseBranch: string; headBranch: string },
+): Promise<PullRequest> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls`,
+    input,
+  );
+  return response.data.pull as PullRequest;
+}
+
+export async function getPull(owner: string, name: string, number: number): Promise<PullDetail> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+  );
+  return response.data;
+}
+
+export async function setPullState(
+  owner: string,
+  name: string,
+  number: number,
+  state: string,
+): Promise<PullRequest> {
+  const response = await client.patch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+    { state },
+  );
+  return response.data.pull as PullRequest;
+}
+
+export async function addPullReview(
+  owner: string,
+  name: string,
+  number: number,
+  input: { state: string; body: string },
+): Promise<void> {
+  await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/reviews`,
+    input,
+  );
+}
+
+export async function addPullCheck(
+  owner: string,
+  name: string,
+  number: number,
+  checkName: string,
+): Promise<void> {
+  await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/checks`,
+    { name: checkName, state: 'success' },
+  );
+}
+
+export async function setBranchProtection(
+  owner: string,
+  name: string,
+  branch: string,
+  input: { requiredApprovals: number; requiredChecks: string[] },
+): Promise<void> {
+  await client.put(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/protection`,
+    input,
+  );
+}
+
+export async function mergePull(owner: string, name: string, number: number): Promise<PullRequest> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/merge`,
+  );
+  return response.data.pull as PullRequest;
 }
 
 export async function forgotPassword(email: string): Promise<{ code: string }> {

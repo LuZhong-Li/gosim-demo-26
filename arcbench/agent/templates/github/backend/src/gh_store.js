@@ -7,6 +7,7 @@ const state = {
   orgs: [],
   memberships: [], // { org, username, role }
   teams: [], // { id, org, name, description, createdAt }
+  protections: {}, // repoKey -> { branch, requiredApprovals, requiredChecks }
   repos: [],
   issues: [], // { owner, repo, number, title, body, author, state, createdAt }
   issueCounter: {}, // "owner/repo" -> next number
@@ -149,6 +150,16 @@ function repoKey(owner, name) {
   return `${owner}/${name}`.toLowerCase();
 }
 
+function findPull(repo, number) {
+  return (repo.pulls || []).find((pull) => Number(pull.number) === Number(number)) || null;
+}
+
+function nextPullNumber(repo) {
+  const next = (repo.pullCounter || 0) + 1;
+  repo.pullCounter = next;
+  return next;
+}
+
 function initializeRepoContent(repo, author) {
   const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   repo.files = [{ path: 'README.md', content: `# ${repo.name}\n` }];
@@ -215,12 +226,14 @@ module.exports = {
   addBranch,
   addFile,
   canWrite,
+  findPull,
+  nextPullNumber,
+  repoKey,
   findIssue,
   findOrg,
   findRepo,
   findFile,
   initializeRepoContent,
-  repoKey,
   findUserByEmail,
   findUserByIdentifier,
   findUserByUsername,

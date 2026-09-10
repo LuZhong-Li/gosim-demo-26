@@ -69,3 +69,22 @@
 下一步剩余主线：PR（compare/base、评审 Approve/Comment/Request changes、
 合并规则与分支保护）、Issue 评论时序/关闭重开入口完善、组织团队层级与
 repository access grants、recovery 登录会话即时失效细节。
+
+## v4 增补（同分支）
+
+- Pull Request：仓库内递增编号、base/head 分支校验、开/关/重开；
+- 评审：APPROVED / COMMENTED / CHANGES_REQUESTED，approval 计数按
+  非作者 reviewer 去重；
+- 分支保护：PUT/GET requiredApprovals + requiredChecks（仅 Admin/Owner）；
+- 合并：未达审批/必需 check 未成功时 422 拒绝；成功后 PR=merged、
+  base 分支 head 前移、记录 mergedBy；
+- check 模拟接口（写入 test success）便于本地/评测验证规则；
+- UI：Repo 页 Pull requests 标签（列表/新建/详情/评审/跑 check/合并/保护设置）。
+
+验证：
+- API smoke `gh-pr-smoke.ps1`：作者合并被拒（缺 1 approval）→ reviewer 批准 +
+  test check → 合并成功；
+- Playwright UI smoke 3/3：Issue 流程、Code Add file、建分支 + 开 PR。
+
+后续候选：团队层级/parent team 与 repository access grants、PR stale
+（compare commit 变化后旧评审失效）、评论详情页独立路由、Sheets 迁移。

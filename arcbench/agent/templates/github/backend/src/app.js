@@ -514,6 +514,204 @@ app.patch('/api/repos/:owner/:name', requireUser, (req, res) => {
   return res.json({ repo });
 });
 
+// ---------- pull requests, reviews, protection, merge ----------
+
+function protectionOf(repo, branchName) {
+  return (
+    store.state.protections[store.repoKey(repo.owner, repo.name)] || {
+      branch: branchName,
+      requiredApprovals: 0,
+      requiredChecks: [],
+    }
+  );
+}
+
+function approvalCount(pull) {
+  const reviewers = new Set();
+  for (const review of pull.reviews || []) {
+    if (review.state === 'APPROVED' && review.author !== pull.author) reviewers.add(review.author);
+  }
+  return reviewers.size;
+}
+
+app.get('/api/repos/:owner/:name/pulls', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({
+    pulls: (repo.pulls || [])
+      .slice()
+      .sort((a, b) => b.number - a.number)
+      .map((pull) => ({
+        number: pull.number,
+        title: pull.title,
+        author: pull.author,
+        state: pull.state,
+        baseBranch: pull.baseBranch,
+        headBranch: pull.headBranch,
+        createdAt: pull.createdAt,
+      })),
+  });
+});
+
+app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to open a pull request.' });
+  }
+  const title = String((req.body || {}).title || '').trim();
+  const baseBranch = String((req.body || {}).baseBranch || 'main').trim();
+  const headBranch = String((req.body || {}).headBranch || '').trim();
+  if (!title) return res.status(400).json({ error: 'Pull request title is required.' });
+  const branchNames = (repo.branches || []).map((branch) => branch.name);
+  if (!branchNames.includes(baseBranch) || !branchNames.includes(headBranch)) {
+    return res.status(400).json({ error: 'Base and head branches must exist.' });
+  }
+  if (baseBranch === headBranch) {
+    return res.status(400).json({ error: 'Base and head branches must be different.' });
+  }
+  const pull = {
+    number: store.nextPullNumber(repo),
+    title,
+    body: String((req.body || {}).body || '').trim(),
+    author: req.user.username,
+    state: 'open',
+    baseBranch,
+    headBranch,
+    createdAt: new Date().toISOString(),
+    reviews: [],
+    checks: [],
+  };
+  repo.pulls = repo.pulls || [];
+  repo.pulls.push(pull);
+  return res.status(201).json({ pull });
+});
+
+app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const protection = protectionOf(repo, pull.baseBranch);
+  res.json({
+    pull,
+    protection,
+    approvals: approvalCount(pull),
+  });
+});
+
+app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const state = String((req.body || {}).state || '').trim().toLowerCase();
+  if (!['open', 'closed'].includes(state)) {
+    return res.status(400).json({ error: 'Pull request state must be open or closed.' });
+  }
+  if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You cannot change this pull request.' });
+  }
+  pull.state = state;
+  return res.json({ pull });
+});
+
+app.post('/api/repos/:owner/:name/pulls/:number/reviews', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to review.' });
+  }
+  const state = String((req.body || {}).state || '').trim().toUpperCase();
+  if (!['APPROVED', 'COMMENTED', 'CHANGES_REQUESTED'].includes(state)) {
+    return res.status(400).json({ error: 'Review state must be APPROVED, COMMENTED, or CHANGES_REQUESTED.' });
+  }
+  const review = {
+    id: `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    author: req.user.username,
+    state,
+    body: String((req.body || {}).body || '').trim(),
+    createdAt: new Date().toISOString(),
+  };
+  pull.reviews = pull.reviews || [];
+  pull.reviews.push(review);
+  return res.status(201).json({ review, approvals: approvalCount(pull) });
+});
+
+app.post('/api/repos/:owner/:name/pulls/:number/checks', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const name = String((req.body || {}).name || '').trim();
+  const state = String((req.body || {}).state || 'success').trim().toLowerCase();
+  if (!name) return res.status(400).json({ error: 'Check name is required.' });
+  pull.checks = pull.checks || [];
+  const existing = pull.checks.find((check) => check.name === name);
+  if (existing) existing.state = state;
+  else pull.checks.push({ name, state });
+  return res.json({ checks: pull.checks });
+});
+
+app.get('/api/repos/:owner/:name/branches/:branch/protection', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({ protection: protectionOf(repo, req.params.branch) });
+});
+
+app.put('/api/repos/:owner/:name/branches/:branch/protection', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const canAdmin =
+    (repo.ownerType === 'user' && repo.owner === req.user.username) ||
+    (repo.ownerType === 'organization' &&
+      ['Owner', 'Admin'].includes(store.membership(repo.owner, req.user.username)?.role || ''));
+  if (!canAdmin) return res.status(403).json({ error: 'Only repository admins can protect branches.' });
+  const requiredApprovals = Math.max(0, Number((req.body || {}).requiredApprovals) || 0);
+  const requiredChecks = Array.isArray((req.body || {}).requiredChecks)
+    ? (req.body || {}).requiredChecks.map((check) => String(check)).filter(Boolean)
+    : [];
+  store.state.protections[store.repoKey(repo.owner, repo.name)] = {
+    branch: String(req.params.branch || repo.defaultBranch),
+    requiredApprovals,
+    requiredChecks,
+  };
+  return res.json({ protection: store.state.protections[store.repoKey(repo.owner, repo.name)] });
+});
+
+app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const pull = store.findPull(repo, req.params.number);
+  if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to merge.' });
+  }
+  if (pull.state !== 'open') return res.status(409).json({ error: 'Pull request is not open.' });
+  const protection = protectionOf(repo, pull.baseBranch);
+  if (approvalCount(pull) < protection.requiredApprovals) {
+    return res.status(422).json({
+      error: `This branch requires ${protection.requiredApprovals} approval(s).`,
+    });
+  }
+  const checks = pull.checks || [];
+  const failed = protection.requiredChecks.filter(
+    (name) => !checks.some((check) => check.name === name && check.state === 'success'),
+  );
+  if (failed.length) {
+    return res.status(422).json({ error: `Required checks not successful: ${failed.join(', ')}` });
+  }
+  pull.state = 'merged';
+  pull.mergedAt = new Date().toISOString();
+  pull.mergedBy = req.user.username;
+  const base = repo.branches.find((branch) => branch.name === pull.baseBranch);
+  const head = repo.branches.find((branch) => branch.name === pull.headBranch);
+  if (base && head && head.head) base.head = head.head;
+  return res.json({ pull });
+});
+
 // ---------- static frontend hosting ----------
 
 const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');

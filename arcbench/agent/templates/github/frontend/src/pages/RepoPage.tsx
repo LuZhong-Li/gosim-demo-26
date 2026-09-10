@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { Issue, Repo } from '../api';
 import * as api from '../api';
+import PullsTab from './PullsTab';
 
 type Commit = {
   sha: string;
@@ -15,7 +16,7 @@ export default function RepoPage() {
   const { owner = '', name = '' } = useParams();
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
-  const [tab, setTab] = useState<'code' | 'issues'>('code');
+  const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>('code');
   const [files, setFiles] = useState<string[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
@@ -142,6 +143,13 @@ export default function RepoPage() {
           onClick={() => setTab('issues')}
         >
           Issues ({issues.length})
+        </button>
+        <button
+          type="button"
+          className={tab === 'pulls' ? 'active' : ''}
+          onClick={() => setTab('pulls')}
+        >
+          Pull requests
         </button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -420,6 +428,7 @@ export default function RepoPage() {
           </form>
         </>
       )}
+      {tab === 'pulls' && <PullsTab owner={owner} name={name} />}
       <p>
         <Link to="/">Back to home</Link>
       </p>
