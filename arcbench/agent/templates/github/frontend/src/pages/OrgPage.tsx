@@ -279,21 +279,33 @@ export default function OrgPage() {
         </div>
         <div className="field">
           <label htmlFor="grant-user">Grant to member</label>
-          <input
+          <select
             id="grant-user"
-            type="text"
             value={grantUser}
             onChange={(event) => setGrantUser(event.target.value)}
-          />
+          >
+            <option value="">(none)</option>
+            {members.map((member) => (
+              <option key={member.username} value={member.username}>
+                {member.username}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="field">
           <label htmlFor="grant-team">Grant to team</label>
-          <input
+          <select
             id="grant-team"
-            type="text"
             value={grantTeam}
             onChange={(event) => setGrantTeam(event.target.value)}
-          />
+          >
+            <option value="">(none)</option>
+            {teams.map((team) => (
+              <option key={team.name} value={team.name}>
+                {team.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="field">
           <label htmlFor="grant-permission">Permission</label>

@@ -33,6 +33,9 @@ export default function RepoPage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [assignee, setAssignee] = useState('');
+  const [assigneePanel, setAssigneePanel] = useState(false);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
+  const [assigneeCandidates, setAssigneeCandidates] = useState<string[]>([]);
   const [labels, setLabels] = useState('');
   const [milestone, setMilestone] = useState('');
   const [selected, setSelected] = useState<Issue | null>(null);
@@ -60,6 +63,15 @@ export default function RepoPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // REQ-5-3-1: assignable members come from the owning organization.
+  useEffect(() => {
+    if (!repo || repo.ownerType !== 'organization') return;
+    api
+      .getOrg(repo.owner)
+      .then((detail) => setAssigneeCandidates(detail.members.map((member) => member.username)))
+      .catch(() => undefined);
+  }, [repo]);
 
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
@@ -544,13 +556,63 @@ export default function RepoPage() {
             </div>
             <div className="field">
               <label htmlFor="issue-assignee">Assignees (comma separated)</label>
-              <input
-                id="issue-assignee"
-                type="text"
-                value={assignee}
-                onChange={(event) => setAssignee(event.target.value)}
-              />
+              {/* REQ-5-3-1: settings control with search + checkboxes, not free text */}
+              <button
+                type="button"
+                aria-label="Assignees settings"
+                aria-expanded={assigneePanel}
+                onClick={() => setAssigneePanel((open) => !open)}
+              >
+                ⚙ Assignees
+              </button>
+              <span className="muted">{assignee || 'none'}</span>
             </div>
+            {assigneePanel && (
+              <div className="assignee-panel">
+                <input
+                  aria-label="Search assignees"
+                  type="search"
+                  value={assigneeQuery}
+                  placeholder="Search members"
+                  onChange={(event) => setAssigneeQuery(event.target.value)}
+                />
+                <ul className="repo-list">
+                  {assigneeCandidates
+                    .filter((candidate) =>
+                      candidate.toLowerCase().includes(assigneeQuery.trim().toLowerCase()),
+                    )
+                    .map((candidate) => (
+                      <li key={candidate}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label={`Assign ${candidate}`}
+                            checked={assignee
+                              .split(',')
+                              .map((entry) => entry.trim())
+                              .filter(Boolean)
+                              .includes(candidate)}
+                            onChange={(event) => {
+                              const current = assignee
+                                .split(',')
+                                .map((entry) => entry.trim())
+                                .filter(Boolean);
+                              const next = event.target.checked
+                                ? [...current, candidate]
+                                : current.filter((entry) => entry !== candidate);
+                              setAssignee(next.join(', '));
+                            }}
+                          />
+                          {candidate}
+                        </label>
+                      </li>
+                    ))}
+                </ul>
+                <button type="button" onClick={() => setAssigneePanel(false)}>
+                  Close
+                </button>
+              </div>
+            )}
             <div className="field">
               <label htmlFor="issue-labels">Labels (comma separated)</label>
               <input

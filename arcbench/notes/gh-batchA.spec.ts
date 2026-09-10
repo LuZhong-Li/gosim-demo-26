@@ -75,15 +75,18 @@ test('REQ-1-3 change account password from settings', async ({ page }) => {
 });
 
 test('REQ-5-2-3/5-3-1 issue reactions toggle and multiple assignees', async ({ page }) => {
-  const user = unique('rx');
-  const org = unique('rxorg');
-  await register(page, user);
-  await signIn(page, user);
-  await createOrgRepo(page, org, 'notes');
+  // use the seeded organization so the member picker has candidates
+  await signIn(page, 'alice');
+  await page.goto(`${base}acme/public-repo`);
 
   await page.getByRole('button', { name: /^issues \(\d+\)$/i }).click();
   await page.getByLabel('Title').fill('Reaction target');
-  await page.getByLabel('Assignees (comma separated)').fill('alice, bob');
+  // REQ-5-3-1: settings icon -> search -> check assignable members
+  await page.getByRole('button', { name: /assignees settings/i }).click();
+  await page.getByLabel('Search assignees').fill('alice');
+  await page.getByRole('checkbox', { name: /assign alice/i }).check();
+  await page.getByLabel('Search assignees').fill('bob');
+  await page.getByRole('checkbox', { name: /assign bob/i }).check();
   await page.getByRole('button', { name: /create issue/i }).click();
   await expect(page.getByText('Issue created.')).toBeVisible();
 
@@ -400,7 +403,7 @@ test('REQ-2-3 grant repository access to a member and a team', async ({ page }) 
 
   // direct grant to a person
   await page.locator('#grant-repo').fill('secret');
-  await page.locator('#grant-user').fill(member);
+  await page.locator('#grant-user').selectOption(member);
   await page.locator('#grant-permission').selectOption('Write');
   await page.getByRole('button', { name: /grant access/i }).click();
   await expect(page.getByText('Access granted.')).toBeVisible();
@@ -408,8 +411,8 @@ test('REQ-2-3 grant repository access to a member and a team', async ({ page }) 
 
   // team grant replaces nothing and is listed separately
   await page.locator('#grant-repo').fill('secret');
-  await page.locator('#grant-user').fill('');
-  await page.locator('#grant-team').fill('core');
+  await page.locator('#grant-user').selectOption('');
+  await page.locator('#grant-team').selectOption('core');
   await page.locator('#grant-permission').selectOption('Read');
   await page.getByRole('button', { name: /grant access/i }).click();
   await expect(page.getByText(/secret · core · Read/)).toBeVisible();
