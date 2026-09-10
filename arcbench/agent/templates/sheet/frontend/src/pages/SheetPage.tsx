@@ -64,6 +64,7 @@ export default function SheetPage() {
   const [anchor, setAnchor] = useState('A1');
   const [selection, setSelection] = useState<string[]>(['A1']);
   const [editValue, setEditValue] = useState('');
+  const [editingRef, setEditingRef] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard>(null);
   const [filterColumn, setFilterColumn] = useState('');
   const [filterOp, setFilterOp] = useState('contains');
@@ -467,9 +468,15 @@ export default function SheetPage() {
                         aria-label={`Cell ${ref}`}
                         className={selection.includes(ref) ? 'selected' : ''}
                         type={rule?.type === 'number' ? 'number' : 'text'}
-                        value={selected === ref ? editValue : displayValue(cell)}
-                        onFocus={(event) => selectCell(ref, event.shiftKey)}
+                        value={editingRef === ref ? editValue : displayValue(cell)}
+                        onFocus={(event) => {
+                          setEditingRef(ref);
+                          editRef.current = displayValue(cell);
+                          setEditValue(displayValue(cell));
+                          selectCell(ref, event.shiftKey);
+                        }}
                         onChange={(event) => {
+                          setEditingRef(ref);
                           setSelected(ref);
                           editRef.current = event.target.value;
                           setEditValue(event.target.value);
@@ -481,7 +488,10 @@ export default function SheetPage() {
                           }
                         }}
                         onBlur={() => {
-                          if (selected === ref) commitCell();
+                          if (editingRef === ref) {
+                            commitCell(undefined, ref);
+                            setEditingRef(null);
+                          }
                         }}
                       />
                     </td>
