@@ -78,6 +78,7 @@ export default function SheetPage() {
   const [selection, setSelection] = useState<string[]>(['A1']);
   const [inlineEdit, setInlineEdit] = useState<{ ref: string; value: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [formulaValue, setFormulaValue] = useState('');
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard>(null);
   const [filterColumn, setFilterColumn] = useState('');
@@ -103,6 +104,9 @@ export default function SheetPage() {
   const undoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const redoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const editRef = useRef('');
+  const formulaRef = useRef('');
+  const dirtyRef = useRef(false);
+  const syncedKeyRef = useRef('');
   const editingRefRef = useRef<string | null>(null);
   const draggingRef = useRef(false);
   const dragAnchorRef = useRef('A1');
@@ -133,11 +137,23 @@ export default function SheetPage() {
   );
 
   useEffect(() => {
-    if (editingRefRef.current) return;
     const cell = sheet?.cells[selected];
-    const next = cell?.formula || (cell ? displayValue(cell) : '');
-    editRef.current = next;
-    setEditValue(next);
+    const gridText = cell ? displayValue(cell) : '';
+    const barText = cell?.formula || gridText;
+    if (editingRefRef.current === selected) {
+      // A focused cell keeps the text the user is typing; only the formula bar
+      // mirrors the stored definition until the cell is committed.
+      formulaRef.current = barText;
+      setFormulaValue(barText);
+      return;
+    }
+    const syncKey = `${selected}|${cell ? JSON.stringify(cell) : ''}`;
+    if (syncedKeyRef.current === syncKey) return;
+    syncedKeyRef.current = syncKey;
+    editRef.current = gridText;
+    setEditValue(gridText);
+    formulaRef.current = barText;
+    setFormulaValue(barText);
   }, [sheet, selected]);
 
   useEffect(() => {
@@ -307,7 +323,22 @@ export default function SheetPage() {
       const numeric = Number(value);
       update = { value: Number.isNaN(numeric) ? value : numeric };
     }
-    await run(() => api.updateCells(id, sheet.name, { [targetRef]: update }), 'Saved.');
+    setError('');
+    try {
+      const result = await api.updateCells(id, sheet.name, { [targetRef]: update });
+      applySheetResult(result);
+      dirtyRef.current = false;
+      if (editingRefRef.current === targetRef) {
+        editingRefRef.current = null;
+        setEditingRef(null);
+      }
+      // Force the grid to re-read the committed display value (formula cells
+      // show their result, not the formula they were typed as).
+      syncedKeyRef.current = '';
+      setInfo('Saved.');
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
   }
 
   function copySelection(mode: 'copy' | 'cut') {
@@ -475,19 +506,19 @@ export default function SheetPage() {
         <input
           aria-label="Formula bar"
           className="formula-bar"
-          value={editValue}
+          value={formulaValue}
           onChange={(event) => {
-            editRef.current = event.target.value;
-            setEditValue(event.target.value);
+            formulaRef.current = event.target.value;
+            setFormulaValue(event.target.value);
           }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
-              commitCell();
+              commitCell(formulaRef.current, selected);
             }
           }}
         />
-        <button type="button" onClick={() => commitCell()}>
+        <button type="button" onClick={() => commitCell(formulaRef.current, selected)}>
           Save cell
         </button>
         <button type="button" onClick={() => copySelection('copy')}>
@@ -637,16 +668,21 @@ export default function SheetPage() {
                         aria-label={`Cell ${ref}`}
                         className={selection.includes(ref) ? 'selected' : ''}
                         type={rule?.type === 'number' ? 'number' : 'text'}
-                        value={editingRef === ref ? editValue : displayValue(cell)}
+                        value={editingRef === ref && dirtyRef.current ? editValue : displayValue(cell)}
                         onFocus={(event) => {
                           editingRefRef.current = ref;
                           setEditingRef(ref);
-                          editRef.current = displayValue(cell);
-                          setEditValue(displayValue(cell));
+                          dirtyRef.current = false;
+                          const gridText = displayValue(cell);
+                          editRef.current = gridText;
+                          setEditValue(gridText);
+                          formulaRef.current = cell?.formula || gridText;
+                          setFormulaValue(formulaRef.current);
                           selectCell(ref, event.shiftKey);
                         }}
                         onChange={(event) => {
                           editingRefRef.current = ref;
+                          dirtyRef.current = true;
                           setEditingRef(ref);
                           setSelected(ref);
                           editRef.current = event.target.value;
@@ -656,13 +692,15 @@ export default function SheetPage() {
                           if (event.key === 'Enter') {
                             event.preventDefault();
                             commitCell();
+                            dirtyRef.current = false;
                           }
                         }}
                         onBlur={() => {
-                          if (editingRef === ref) {
+                          if (dirtyRef.current && editingRef === ref) {
                             commitCell(undefined, ref);
-                            setEditingRef(null);
                           }
+                          if (editingRef === ref) setEditingRef(null);
+                          dirtyRef.current = false;
                           if (editingRefRef.current === ref) editingRefRef.current = null;
                         }}
                       />

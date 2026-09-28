@@ -79,7 +79,33 @@ node arcbench/upstream/node_modules/@playwright/test/cli.js test --config arcben
   并拒绝未闭合引号。
 - **列表校验下拉**：规格要求每个受控单元格暴露
   `Open dropdown for A1` 按钮，当前是直接渲染 `combobox`。
-- **公式错误值**：`=A0`/未支持函数/畸形表达式应分别显示 `#REF!`/`#NAME?`/
-  `#ERROR!`，当前统一 `#VALUE!`。
 - **Undo/Redo 细化**：规格要求 Ctrl+Z/Ctrl+Y、重做分支失效、跨工作表隔离。
 - GitHub 侧尚未重跑完整需求审计（本轮只做回归）。
+
+## 追加批次（同日，公式错误与显示口径）
+
+按 REQ-4-2-2 / REQ-3-1-1 继续：
+
+- 公式错误值分类：`=A0` → `#REF!`（非法引用）、未支持函数 → `#NAME?`、
+  畸形表达式（如 `=1+`）→ `#ERROR!`、除零仍是 `#DIV/0!`；新增公式依赖图，
+  直接/间接循环引用（如 `=B5` 写在 B5）统一判 `#REF!`。
+- 单元格引用文本值：`=A1` 且 A1 是文本时返回该文本（此前被算成 `#VALUE!`）。
+- 显示口径：网格单元格显示「计算结果」，公式栏显示「原始公式」；此前聚焦状态下
+  网格会把公式原文显示出来，与 REQ-3-1-1「公式单元格在网格显示结果、公式栏
+  显示原始公式」冲突。
+- 由此牵出的两个真 bug（连续输入时随机复现）：
+  1. 失焦提交把「显示结果」当新值写回，抹掉公式（例如 `=1/0` 被写成字面量
+     `#DIV/0!`）——改为只有用户真的改过（dirty）才在失焦时提交；
+  2. 公式栏/网格同步 effect 在输入过程中回填旧值，导致 Playwright `fill()`
+     出现 `#ERROR!Online`、`7002100` 这类拼接值——改为聚焦中的单元格不被回填，
+     提交成功后再显式刷新为计算值。
+
+验证（每轮 4 个配置连跑 3 次，全部通过）：
+
+| 配置 | 用例 | 结果 |
+| --- | --- | --- |
+| `sheet-formula.config.cjs` | 1（REQ-4-2-2） | 1 passed ×3 |
+| `sheet-grid.config.cjs` | 3 | 3 passed ×3 |
+| `sheet-playwright.config.cjs` | 2 | 2 passed ×3 |
+| `sheet-pivot.config.cjs` | 3 | 3 passed ×3 |
+| `gh-batchA.config.cjs` | 12 | 12 passed |

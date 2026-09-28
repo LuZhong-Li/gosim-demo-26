@@ -85,12 +85,37 @@ const FUNCTIONS = {
   COUNT: (nums) => nums.length,
 };
 
+const ERROR_TOKENS = ['#DIV/0!', '#NAME?', '#ERROR!', '#REF!', '#VALUE!'];
+
+function firstErrorToken(text) {
+  const value = String(text || '');
+  for (const token of ERROR_TOKENS) {
+    if (value.includes(token)) return token;
+  }
+  return null;
+}
+
 function evaluateExpression(source, cells, depth = 0) {
   if (depth > 12) return { error: '#REF!' };
   const text = String(source || '').trim();
   if (!text.startsWith('=')) return { value: text };
 
   let expr = text.slice(1).trim();
+  let malformed = false;
+
+  // A formula that is exactly one cell reference returns that cell's value,
+  // including text values (REQ-4-1-1 / REQ-4-2-2).
+  const singleRef = /^([A-Za-z]+\d+)$/.exec(expr);
+  if (singleRef) {
+    const parsed = parseRef(singleRef[1]);
+    if (!parsed || parsed.row < 1 || parsed.col < 1) return { error: '#REF!' };
+    const referenced = cellValue(cells, singleRef[1].toUpperCase());
+    if (typeof referenced === 'string') {
+      if (referenced.startsWith('#')) return { error: referenced };
+      return { value: referenced };
+    }
+    return { value: referenced === null ? 0 : referenced };
+  }
 
   // Resolve functions (innermost first).
   const functionPattern = /([A-Za-z]+)\(([^()]*)\)/;
@@ -100,7 +125,7 @@ function evaluateExpression(source, cells, depth = 0) {
     expr = expr.replace(functionPattern, (match, name, args) => {
       const upper = String(name).toUpperCase();
       const fn = FUNCTIONS[upper];
-      if (!fn) return '#VALUE!';
+      if (!fn) return '#NAME?';
       const refs = [];
       for (const rawArg of String(args).split(',')) {
         const arg = rawArg.trim();
@@ -130,11 +155,14 @@ function evaluateExpression(source, cells, depth = 0) {
       if (error) return error;
       return String(fn(numbers));
     });
-    if (expr.includes('#VALUE!')) return { error: '#VALUE!' };
+    const functionError = firstErrorToken(expr);
+    if (functionError) return { error: functionError };
   }
 
   // Replace cell references with values.
   expr = expr.replace(/([A-Za-z]+\d+)/g, (match) => {
+    const parsed = parseRef(match);
+    if (!parsed || parsed.row < 1 || parsed.col < 1) return '#REF!';
     const value = cellValue(cells, match.toUpperCase());
     if (typeof value === 'string') {
       if (value.startsWith('#')) return value;
@@ -143,7 +171,8 @@ function evaluateExpression(source, cells, depth = 0) {
     if (value === null) return '0';
     return String(value);
   });
-  if (expr.includes('#')) return { error: '#VALUE!' };
+  const referenceError = firstErrorToken(expr);
+  if (referenceError) return { error: referenceError };
 
   // Recursive descent arithmetic evaluator.
   let pos = 0;
@@ -152,11 +181,16 @@ function evaluateExpression(source, cells, depth = 0) {
   }
   function parseFactor() {
     skip();
+    if (pos >= expr.length) {
+      malformed = true;
+      return NaN;
+    }
     if (expr[pos] === '(') {
       pos += 1;
       const value = parseSum();
       skip();
       if (expr[pos] === ')') pos += 1;
+      else malformed = true;
       return value;
     }
     if (expr[pos] === '-') {
@@ -165,7 +199,10 @@ function evaluateExpression(source, cells, depth = 0) {
     }
     const start = pos;
     while (pos < expr.length && /[0-9.]/.test(expr[pos])) pos += 1;
-    if (start === pos) return NaN;
+    if (start === pos) {
+      malformed = true;
+      return NaN;
+    }
     return Number(expr.slice(start, pos));
   }
   function parseProduct() {
@@ -194,8 +231,44 @@ function evaluateExpression(source, cells, depth = 0) {
   }
   const value = parseSum();
   if (typeof value === 'string' && value.startsWith('#')) return { error: value };
+  if (malformed) return { error: '#ERROR!' };
   if (Number.isNaN(value)) return { error: '#VALUE!' };
   return { value };
+}
+
+function formulaRefs(formula) {
+  const refs = new Set();
+  for (const match of String(formula || '').matchAll(/([A-Za-z]+\d+)/g)) {
+    refs.add(match[1].toUpperCase());
+  }
+  return [...refs];
+}
+
+function circularRefs(cells, formulaRefsList) {
+  const formulaSet = new Set(formulaRefsList);
+  const deps = new Map(
+    formulaRefsList.map((ref) => [
+      ref,
+      formulaRefs(cells[ref].formula).filter((dep) => formulaSet.has(dep)),
+    ]),
+  );
+  const state = new Map();
+  const cyclic = new Set();
+  const visit = (ref, stack) => {
+    if (state.get(ref) === 1) {
+      const start = stack.indexOf(ref);
+      for (const item of stack.slice(start < 0 ? 0 : start)) cyclic.add(item);
+      return;
+    }
+    if (state.get(ref) === 2) return;
+    state.set(ref, 1);
+    stack.push(ref);
+    for (const dep of deps.get(ref) || []) visit(dep, stack);
+    stack.pop();
+    state.set(ref, 2);
+  };
+  for (const ref of formulaRefsList) visit(ref, []);
+  return cyclic;
 }
 
 function recompute(sheet) {
@@ -203,13 +276,16 @@ function recompute(sheet) {
   const formulas = Object.keys(cells).filter(
     (ref) => typeof cells[ref].formula === 'string' && cells[ref].formula.startsWith('='),
   );
+  const cyclic = circularRefs(cells, formulas);
   let guard = 0;
   let changed = true;
   while (changed && guard < 12) {
     changed = false;
     guard += 1;
     for (const ref of formulas) {
-      const result = evaluateExpression(cells[ref].formula, cells);
+      const result = cyclic.has(ref)
+        ? { error: '#REF!' }
+        : evaluateExpression(cells[ref].formula, cells);
       const nextValue = result.error ? result.error : result.value;
       const nextError = result.error || null;
       if (cells[ref].value !== nextValue || cells[ref].error !== nextError) {
