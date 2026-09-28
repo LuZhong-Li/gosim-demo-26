@@ -219,7 +219,6 @@ export default function SheetPage() {
 
   function pushHistory() {
     if (!sheet) return;
-    await pendingWritesRef.current;
     undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
     redoStack.current = [];
   }
