@@ -144,3 +144,11 @@ node arcbench/upstream/node_modules/@playwright/test/cli.js test --config arcben
 ### 仍未做
 - GitHub 侧完整需求审计（本轮仍只做回归）。
 - 平台登录/队伍确认 + 首次正式提交（等队员/凭据）。
+
+## 提交包（2026-09-28 晚）
+- `arcbench/dist/arc-agent-r14.zip`：80 条目 / 269.5 KB，含 main.py +
+  arcbench_agent_runtime + assets + templates{github,sheet,keep,web-react-express}，
+  已剔除 node_modules/dist/__pycache__；内含本日全部 Sheet 改动。
+- 官方赛道入口确认：`arc-bench.com/competitions/hackathon` 显示
+  “Confirm your team before entering”，需 ARC-Bench 登录后由队长确认名册
+  才能创建正式赛队伍。待账号后执行首次正式提交测试。
