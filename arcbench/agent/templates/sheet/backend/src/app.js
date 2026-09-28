@@ -632,6 +632,16 @@ app.post('/api/workbooks/:id/worksheets/:sheet/pivot/refresh', (req, res) => {
   res.json({ sheet: sheetPayload(sheet) });
 });
 
+
+app.post('/api/csv-import', (req, res) => {
+  const body = req.body || {};
+  const name = String(body.name || '').trim();
+  const csv = String(body.csv ?? '');
+  const result = store.importCsvWorkbook(name, csv);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.status(201).json({ workbook: workbookSummary(result) });
+});
+
 // ---------- static frontend hosting ----------
 
 const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
@@ -647,3 +657,4 @@ if (fs.existsSync(frontendDistPath)) {
 }
 
 module.exports = app;
+

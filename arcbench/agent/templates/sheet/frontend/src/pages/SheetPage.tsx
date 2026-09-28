@@ -89,6 +89,7 @@ export default function SheetPage() {
   const [numberMin, setNumberMin] = useState('0');
   const [numberMax, setNumberMax] = useState('100');
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
+  const [openDropdownRef, setOpenDropdownRef] = useState<string | null>(null);
   const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
   const [pivotDraft, setPivotDraft] = useState({
     rowField: '',
@@ -112,6 +113,10 @@ export default function SheetPage() {
   const dragAnchorRef = useRef('A1');
   const dragFocusRef = useRef('A1');
   const inlineCancelledRef = useRef(false);
+  const undoRedoRef = useRef({ undo: () => undefined, redo: () => undefined });
+  const undoRedoQueueRef = useRef(Promise.resolve());
+  const pendingWritesRef = useRef(Promise.resolve());
+  const latestCellsRef = useRef<Record<string, Cell>>({});
 
   const load = useCallback(async () => {
     try {
@@ -214,7 +219,8 @@ export default function SheetPage() {
 
   function pushHistory() {
     if (!sheet) return;
-    undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(sheet.cells)) });
+    await pendingWritesRef.current;
+    undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
     redoStack.current = [];
   }
 
@@ -377,6 +383,7 @@ export default function SheetPage() {
   }
 
   async function applyListValidation() {
+    pushHistory();
     if (!sheet) return;
     const values = listValues.split(',').map((value) => value.trim()).filter(Boolean);
     if (!values.length) {
@@ -395,6 +402,7 @@ export default function SheetPage() {
   }
 
   async function applyNumberValidation() {
+    pushHistory();
     if (!sheet) return;
     const range =
       selection.length > 1 ? `${selection[0]}:${selection[selection.length - 1]}` : selection[0];
@@ -444,22 +452,55 @@ export default function SheetPage() {
     }
   }
 
-  async function handleUndo() {
-    const snapshot = undoStack.current.pop();
-    if (!snapshot || !sheet) return;
-    redoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(sheet.cells)) });
-    await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Undo.');
-    setActive(snapshot.sheet);
+
+  function enqueueUndoRedo(task: () => Promise<void>) {
+    const next = undoRedoQueueRef.current.then(task).catch(() => undefined);
+    undoRedoQueueRef.current = next;
+  }
+  function handleUndo() {
+    if (!sheet) return;
+    enqueueUndoRedo(async () => {
+      await pendingWritesRef.current;
+      const snapshot = undoStack.current.pop();
+      if (!snapshot) return;
+      redoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
+      await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Undo.');
+      setActive(snapshot.sheet);
+    });
   }
 
-  async function handleRedo() {
-    const snapshot = redoStack.current.pop();
-    if (!snapshot || !sheet) return;
-    undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(sheet.cells)) });
-    await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Redo.');
-    setActive(snapshot.sheet);
+  function handleRedo() {
+    if (!sheet) return;
+    enqueueUndoRedo(async () => {
+      await pendingWritesRef.current;
+      const snapshot = redoStack.current.pop();
+      if (!snapshot) return;
+      undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
+      await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Redo.');
+      setActive(snapshot.sheet);
+    });
   }
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      const target = event.target as HTMLElement | null;
+      const label = target?.getAttribute('aria-label') || '';
+      if (label === 'Formula bar' || label.startsWith('Edit ')) return;
+      if (key === 'z') {
+        event.preventDefault();
+        undoRedoRef.current.undo();
+      } else if (key === 'y') {
+        event.preventDefault();
+        undoRedoRef.current.redo();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  undoRedoRef.current = { undo: () => void handleUndo(), redo: () => void handleRedo() };
   const visibleRows = useMemo(() => {
     const rows = Array.from({ length: ROWS }, (_, index) => index + 1);
     if (!appliedFilter || !sheet) return rows;
@@ -541,37 +582,37 @@ export default function SheetPage() {
       <div className="toolbar">
         <button
           type="button"
-          onClick={() => run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'insert'), 'Row inserted.')}
+          onClick={() => { pushHistory(); void run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'insert'), 'Row inserted.'); }}
         >
           Insert row
         </button>
         <button
           type="button"
-          onClick={() => run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'delete'), 'Row deleted.')}
+          onClick={() => { pushHistory(); void run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'delete'), 'Row deleted.'); }}
         >
           Delete row
         </button>
         <button
           type="button"
-          onClick={() => run(() => api.insertColumns(id, sheet.name, selectedParsed.col, 1, 'insert'), 'Column inserted.')}
+          onClick={() => { pushHistory(); void run(() => api.insertColumns(id, sheet.name, selectedParsed.col, 1, 'insert'), 'Column inserted.'); }}
         >
           Insert column
         </button>
         <button
           type="button"
-          onClick={() => run(() => api.insertColumns(id, sheet.name, selectedParsed.col, 1, 'delete'), 'Column deleted.')}
+          onClick={() => { pushHistory(); void run(() => api.insertColumns(id, sheet.name, selectedParsed.col, 1, 'delete'), 'Column deleted.'); }}
         >
           Delete column
         </button>
         <button
           type="button"
-          onClick={() => run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'asc'), 'Sorted ascending.')}
+          onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'asc'), 'Sorted ascending.'); }}
         >
           Sort column ↑
         </button>
         <button
           type="button"
-          onClick={() => run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'desc'), 'Sorted descending.')}
+          onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'desc'), 'Sorted descending.'); }}
         >
           Sort column ↓
         </button>
@@ -643,22 +684,78 @@ export default function SheetPage() {
                   if (rule?.type === 'list') {
                     return (
                       <td key={ref} {...cellProps}>
-                        <select
-                          aria-label={`Cell ${ref}`}
-                          value={displayValue(cell)}
-                          onFocus={() => selectCell(ref, false)}
-                          onChange={(event) => {
-                            selectCell(ref, false);
-                            commitCell(event.target.value, ref);
-                          }}
+                        <span>{displayValue(cell)}</span>
+                        <button
+                          type="button"
+                          onClick={() => setOpenDropdownRef(openDropdownRef === ref ? null : ref)}
                         >
-                          <option value="">(empty)</option>
-                          {rule.values.map((value) => (
-                            <option key={value} value={value}>
-                              {value}
-                            </option>
-                          ))}
-                        </select>
+                          {`Open dropdown for ${ref}`}
+                        </button>
+                        {openDropdownRef === ref && (
+                          <select
+                            aria-label={`Cell ${ref}`}
+                            value={displayValue(cell)}
+                            autoFocus
+                            onChange={(event) => {
+                              setOpenDropdownRef(null);
+                              commitCell(event.target.value, ref);
+                            }}
+                            onBlur={() => setOpenDropdownRef(null)}
+                          >
+                            <option value="">(empty)</option>
+                            {rule.values.map((value) => (
+                              <option key={value} value={value}>
+                                {value}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </td>
+                    );
+                  }
+                  const cellDisplay = displayValue(cell);
+                  if (cellDisplay.includes('\n') || cellDisplay.includes('\r')) {
+                    return (
+                      <td key={ref} {...cellProps}>
+                        <textarea
+                          aria-label={`Cell ${ref}`}
+                          className={selection.includes(ref) ? 'selected' : ''}
+                          value={editingRef === ref && dirtyRef.current ? editValue : cellDisplay}
+                          onFocus={(event) => {
+                            editingRefRef.current = ref;
+                            setEditingRef(ref);
+                            dirtyRef.current = false;
+                            const gridText = cellDisplay;
+                            editRef.current = gridText;
+                            setEditValue(gridText);
+                            formulaRef.current = cell?.formula || gridText;
+                            setFormulaValue(formulaRef.current);
+                            selectCell(ref, event.shiftKey);
+                          }}
+                          onChange={(event) => {
+                            editingRefRef.current = ref;
+                            dirtyRef.current = true;
+                            setEditingRef(ref);
+                            setSelected(ref);
+                            editRef.current = event.target.value;
+                            setEditValue(event.target.value);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              commitCell();
+                              dirtyRef.current = false;
+                            }
+                          }}
+                          onBlur={() => {
+                            if (dirtyRef.current && editingRef === ref) {
+                              commitCell(undefined, ref);
+                            }
+                            if (editingRef === ref) setEditingRef(null);
+                            dirtyRef.current = false;
+                            if (editingRefRef.current === ref) editingRefRef.current = null;
+                          }}
+                        />
                       </td>
                     );
                   }
@@ -947,3 +1044,19 @@ export default function SheetPage() {
     </section>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

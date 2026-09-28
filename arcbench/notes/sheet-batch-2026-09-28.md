@@ -109,3 +109,38 @@ node arcbench/upstream/node_modules/@playwright/test/cli.js test --config arcben
 | `sheet-playwright.config.cjs` | 2 | 2 passed ×3 |
 | `sheet-pivot.config.cjs` | 3 | 3 passed ×3 |
 | `gh-batchA.config.cjs` | 12 | 12 passed |
+
+## 追加批次（同日二轮：CSV 导入、下拉校验、撤销/重做）
+
+### REQ-1-3-1 CSV 导入
+- 首页新增 `Import CSV` 对话框：文件控件 `CSV file` + `Confirm import`。
+- 后端新增 `POST /api/csv-import` + 行级 CSV 解析器：保留空字段、UTF-8、
+  引号内逗号/换行/转义引号；未闭合引号返回
+  `Invalid CSV file format; import failed`，且不创建任何工作簿。
+- 工作簿名取文件名去掉 `.csv`；Sheet1 打开，首行就是普通数据。
+- 含换行的单元格改用 `<textarea>` 渲染，避免单行 `<input>` 吞掉 `\n`。
+
+### REQ-5-2-1 列表校验下拉
+- 每个受控单元格渲染 `Open dropdown for A1` 按钮（accessible name），
+  点击后在格内显示 `Cell A1` 组合框并选中值；选择后关闭并回填显示值。
+
+### REQ-3-2-2 撤销/重做
+- Ctrl+Z / Ctrl+Y 全局快捷键；公式栏与行内编辑器内除外。
+- 行/列插入删除、排序、校验应用现在都会 `pushHistory()`，可整体撤销。
+- undo/redo 改为完全串行队列：连续 Ctrl+Z、Ctrl+Y 不会互相覆盖；
+  快照从 `latestCellsRef`（最近一次服务端回包）生成，避免“输入框已显示
+  但本地 state 未落定”时撤销把 redo 快照抓空。
+
+### 验证（每轮 7 条 Sheet 用例，2 轮全绿）
+| 配置 | 用例 | 结果 |
+| --- | --- | --- |
+| sheet-undo | 3 | 3 passed ×2 |
+| sheet-csv | 2 | 2 passed ×2 |
+| sheet-formula | 1 | 1 passed ×2 |
+| sheet-grid | 3 | 3 passed ×2 |
+| sheet-playwright | 2 | 2 passed ×2 |
+| sheet-pivot | 3 | 3 passed ×2 |
+
+### 仍未做
+- GitHub 侧完整需求审计（本轮仍只做回归）。
+- 平台登录/队伍确认 + 首次正式提交（等队员/凭据）。

@@ -65,6 +65,12 @@ export async function setSelection(
   return response.data.sheet as Worksheet;
 }
 
+
+export async function importCsvFile(name: string, csv: string): Promise<WorkbookSummary> {
+  const response = await client.post('/csv-import', { name, csv });
+  return response.data.workbook as WorkbookSummary;
+}
+
 export async function renameWorkbook(id: string, name: string): Promise<void> {
   await client.patch(`/workbooks/${encodeURIComponent(id)}`, { name });
 }
@@ -196,3 +202,5 @@ export async function refreshPivot(id: string, sheet: string): Promise<Worksheet
   );
   return response.data.sheet as Worksheet;
 }
+
+

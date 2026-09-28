@@ -57,9 +57,12 @@ test('Sheets clone smoke: relative copy, validation, filter, pivot', async ({ pa
   await page.getByRole('textbox', { name: 'Cell D1', exact: true }).click();
   await page.getByLabel('List validation values').fill('open,closed');
   await page.getByRole('button', { name: /apply list validation/i }).click();
-  await expect(page.getByRole('combobox', { name: 'Cell D1', exact: true })).toBeVisible();
-  await page.getByRole('combobox', { name: 'Cell D1', exact: true }).selectOption('closed');
-  await expect(page.getByRole('combobox', { name: 'Cell D1', exact: true })).toHaveValue('closed');
+  await page.getByRole('button', { name: 'Open dropdown for D1', exact: true }).click();
+  const d1Select = page.getByRole('combobox', { name: 'Cell D1', exact: true });
+  await expect(d1Select).toBeVisible();
+  await d1Select.selectOption('closed');
+  await expect(page.getByRole('gridcell', { name: 'Cell D1', exact: true })).toContainText('closed');
+  await expect(page.getByRole('button', { name: 'Open dropdown for D1', exact: true })).toBeVisible();
 
   // pivot source data
   const data: Array<[string, string]> = [
@@ -110,4 +113,6 @@ test('Sheets clone smoke: relative copy, validation, filter, pivot', async ({ pa
   await expect(page.getByRole('textbox', { name: 'Cell C2', exact: true })).toHaveValue('5');
   await expect(page.getByRole('textbox', { name: 'Cell A4', exact: true })).toHaveValue('Grand Total');
 });
+
+
 

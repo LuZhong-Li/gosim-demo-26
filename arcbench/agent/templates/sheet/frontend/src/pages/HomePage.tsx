@@ -7,6 +7,9 @@ export default function HomePage() {
   const [workbooks, setWorkbooks] = useState<WorkbookSummary[]>([]);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
+  const [csvError, setCsvError] = useState('');
+  const [csvReady, setCsvReady] = useState<{ name: string; text: string } | null>(null);
   const navigate = useNavigate();
 
   async function refresh() {
@@ -30,6 +33,32 @@ export default function HomePage() {
       navigate(`/workbooks/${workbook.id}`);
     } catch (caught) {
       setError(api.errorMessage(caught));
+    }
+  }
+
+  function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCsvReady({
+        name: file.name.replace(/\.csv$/i, '') || 'Untitled workbook',
+        text: String(reader.result || ''),
+      });
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleImport() {
+    if (!csvReady) return;
+    setCsvError('');
+    try {
+      const workbook = await api.importCsvFile(csvReady.name, csvReady.text);
+      setCsvDialogOpen(false);
+      setCsvReady(null);
+      navigate(`/workbooks/${workbook.id}`);
+    } catch (caught) {
+      setCsvError(api.errorMessage(caught, 'Invalid CSV file format; import failed'));
     }
   }
 
@@ -60,6 +89,34 @@ export default function HomePage() {
         />
         <button type="submit">Create workbook</button>
       </form>
+      <h2>Import CSV</h2>
+      <button type="button" onClick={() => setCsvDialogOpen(true)}>
+        Import CSV
+      </button>
+      {csvDialogOpen && (
+        <div role="dialog" aria-label="Import CSV" className="panel">
+          <h3>Import CSV</h3>
+          {csvError && <p className="error">{csvError}</p>}
+          <label>
+            CSV file
+            <input
+              aria-label="CSV file"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleFile}
+            />
+          </label>
+          <div className="toolbar">
+            <button type="button" onClick={handleImport} disabled={!csvReady}>
+              Confirm import
+            </button>
+            <button type="button" onClick={() => setCsvDialogOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
+

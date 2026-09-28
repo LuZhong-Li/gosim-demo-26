@@ -333,6 +333,70 @@ function ensureValidations(sheet) {
   return sheet.validations;
 }
 
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      if (field.length > 0) return null;
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ',') {
+      row.push(field);
+      field = '';
+      continue;
+    }
+    if (ch === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+    if (ch === '\r') continue;
+    field += ch;
+  }
+  if (inQuotes) return null;
+  if (field.length || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function importCsvWorkbook(name, text) {
+  const rows = parseCsv(text);
+  if (!rows) return { error: 'Invalid CSV file format; import failed' };
+  const cells = {};
+  rows.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      if (value === '' || value === undefined || value === null) return;
+      cells[refOf(colIndex + 1, rowIndex + 1)] = { value };
+    });
+  });
+  const workbook = createWorkbook(name);
+  workbook.worksheets[0].cells = cells;
+  return workbook;
+}
+
 function csvEscape(value) {
   const text = value === null || value === undefined ? '' : String(value);
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -349,6 +413,7 @@ module.exports = {
   findSheet,
   findWorkbook,
   indexToCol,
+  importCsvWorkbook,
   parseRef,
   rangeRefs,
   recompute,
@@ -356,3 +421,4 @@ module.exports = {
   state,
   usedBounds,
 };
+
