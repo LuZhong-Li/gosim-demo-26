@@ -4,10 +4,21 @@ export type Cell = { value: number | string; formula?: string; error?: string | 
 export type ValidationRule =
   | { type: 'list'; values: string[] }
   | { type: 'number'; min: number; max: number };
+export type GridSelection = { anchor: string; focus: string };
+export type PivotConfig = {
+  source: string;
+  range: { start: string; end: string };
+  rowField: string;
+  colField: string;
+  valueField: string;
+  agg: string;
+};
 export type Worksheet = {
   name: string;
   cells: Record<string, Cell>;
   validations?: Record<string, ValidationRule>;
+  selection?: GridSelection | null;
+  pivot?: PivotConfig | null;
 };
 export type WorkbookSummary = {
   id: string;
@@ -40,6 +51,18 @@ export async function createWorkbook(name: string): Promise<WorkbookSummary> {
 export async function getWorkbook(id: string): Promise<WorkbookDetail> {
   const response = await client.get(`/workbooks/${encodeURIComponent(id)}`);
   return response.data.workbook as WorkbookDetail;
+}
+
+export async function setSelection(
+  id: string,
+  sheet: string,
+  selection: GridSelection,
+): Promise<Worksheet> {
+  const response = await client.put(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/selection`,
+    selection,
+  );
+  return response.data.sheet as Worksheet;
 }
 
 export async function renameWorkbook(id: string, name: string): Promise<void> {
@@ -149,15 +172,27 @@ export async function setValidations(
 
 export async function createPivot(
   id: string,
-  input: {
-    source: string;
-    rowField: string;
-    colField: string;
-    valueField: string;
-    agg: 'sum' | 'count';
-    target: string;
-  },
+  input: { source: string; start: string; end: string; name?: string },
 ): Promise<{ sheet: Worksheet; worksheets: string[] }> {
   const response = await client.post(`/workbooks/${encodeURIComponent(id)}/pivot`, input);
   return response.data;
+}
+
+export async function applyPivot(
+  id: string,
+  sheet: string,
+  input: { rowField: string; colField: string; valueField: string; agg: string },
+): Promise<Worksheet> {
+  const response = await client.put(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/pivot`,
+    input,
+  );
+  return response.data.sheet as Worksheet;
+}
+
+export async function refreshPivot(id: string, sheet: string): Promise<Worksheet> {
+  const response = await client.post(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/pivot/refresh`,
+  );
+  return response.data.sheet as Worksheet;
 }

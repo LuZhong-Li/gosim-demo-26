@@ -41,6 +41,19 @@ function displayValue(cell: Cell | undefined): string {
   return cell.value === null || cell.value === undefined ? '' : String(cell.value);
 }
 
+function refsBetween(startRef: string, endRef: string): string[] {
+  const start = parseRef(startRef);
+  const end = parseRef(endRef);
+  if (!start || !end) return [startRef];
+  const refs: string[] = [];
+  for (let row = Math.min(start.row, end.row); row <= Math.max(start.row, end.row); row += 1) {
+    for (let col = Math.min(start.col, end.col); col <= Math.max(start.col, end.col); col += 1) {
+      refs.push(refOf(col, row));
+    }
+  }
+  return refs;
+}
+
 function shiftFormula(formula: string, rowDelta: number, colDelta: number): string {
   return formula.replace(/([A-Z]+)(\d+)/g, (match, letters: string, digits: string) => {
     const col = colIndex(letters) + colDelta;
@@ -63,6 +76,7 @@ export default function SheetPage() {
   const [selected, setSelected] = useState('A1');
   const [anchor, setAnchor] = useState('A1');
   const [selection, setSelection] = useState<string[]>(['A1']);
+  const [inlineEdit, setInlineEdit] = useState<{ ref: string; value: string } | null>(null);
   const [editValue, setEditValue] = useState('');
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard>(null);
@@ -73,11 +87,14 @@ export default function SheetPage() {
   const [listValues, setListValues] = useState('');
   const [numberMin, setNumberMin] = useState('0');
   const [numberMax, setNumberMax] = useState('100');
-  const [pivotRow, setPivotRow] = useState('A');
-  const [pivotCol, setPivotCol] = useState('B');
-  const [pivotValue, setPivotValue] = useState('C');
-  const [pivotAgg, setPivotAgg] = useState<'sum' | 'count'>('sum');
-  const [pivotTarget, setPivotTarget] = useState('Pivot');
+  const [dataMenuOpen, setDataMenuOpen] = useState(false);
+  const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
+  const [pivotDraft, setPivotDraft] = useState({
+    rowField: '',
+    colField: '',
+    valueField: '',
+    agg: 'SUM',
+  });
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [importText, setImportText] = useState('');
@@ -86,6 +103,11 @@ export default function SheetPage() {
   const undoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const redoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const editRef = useRef('');
+  const editingRefRef = useRef<string | null>(null);
+  const draggingRef = useRef(false);
+  const dragAnchorRef = useRef('A1');
+  const dragFocusRef = useRef('A1');
+  const inlineCancelledRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -111,11 +133,57 @@ export default function SheetPage() {
   );
 
   useEffect(() => {
+    if (editingRefRef.current) return;
     const cell = sheet?.cells[selected];
     const next = cell?.formula || (cell ? displayValue(cell) : '');
     editRef.current = next;
     setEditValue(next);
   }, [sheet, selected]);
+
+  useEffect(() => {
+    if (!sheet) return;
+    const saved = sheet.selection;
+    if (saved && parseRef(saved.anchor) && parseRef(saved.focus)) {
+      setAnchor(saved.anchor);
+      setSelection(refsBetween(saved.anchor, saved.focus));
+      setSelected(saved.focus);
+      return;
+    }
+    setAnchor('A1');
+    setSelection(['A1']);
+    setSelected('A1');
+    // Selection is restored only when the active worksheet changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, sheet?.name]);
+
+  const pivotSource: Worksheet | null = useMemo(() => {
+    if (!sheet?.pivot) return null;
+    return workbook?.sheets.find((item) => item.name === sheet.pivot?.source) || null;
+  }, [sheet, workbook]);
+
+  const pivotHeaders = useMemo(() => {
+    if (!sheet?.pivot || !pivotSource) return [];
+    const start = parseRef(sheet.pivot.range.start);
+    const end = parseRef(sheet.pivot.range.end);
+    if (!start || !end) return [];
+    const headerRow = Math.min(start.row, end.row);
+    const headers: string[] = [];
+    for (let col = Math.min(start.col, end.col); col <= Math.max(start.col, end.col); col += 1) {
+      const cell = pivotSource.cells[refOf(col, headerRow)];
+      headers.push(cell ? displayValue(cell) : '');
+    }
+    return headers;
+  }, [sheet, pivotSource]);
+
+  useEffect(() => {
+    const pivot = workbook?.sheets.find((item) => item.name === active)?.pivot;
+    setPivotDraft({
+      rowField: pivot?.rowField || '',
+      colField: pivot?.colField || '',
+      valueField: pivot?.valueField || '',
+      agg: pivot?.agg || 'SUM',
+    });
+  }, [active, workbook?.sheets.length]);
 
   function applySheetResult(result: Worksheet) {
     setWorkbook((current) =>
@@ -148,16 +216,8 @@ export default function SheetPage() {
 
   function selectCell(ref: string, extend: boolean) {
     if (extend) {
-      const a = parseRef(anchor);
-      const b = parseRef(ref);
-      if (a && b) {
-        const refs: string[] = [];
-        for (let row = Math.min(a.row, b.row); row <= Math.max(a.row, b.row); row += 1) {
-          for (let col = Math.min(a.col, b.col); col <= Math.max(a.col, b.col); col += 1) {
-            refs.push(refOf(col, row));
-          }
-        }
-        setSelection(refs);
+      if (parseRef(anchor) && parseRef(ref)) {
+        setSelection(refsBetween(anchor, ref));
         setSelected(ref);
         return;
       }
@@ -167,13 +227,66 @@ export default function SheetPage() {
     setSelected(ref);
   }
 
+  function persistSelection(anchorRef: string, focusRef: string) {
+    if (!sheet) return;
+    if (!parseRef(anchorRef) || !parseRef(focusRef)) return;
+    void api
+      .setSelection(id, sheet.name, { anchor: anchorRef, focus: focusRef })
+      .then(applySheetResult)
+      .catch(() => undefined);
+  }
+
+  function startDrag(ref: string, extend: boolean) {
+    draggingRef.current = true;
+    if (extend) {
+      dragAnchorRef.current = parseRef(anchor) ? anchor : ref;
+      setSelection(refsBetween(dragAnchorRef.current, ref));
+    } else {
+      dragAnchorRef.current = ref;
+      setAnchor(ref);
+      setSelection([ref]);
+    }
+    dragFocusRef.current = ref;
+    setSelected(ref);
+  }
+
+  function extendDrag(ref: string) {
+    if (!draggingRef.current) return;
+    dragFocusRef.current = ref;
+    setSelection(refsBetween(dragAnchorRef.current, ref));
+    setSelected(ref);
+  }
+
+  function endDrag() {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    persistSelection(dragAnchorRef.current, dragFocusRef.current);
+  }
+
+  function openInlineEdit(ref: string) {
+    const cell = sheet?.cells[ref];
+    setInlineEdit({ ref, value: cell?.formula || (cell ? displayValue(cell) : '') });
+  }
+
+  function commitInlineEdit(ref: string, value: string) {
+    if (inlineCancelledRef.current) {
+      inlineCancelledRef.current = false;
+      return;
+    }
+    setInlineEdit(null);
+    const cell = sheet?.cells[ref];
+    const current = cell?.formula || (cell ? displayValue(cell) : '');
+    if (value === current) return;
+    void commitCell(value, ref);
+  }
+
   function validationFor(ref: string): ValidationRule | null {
     return sheet?.validations?.[ref] || null;
   }
 
   async function commitCell(forcedValue?: string, refOverride?: string) {
     if (!sheet) return;
-    const targetRef = refOverride || selected;
+    const targetRef = refOverride || editingRefRef.current || selected;
     const value = forcedValue !== undefined ? forcedValue : editRef.current;
     const cell = sheet.cells[targetRef];
     const current = cell?.formula || (cell ? displayValue(cell) : '');
@@ -267,18 +380,32 @@ export default function SheetPage() {
     }
   }
 
-  async function createPivotTable() {
+  function selectionBounds() {
+    const parsed = selection
+      .map((ref) => parseRef(ref))
+      .filter((item): item is { col: number; row: number } => Boolean(item));
+    if (!parsed.length) return { start: 'A1', end: 'A1' };
+    const cols = parsed.map((item) => item.col);
+    const rows = parsed.map((item) => item.row);
+    return {
+      start: refOf(Math.min(...cols), Math.min(...rows)),
+      end: refOf(Math.max(...cols), Math.max(...rows)),
+    };
+  }
+
+  async function createPivotSheet() {
     if (!sheet) return;
+    const bounds = selectionBounds();
+    setError('');
     try {
       const result = await api.createPivot(id, {
         source: sheet.name,
-        rowField: pivotRow,
-        colField: pivotCol,
-        valueField: pivotValue,
-        agg: pivotAgg,
-        target: pivotTarget,
+        start: bounds.start,
+        end: bounds.end,
       });
       setInfo('Pivot table created.');
+      setPivotDialogOpen(false);
+      setDataMenuOpen(false);
       await load();
       setActive(result.sheet.name);
     } catch (caught) {
@@ -423,7 +550,7 @@ export default function SheetPage() {
       </div>
 
       <div className="grid-wrap">
-        <table className="sheet-grid">
+        <table className="sheet-grid" role="grid" aria-multiselectable="true">
           <thead>
             <tr>
               <th />
@@ -440,9 +567,51 @@ export default function SheetPage() {
                   const ref = refOf(colIndexValue + 1, rowNumber);
                   const cell = sheet.cells[ref];
                   const rule = validationFor(ref);
+                  const isSelected = selection.includes(ref);
+                  const cellProps = {
+                    role: 'gridcell' as const,
+                    'aria-label': `Cell ${ref}`,
+                    'aria-selected': isSelected,
+                    className: isSelected ? 'selected' : '',
+                    onMouseDown: (event: React.MouseEvent) => startDrag(ref, event.shiftKey),
+                    onMouseEnter: () => extendDrag(ref),
+                    onMouseUp: endDrag,
+                    onDoubleClick: () => openInlineEdit(ref),
+                  };
+                  if (inlineEdit?.ref === ref) {
+                    return (
+                      <td key={ref} {...cellProps}>
+                        <input
+                          aria-label={`Edit ${ref}`}
+                          autoFocus
+                          value={inlineEdit.value}
+                          onChange={(event) => setInlineEdit({ ref, value: event.target.value })}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.preventDefault();
+                              inlineCancelledRef.current = true;
+                              setInlineEdit(null);
+                              return;
+                            }
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              commitInlineEdit(ref, inlineEdit.value);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (inlineCancelledRef.current) {
+                              inlineCancelledRef.current = false;
+                              return;
+                            }
+                            commitInlineEdit(ref, inlineEdit.value);
+                          }}
+                        />
+                      </td>
+                    );
+                  }
                   if (rule?.type === 'list') {
                     return (
-                      <td key={ref}>
+                      <td key={ref} {...cellProps}>
                         <select
                           aria-label={`Cell ${ref}`}
                           value={displayValue(cell)}
@@ -463,19 +632,21 @@ export default function SheetPage() {
                     );
                   }
                   return (
-                    <td key={ref}>
+                    <td key={ref} {...cellProps}>
                       <input
                         aria-label={`Cell ${ref}`}
                         className={selection.includes(ref) ? 'selected' : ''}
                         type={rule?.type === 'number' ? 'number' : 'text'}
                         value={editingRef === ref ? editValue : displayValue(cell)}
                         onFocus={(event) => {
+                          editingRefRef.current = ref;
                           setEditingRef(ref);
                           editRef.current = displayValue(cell);
                           setEditValue(displayValue(cell));
                           selectCell(ref, event.shiftKey);
                         }}
                         onChange={(event) => {
+                          editingRefRef.current = ref;
                           setEditingRef(ref);
                           setSelected(ref);
                           editRef.current = event.target.value;
@@ -492,6 +663,7 @@ export default function SheetPage() {
                             commitCell(undefined, ref);
                             setEditingRef(null);
                           }
+                          if (editingRefRef.current === ref) editingRefRef.current = null;
                         }}
                       />
                     </td>
@@ -613,20 +785,113 @@ export default function SheetPage() {
         </button>
       </div>
 
-      <h2>Pivot table</h2>
+      <h2>Data</h2>
       <div className="toolbar">
-        <input aria-label="Pivot row field" type="text" value={pivotRow} onChange={(event) => setPivotRow(event.target.value)} />
-        <input aria-label="Pivot column field" type="text" value={pivotCol} onChange={(event) => setPivotCol(event.target.value)} />
-        <input aria-label="Pivot value field" type="text" value={pivotValue} onChange={(event) => setPivotValue(event.target.value)} />
-        <select aria-label="Pivot aggregation" value={pivotAgg} onChange={(event) => setPivotAgg(event.target.value as 'sum' | 'count')}>
-          <option value="sum">sum</option>
-          <option value="count">count</option>
-        </select>
-        <input aria-label="Pivot target" type="text" value={pivotTarget} onChange={(event) => setPivotTarget(event.target.value)} />
-        <button type="button" onClick={createPivotTable}>
-          Create pivot table
+        <button type="button" onClick={() => setDataMenuOpen((open) => !open)}>
+          Data
         </button>
+        {dataMenuOpen && (
+          <div className="menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => setPivotDialogOpen(true)}>
+              Create pivot table
+            </button>
+          </div>
+        )}
+        {!dataMenuOpen && (
+          <button type="button" onClick={() => setPivotDialogOpen(true)}>
+            Create pivot table
+          </button>
+        )}
       </div>
+
+      {pivotDialogOpen && (
+        <div role="dialog" aria-label="Create pivot table" className="panel">
+          <h3>Create pivot table</h3>
+          <p>{`Source range: ${selectionBounds().start}:${selectionBounds().end}`}</p>
+          <label>
+            <input type="radio" name="pivot-target" value="new" checked readOnly /> New worksheet
+          </label>
+          <div className="toolbar">
+            <button type="button" onClick={createPivotSheet}>
+              Create
+            </button>
+            <button type="button" onClick={() => setPivotDialogOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {sheet.pivot && (
+        <div role="region" aria-label="Pivot table editor" className="panel">
+          <h3>Pivot table editor</h3>
+          <div className="toolbar">
+            <label>
+              Rows
+              <select
+                aria-label="Rows"
+                value={pivotDraft.rowField}
+                onChange={(event) => setPivotDraft({ ...pivotDraft, rowField: event.target.value })}
+              >
+                <option value="">(select field)</option>
+                {pivotHeaders.map((header) => (
+                  <option key={`rows-${header}`} value={header}>
+                    {header}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Columns
+              <select
+                aria-label="Columns"
+                value={pivotDraft.colField}
+                onChange={(event) => setPivotDraft({ ...pivotDraft, colField: event.target.value })}
+              >
+                <option value="">(none)</option>
+                {pivotHeaders.map((header) => (
+                  <option key={`cols-${header}`} value={header}>
+                    {header}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Values
+              <select
+                aria-label="Values"
+                value={pivotDraft.valueField}
+                onChange={(event) => setPivotDraft({ ...pivotDraft, valueField: event.target.value })}
+              >
+                <option value="">(select field)</option>
+                {pivotHeaders.map((header) => (
+                  <option key={`values-${header}`} value={header}>
+                    {header}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Summarize by
+              <select
+                aria-label="Summarize by"
+                value={pivotDraft.agg}
+                onChange={(event) => setPivotDraft({ ...pivotDraft, agg: event.target.value })}
+              >
+                <option value="SUM">SUM</option>
+                <option value="COUNT">COUNT</option>
+                <option value="AVERAGE">AVERAGE</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => run(() => api.applyPivot(id, sheet.name, pivotDraft), 'Pivot updated.')}>
+              Apply
+            </button>
+            <button type="button" onClick={() => run(() => api.refreshPivot(id, sheet.name), 'Pivot refreshed.')}>
+              Refresh pivot table
+            </button>
+          </div>
+        </div>
+      )}
 
       <h2>Import CSV</h2>
       <textarea

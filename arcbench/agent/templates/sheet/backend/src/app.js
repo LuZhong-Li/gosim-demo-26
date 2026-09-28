@@ -8,7 +8,22 @@ const app = express();
 app.use(express.json({ limit: '5mb' }));
 
 function sheetPayload(sheet) {
-  return { name: sheet.name, cells: sheet.cells, validations: sheet.validations || {} };
+  return {
+    name: sheet.name,
+    cells: sheet.cells,
+    validations: sheet.validations || {},
+    selection: sheet.selection || null,
+    pivot: sheet.pivot
+      ? {
+          source: sheet.pivot.source,
+          range: pivotRangeRefs(sheet.pivot.range),
+          rowField: sheet.pivot.rowField || '',
+          colField: sheet.pivot.colField || '',
+          valueField: sheet.pivot.valueField || '',
+          agg: String(sheet.pivot.agg || 'sum').toUpperCase(),
+        }
+      : null,
+  };
 }
 
 function workbookSummary(workbook) {
@@ -171,6 +186,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/rows', (req, res) => {
   }
   sheet.cells = moved;
   store.recompute(sheet);
+  adjustPivotRanges(workbook, sheet.name, 'row', index, count, action);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -196,6 +212,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/columns', (req, res) => {
   }
   sheet.cells = moved;
   store.recompute(sheet);
+  adjustPivotRanges(workbook, sheet.name, 'col', index, count, action);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -338,62 +355,281 @@ app.get('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
   res.json({ validations: store.ensureValidations(sheet) });
 });
 
+// ---------- selection ----------
+
+app.put('/api/workbooks/:id/worksheets/:sheet/selection', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  const anchor = String((req.body || {}).anchor || '');
+  const focus = String((req.body || {}).focus || '');
+  if (!store.parseRef(anchor) || !store.parseRef(focus)) {
+    return res.status(400).json({ error: 'Selection requires two valid cell references.' });
+  }
+  sheet.selection = { anchor, focus };
+  res.json({ sheet: sheetPayload(sheet) });
+});
+
 // ---------- pivot ----------
+
+const PIVOT_FIELD_MISSING = 'Pivot field no longer exists; please select the field again';
+
+function pivotRange(startRef, endRef) {
+  const start = store.parseRef(startRef);
+  const end = store.parseRef(endRef);
+  if (!start || !end) return null;
+  return {
+    startCol: Math.min(start.col, end.col),
+    endCol: Math.max(start.col, end.col),
+    startRow: Math.min(start.row, end.row),
+    endRow: Math.max(start.row, end.row),
+  };
+}
+
+function pivotRangeRefs(range) {
+  return {
+    start: store.refOf(range.startCol, range.startRow),
+    end: store.refOf(range.endCol, range.endRow),
+  };
+}
+
+function pivotHeaders(source, range) {
+  const headers = [];
+  for (let col = range.startCol; col <= range.endCol; col += 1) {
+    headers.push(String(store.cellValue(source.cells, store.refOf(col, range.startRow)) ?? ''));
+  }
+  return headers;
+}
+
+function nextPivotName(workbook) {
+  let index = 1;
+  while (store.findSheet(workbook, `Pivot${index}`)) index += 1;
+  return `Pivot${index}`;
+}
+
+function emptyBucket() {
+  return { sum: 0, numeric: 0, count: 0 };
+}
+
+function addBucket(target, bucket) {
+  target.sum += bucket.sum;
+  target.numeric += bucket.numeric;
+  target.count += bucket.count;
+  return target;
+}
+
+function aggregateValue(bucket, agg) {
+  const value = bucket || emptyBucket();
+  if (agg === 'count') return value.count;
+  if (agg === 'average') return value.numeric ? value.sum / value.numeric : 0;
+  return value.sum;
+}
+
+function computePivotCells(source, config) {
+  const range = config.range;
+  const headers = pivotHeaders(source, range);
+  const columnOf = (name) => {
+    const index = headers.indexOf(name);
+    return index < 0 ? -1 : range.startCol + index;
+  };
+  const rowCol = columnOf(config.rowField);
+  const valueCol = columnOf(config.valueField);
+  const colCol = config.colField ? columnOf(config.colField) : -1;
+  if (rowCol < 0 || valueCol < 0 || (config.colField && colCol < 0)) {
+    return { error: PIVOT_FIELD_MISSING };
+  }
+  const agg = String(config.agg || 'sum').toLowerCase();
+  const rows = new Map();
+  const rowOrder = [];
+  const colOrder = [];
+  for (let row = range.startRow + 1; row <= range.endRow; row += 1) {
+    const rowKey = String(store.cellValue(source.cells, store.refOf(rowCol, row)) ?? '');
+    if (!rowKey) continue;
+    const colKey = colCol > 0 ? String(store.cellValue(source.cells, store.refOf(colCol, row)) ?? '') : '';
+    const raw = store.cellValue(source.cells, store.refOf(valueCol, row));
+    const isEmpty = raw === null || raw === undefined || String(raw) === '';
+    if (!rows.has(rowKey)) {
+      rows.set(rowKey, new Map());
+      rowOrder.push(rowKey);
+    }
+    if (colCol > 0 && !colOrder.includes(colKey)) colOrder.push(colKey);
+    const buckets = rows.get(rowKey);
+    if (!buckets.has(colKey)) buckets.set(colKey, emptyBucket());
+    const bucket = buckets.get(colKey);
+    if (!isEmpty) {
+      bucket.count += 1;
+      const numeric = typeof raw === 'number' ? raw : Number(raw);
+      if (!Number.isNaN(numeric)) {
+        bucket.sum += numeric;
+        bucket.numeric += 1;
+      }
+    }
+  }
+
+  const columnTotals = new Map();
+  const grand = emptyBucket();
+  for (const rowKey of rowOrder) {
+    for (const [colKey, bucket] of rows.get(rowKey)) {
+      if (!columnTotals.has(colKey)) columnTotals.set(colKey, emptyBucket());
+      addBucket(columnTotals.get(colKey), bucket);
+      addBucket(grand, bucket);
+    }
+  }
+
+  const cells = {};
+  const write = (col, row, value) => {
+    cells[store.refOf(col, row)] = { value };
+  };
+
+  if (colCol < 0) {
+    write(1, 1, config.rowField);
+    write(2, 1, `${agg.toUpperCase()} of ${config.valueField}`);
+    rowOrder.forEach((rowKey, index) => {
+      const row = index + 2;
+      write(1, row, rowKey);
+      write(2, row, aggregateValue(rows.get(rowKey).get(''), agg));
+    });
+    const totalRow = rowOrder.length + 2;
+    write(1, totalRow, 'Grand Total');
+    write(2, totalRow, aggregateValue(grand, agg));
+  } else {
+    write(1, 1, config.rowField);
+    colOrder.forEach((colKey, index) => write(index + 2, 1, colKey));
+    const totalCol = colOrder.length + 2;
+    write(totalCol, 1, 'Grand Total');
+    rowOrder.forEach((rowKey, index) => {
+      const row = index + 2;
+      write(1, row, rowKey);
+      const rowTotal = emptyBucket();
+      colOrder.forEach((colKey, colIndex) => {
+        const bucket = rows.get(rowKey).get(colKey);
+        write(colIndex + 2, row, aggregateValue(bucket, agg));
+        if (bucket) addBucket(rowTotal, bucket);
+      });
+      write(totalCol, row, aggregateValue(rowTotal, agg));
+    });
+    const totalRow = rowOrder.length + 2;
+    write(1, totalRow, 'Grand Total');
+    colOrder.forEach((colKey, colIndex) => {
+      write(colIndex + 2, totalRow, aggregateValue(columnTotals.get(colKey), agg));
+    });
+    write(totalCol, totalRow, aggregateValue(grand, agg));
+  }
+  return { cells };
+}
+
+function requirePivotSheet(req, res, workbook) {
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) {
+    res.status(404).json({ error: 'Worksheet not found.' });
+    return null;
+  }
+  if (!sheet.pivot) {
+    res.status(400).json({ error: 'Worksheet is not a pivot table.' });
+    return null;
+  }
+  return sheet;
+}
+
+function applyPivotConfig(workbook, sheet, config) {
+  const source = store.findSheet(workbook, sheet.pivot.source);
+  if (!source) return { error: PIVOT_FIELD_MISSING };
+  sheet.pivot = { ...sheet.pivot, ...config };
+  const result = computePivotCells(source, sheet.pivot);
+  if (result.error) return result;
+  sheet.cells = result.cells;
+  store.recompute(sheet);
+  return { sheet };
+}
+
+function adjustPivotRanges(workbook, sourceName, axis, index, count, action) {
+  for (const sheet of workbook.worksheets) {
+    if (!sheet.pivot || sheet.pivot.source !== sourceName) continue;
+    const range = sheet.pivot.range;
+    const startKey = axis === 'row' ? 'startRow' : 'startCol';
+    const endKey = axis === 'row' ? 'endRow' : 'endCol';
+    if (action === 'insert') {
+      if (index <= range[startKey]) {
+        range[startKey] += count;
+        range[endKey] += count;
+      } else if (index <= range[endKey]) {
+        range[endKey] += count;
+      }
+      continue;
+    }
+    const span = range[endKey] - range[startKey] + 1;
+    const removed = Math.min(count, span);
+    if (index < range[startKey]) {
+      range[startKey] -= removed;
+      range[endKey] -= removed;
+    } else if (index <= range[endKey]) {
+      range[endKey] -= removed;
+    }
+    if (range[endKey] < range[startKey]) {
+      range[startKey] = index;
+      range[endKey] = index;
+    }
+  }
+}
 
 app.post('/api/workbooks/:id/pivot', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;
-  const source = store.findSheet(workbook, String((req.body || {}).source || workbook.worksheets[0].name));
+  const body = req.body || {};
+  const source = store.findSheet(workbook, String(body.source || workbook.worksheets[0].name));
   if (!source) return res.status(404).json({ error: 'Source worksheet not found.' });
-  const rowCol = store.colToIndex(String((req.body || {}).rowField || 'A'));
-  const colCol = store.colToIndex(String((req.body || {}).colField || 'B'));
-  const valueCol = store.colToIndex(String((req.body || {}).valueField || 'C'));
-  const agg = String((req.body || {}).agg || 'sum').toLowerCase();
-  const targetName = String((req.body || {}).target || 'Pivot');
-  const { maxRow } = store.usedBounds(source);
-
-  const matrix = new Map();
-  const headers = new Set();
-  for (let row = 2; row <= maxRow; row += 1) {
-    const rowKey = String(store.cellValue(source.cells, store.refOf(rowCol, row)) ?? '');
-    const colKey = String(store.cellValue(source.cells, store.refOf(colCol, row)) ?? '');
-    const raw = store.cellValue(source.cells, store.refOf(valueCol, row));
-    const value = typeof raw === 'number' ? raw : Number(raw);
-    if (!rowKey || !colKey) continue;
-    headers.add(colKey);
-    if (!matrix.has(rowKey)) matrix.set(rowKey, {});
-    const bucket = matrix.get(rowKey);
-    if (!bucket[colKey]) bucket[colKey] = [];
-    if (!Number.isNaN(value)) bucket[colKey].push(value);
+  const range = pivotRange(String(body.start || 'A1'), String(body.end || body.start || 'A1'));
+  if (!range) return res.status(400).json({ error: 'A valid source range is required.' });
+  const name = String(body.name || '').trim() || nextPivotName(workbook);
+  if (store.findSheet(workbook, name)) {
+    return res.status(409).json({ error: `Worksheet ${name} already exists.` });
   }
-
-  const headerList = Array.from(headers).sort();
-  const cells = { A1: { value: `${req.body.rowField || 'A'} \\ ${req.body.colField || 'B'}` } };
-  headerList.forEach((header, index) => {
-    cells[store.refOf(index + 2, 1)] = { value: header };
+  const target = {
+    name,
+    cells: {},
+    validations: {},
+    selection: null,
+    pivot: {
+      source: source.name,
+      range,
+      rowField: '',
+      colField: '',
+      valueField: '',
+      agg: 'sum',
+    },
+  };
+  workbook.worksheets.push(target);
+  res.status(201).json({
+    sheet: sheetPayload(target),
+    worksheets: workbook.worksheets.map((item) => item.name),
   });
-  let rowIndex = 2;
-  for (const rowKey of Array.from(matrix.keys()).sort()) {
-    cells[store.refOf(1, rowIndex)] = { value: rowKey };
-    headerList.forEach((header, index) => {
-      const values = matrix.get(rowKey)[header] || [];
-      const aggregated =
-        agg === 'count'
-          ? values.length
-          : values.reduce((sum, item) => sum + item, 0);
-      cells[store.refOf(index + 2, rowIndex)] = { value: aggregated };
-    });
-    rowIndex += 1;
-  }
+});
 
-  let target = store.findSheet(workbook, targetName);
-  if (!target) {
-    target = { name: targetName, cells: {}, validations: {} };
-    workbook.worksheets.push(target);
-  }
-  target.cells = cells;
-  store.recompute(target);
-  res.json({ sheet: sheetPayload(target), worksheets: workbook.worksheets.map((item) => item.name) });
+app.put('/api/workbooks/:id/worksheets/:sheet/pivot', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = requirePivotSheet(req, res, workbook);
+  if (!sheet) return;
+  const body = req.body || {};
+  const result = applyPivotConfig(workbook, sheet, {
+    rowField: String(body.rowField || ''),
+    colField: String(body.colField || ''),
+    valueField: String(body.valueField || ''),
+    agg: String(body.agg || 'sum').toLowerCase(),
+  });
+  if (result.error) return res.status(409).json({ error: result.error });
+  res.json({ sheet: sheetPayload(sheet) });
+});
+
+app.post('/api/workbooks/:id/worksheets/:sheet/pivot/refresh', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = requirePivotSheet(req, res, workbook);
+  if (!sheet) return;
+  const result = applyPivotConfig(workbook, sheet, {});
+  if (result.error) return res.status(409).json({ error: result.error });
+  res.json({ sheet: sheetPayload(sheet) });
 });
 
 // ---------- static frontend hosting ----------
