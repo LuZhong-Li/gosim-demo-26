@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Issue, Repo } from '../api';
 import type { CommitDiff } from '../api';
 import * as api from '../api';
+import BranchSelector from '../components/BranchSelector';
 import MilestonePicker from '../components/MilestonePicker';
 import { stateLabel } from '../labels';
 import PullsTab from './PullsTab';
@@ -27,6 +28,9 @@ export default function RepoPage() {
     requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code';
   const requestedPull = Number(searchParams.get('pull')) || null;
   const requestedFile = searchParams.get('file');
+  const requestedBranch = searchParams.get('branch') || '';
+  const requestedPath = searchParams.get('path') || '';
+  const [currentBranch, setCurrentBranch] = useState('');
   const requestedIssue = Number(searchParams.get('issue')) || null;
   // REQ-5-1-1: state, keyword and label filters live in the URL so a refresh keeps them.
   const issueState = searchParams.get('state') === 'closed' ? 'closed' : 'open';
@@ -54,7 +58,6 @@ export default function RepoPage() {
   const [newFileBranch, setNewFileBranch] = useState('main');
   const [newFileContent, setNewFileContent] = useState('');
   const [newFileMessage, setNewFileMessage] = useState('');
-  const [branchName, setBranchName] = useState('');
   const [addFileOpen, setAddFileOpen] = useState(false);
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
   const [fileEditorError, setFileEditorError] = useState('');
@@ -77,12 +80,13 @@ export default function RepoPage() {
       const [repoResult, issueResult, treeResult] = await Promise.all([
         api.getRepo(owner, name),
         api.listIssues(owner, name),
-        api.getTree(owner, name),
+        api.getTree(owner, name, requestedBranch || undefined),
       ]);
       setRepo(repoResult.repo);
       setIssues(issueResult);
       setFiles(treeResult.files);
       setBranches(treeResult.branches);
+      setCurrentBranch(treeResult.branch);
       setNewFileBranch((current) => current || treeResult.defaultBranch || 'main');
       setFileContent(null);
       void api
@@ -92,7 +96,7 @@ export default function RepoPage() {
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
-  }, [owner, name]);
+  }, [owner, name, requestedBranch]);
 
   useEffect(() => {
     refresh();
@@ -139,7 +143,9 @@ export default function RepoPage() {
 
   async function openFile(filePath: string) {
     try {
-      setFileContent(await api.getFile(owner, name, filePath));
+      setFileContent(
+        await api.getFile(owner, name, filePath, requestedBranch || currentBranch || undefined),
+      );
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -309,36 +315,65 @@ export default function RepoPage() {
               {copied && <p className="success">Copied</p>}
             </div>
           )}
-          <h2>Branches</h2>
-          {branches.length === 0 ? <p className="muted">No branches.</p> : <p>{branches.join(', ')}</p>}
-          <form
-            className="inline-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              run(() => api.createBranch(owner, name, branchName), 'Branch created.');
-              setBranchName('');
+          {/* REQ-4-3-1 / REQ-4-3-2: the branch selector drives the whole Code page. */}
+          <BranchSelector
+            current={currentBranch || requestedBranch || 'main'}
+            branches={branches}
+            canCreate={Boolean(repo.canWrite)}
+            onSelect={(branch) => {
+              setFileContent(null);
+              navigate(`/${owner}/${name}?tab=code&branch=${encodeURIComponent(branch)}`);
             }}
-          >
-            <input
-              aria-label="New branch name"
-              type="text"
-              value={branchName}
-              placeholder="branch name"
-              onChange={(event) => setBranchName(event.target.value)}
-            />
-            <button type="submit">Create branch</button>
-          </form>
+            onCreate={(branch) => {
+              void run(() => api.createBranch(owner, name, branch), 'Branch created.').then(() =>
+                navigate(`/${owner}/${name}?tab=code&branch=${encodeURIComponent(branch)}`),
+              );
+            }}
+          />
 
           <h2>Files</h2>
           {files.length === 0 ? (
             <p className="muted">This repository has no files.</p>
           ) : (
             <ul className="repo-list">
-              {files.map((filePath) => (
+              {requestedPath
+                ? files
+                    .filter((filePath) => filePath.startsWith(`${requestedPath}/`))
+                    .map((filePath) => (
+                      <li key={filePath}>
+                        {/* REQ-4-1: a file entry is a link named after the file. */}
+                        <Link
+                          to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&path=${encodeURIComponent(requestedPath)}&file=${encodeURIComponent(filePath)}`}
+                        >
+                          {filePath.slice(requestedPath.length + 1)}
+                        </Link>
+                      </li>
+                    ))
+                : Array.from(
+                    new Set(
+                      files
+                        .filter((filePath) => filePath.includes('/'))
+                        .map((filePath) => filePath.split('/')[0]),
+                    ),
+                  ).map((directory) => (
+                    <li key={`dir:${directory}`}>
+                      <Link
+                        to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&path=${encodeURIComponent(directory)}`}
+                      >
+                        {directory}
+                      </Link>
+                    </li>
+                  ))}
+              {(requestedPath
+                ? []
+                : files.filter((filePath) => !filePath.includes('/'))
+              ).map((filePath) => (
                 <li key={filePath}>
-                  <button className="link-button" type="button" onClick={() => openFile(filePath)}>
+                  <Link
+                    to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&file=${encodeURIComponent(filePath)}`}
+                  >
                     {filePath}
-                  </button>
+                  </Link>
                   <button
                     type="button"
                     aria-label={`Delete ${filePath}`}
@@ -363,6 +398,14 @@ export default function RepoPage() {
                 </li>
               ))}
             </ul>
+          )}
+          {requestedPath && (
+            <p>
+              <Link to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}`}>
+                {owner}/{name}
+              </Link>
+              {` / ${requestedPath}`}
+            </p>
           )}
           {fileContent && (
             <div className="issue-detail">

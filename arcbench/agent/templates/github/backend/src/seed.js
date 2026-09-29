@@ -151,10 +151,11 @@ function seed(store) {
   // ----- acme-docs code history: main + feature-search -----
   const SEARCH_BASE = 'export function search(items, query) {\n  return items;\n}\n';
   const SEARCH_HEAD = 'export function search(items, query) {\n  const q = query.toLowerCase();\n  return items.filter((item) => item.includes(q));\n}\n';
-  const SEARCH_UTILS = 'export const normalize = (value) => String(value).toLowerCase();\n';
+  // REQ-4-3-1 seed: a file that exists only on the feature-search branch.
+  const MAIN_ONLY = 'Main-only note.\n';
 
   if (docs && !store.findFile(docs, 'src/search.ts')) {
-    store.addFile(docs, 'src/search.ts', SEARCH_BASE, 'alice-dev', 'Add search module', 'main');
+    store.addFile(docs, 'src/search.ts', SEARCH_BASE, 'alice-dev', 'Document search flow', 'main');
   }
 
   if (docs && !(docs.branches || []).some((branch) => branch.name === 'feature-search')) {
@@ -192,7 +193,7 @@ function seed(store) {
   }
 
   // Build a single feature-search commit ahead of main that modifies src/search.ts
-  // and adds src/search-utils.ts (one added file + one modified file).
+  // and adds main-only.md (one added file + one modified file).
   if (docs) {
     const featureBranch = (docs.branches || []).find((branch) => branch.name === 'feature-search');
     const mainBranch = (docs.branches || []).find((branch) => branch.name === 'main');
@@ -201,13 +202,13 @@ function seed(store) {
       .map((file) =>
         file.path === 'src/search.ts' ? { ...file, content: SEARCH_HEAD } : file,
       )
-      .concat([{ path: 'src/search-utils.ts', content: SEARCH_UTILS }]);
+      .concat([{ path: 'main-only.md', content: MAIN_ONLY }]);
     if (featureBranch && featureBranch.head === mainHead) {
       pushCommit(docs, {
         message: 'Refine search and add utilities',
         author: 'alice-dev',
         parents: mainHead ? [mainHead] : [],
-        changed: ['src/search.ts', 'src/search-utils.ts'],
+        changed: ['src/search.ts', 'main-only.md'],
         snapshot: headFiles,
         branch: 'feature-search',
       });

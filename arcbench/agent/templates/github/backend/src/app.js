@@ -596,6 +596,8 @@ app.get('/api/repos/:owner/:name', (req, res) => {
       ownerType: repo.ownerType,
       // REQ-3-4 / REQ-6-1: the UI hides admin-only controls for non-admins.
       canAdmin: store.canAdmin(repo, user && user.username),
+      // REQ-4-3-2: only writers may create branches from the selector.
+      canWrite: store.canWrite(repo, user && user.username),
       // REQ-6-1: Settings → Branches shows the persisted rule for this repository.
       protection: protectionOf(repo, repo.defaultBranch),
     },
@@ -629,10 +631,16 @@ app.get('/api/repos/:owner/:name/tree', (req, res) => {
     req.query.branch ||
     repo.defaultBranch ||
     (repo.branches && repo.branches[0] ? repo.branches[0].name : 'main');
+  // REQ-4-1 / REQ-4-3-1: the file list belongs to the selected branch's snapshot.
+  const headCommit = store.commitBySha(repo, store.branchHead(repo, branch));
+  const files =
+    headCommit && Array.isArray(headCommit.snapshot)
+      ? headCommit.snapshot.map((file) => file.path)
+      : (repo.files || []).map((file) => file.path);
   res.json({
     branch,
     defaultBranch: repo.defaultBranch,
-    files: (repo.files || []).map((file) => file.path),
+    files,
     branches: (repo.branches || []).map((branchItem) => branchItem.name),
   });
 });
@@ -652,7 +660,14 @@ app.get('/api/repos/:owner/:name/contents', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const filePath = String(req.query.path || '');
-  const file = store.findFile(repo, filePath);
+  // REQ-4-1: a file is read from the selected branch's snapshot when one is given.
+  const branch = String(req.query.branch || '').trim();
+  let file = null;
+  if (branch) {
+    const commit = store.commitBySha(repo, store.branchHead(repo, branch));
+    file = (commit && (commit.snapshot || []).find((entry) => entry.path === filePath)) || null;
+  }
+  if (!file) file = store.findFile(repo, filePath);
   if (!file) return res.status(404).json({ error: 'File not found.' });
   res.json({ path: file.path, content: file.content });
 });
@@ -757,8 +772,9 @@ app.post('/api/repos/:owner/:name/branches', requireUser, (req, res) => {
     return res.status(403).json({ error: 'You do not have write permission to this repository.' });
   }
   const branchName = String((req.body || {}).name || '').trim();
-  if (!/^[A-Za-z0-9_.-]{1,200}$/.test(branchName)) {
-    return res.status(400).json({ error: 'Invalid branch name.' });
+  if (!/^[A-Za-z0-9_.-]{1,200}$/.test(branchName) || branchName.includes('..')) {
+    // REQ-4-3-2: the official message for a malformed branch name.
+    return res.status(400).json({ error: 'Invalid branch' });
   }
   const head = store.addBranch(repo, branchName, req.user.username);
   if (!head) return res.status(409).json({ error: 'A branch with that name already exists.' });

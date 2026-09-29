@@ -13,6 +13,8 @@ export type Repo = {
   forkedFrom?: string | null;
   /** REQ-3-4 / REQ-6-1: whether the signed-in user may manage repository settings. */
   canAdmin?: boolean;
+  /** REQ-4-3-2: whether the signed-in user may create branches. */
+  canWrite?: boolean;
   /** REQ-6-1: the persisted branch protection rule, if one exists. */
   protection?: { branch: string; requiredApprovals: number; requiredChecks: string[] };
 };
@@ -268,9 +270,11 @@ export async function updateIssue(
 export async function getTree(
   owner: string,
   name: string,
+  branch?: string,
 ): Promise<{ branch: string; defaultBranch: string; files: string[]; branches: string[] }> {
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/tree`,
+    { params: branch ? { branch } : {} },
   );
   return response.data;
 }
@@ -279,10 +283,11 @@ export async function getFile(
   owner: string,
   name: string,
   filePath: string,
+  branch?: string,
 ): Promise<{ path: string; content: string }> {
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`,
-    { params: { path: filePath } },
+    { params: branch ? { path: filePath, branch } : { path: filePath } },
   );
   return response.data;
 }
