@@ -189,6 +189,34 @@ app.put('/api/workbooks/:id/worksheets/:sheet/cells', (req, res) => {
   res.json({ sheet: sheetPayload(sheet) });
 });
 
+app.put('/api/workbooks/:id/worksheets/:sheet/state', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  const payload = req.body || {};
+  if (!payload.cells || typeof payload.cells !== 'object' || Array.isArray(payload.cells)) {
+    return res.status(400).json({ error: 'cells payload is required.' });
+  }
+
+  sheet.cells = JSON.parse(JSON.stringify(payload.cells));
+  sheet.validations =
+    payload.validations && typeof payload.validations === 'object' && !Array.isArray(payload.validations)
+      ? JSON.parse(JSON.stringify(payload.validations))
+      : {};
+  sheet.filters = Array.isArray(payload.filters) ? JSON.parse(JSON.stringify(payload.filters)) : [];
+  sheet.selection =
+    payload.selection && typeof payload.selection === 'object' && !Array.isArray(payload.selection)
+      ? JSON.parse(JSON.stringify(payload.selection))
+      : null;
+  if (Object.prototype.hasOwnProperty.call(payload, 'pivot')) {
+    sheet.pivot = payload.pivot ? JSON.parse(JSON.stringify(payload.pivot)) : null;
+  }
+  store.recompute(sheet);
+  touch(workbook);
+  res.json({ sheet: sheetPayload(sheet) });
+});
+
 app.post('/api/workbooks/:id/worksheets/:sheet/rows', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;

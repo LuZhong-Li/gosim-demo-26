@@ -125,6 +125,18 @@ export async function replaceCells(
   return response.data.sheet as Worksheet;
 }
 
+export async function replaceWorksheet(
+  id: string,
+  sheet: string,
+  worksheet: Worksheet,
+): Promise<Worksheet> {
+  const response = await client.put(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/state`,
+    worksheet,
+  );
+  return response.data.sheet as Worksheet;
+}
+
 export async function insertRows(
   id: string,
   sheet: string,

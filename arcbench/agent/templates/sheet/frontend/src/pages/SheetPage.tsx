@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import type { Cell, ValidationRule, WorkbookDetail, Worksheet } from '../api';
+import type { Cell, FilterConfig, ValidationRule, WorkbookDetail, Worksheet } from '../api';
 import * as api from '../api';
 
 const ROWS = 30;
@@ -39,6 +39,10 @@ function displayValue(cell: Cell | undefined): string {
   if (!cell) return '';
   if (cell.error) return String(cell.error);
   return cell.value === null || cell.value === undefined ? '' : String(cell.value);
+}
+
+function cloneWorksheet(worksheet: Worksheet): Worksheet {
+  return JSON.parse(JSON.stringify(worksheet)) as Worksheet;
 }
 
 function refsBetween(startRef: string, endRef: string): string[] {
@@ -82,9 +86,9 @@ export default function SheetPage() {
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard>(null);
   const [filterColumn, setFilterColumn] = useState('');
-  const [filterOp, setFilterOp] = useState('contains');
+  const [filterOp, setFilterOp] = useState<FilterConfig['op']>('contains');
   const [filterValue, setFilterValue] = useState('');
-  const [appliedFilter, setAppliedFilter] = useState<{ column: string; op: string; value: string } | null>(null);
+  const [appliedFilter, setAppliedFilter] = useState<FilterConfig | null>(null);
   const [listValues, setListValues] = useState('');
   const [numberMin, setNumberMin] = useState('0');
   const [numberMax, setNumberMax] = useState('100');
@@ -112,8 +116,8 @@ export default function SheetPage() {
   const [renameWorkbookOpen, setRenameWorkbookOpen] = useState(false);
   const [renameWorkbookValue, setRenameWorkbookValue] = useState('');
   const [renameWorkbookError, setRenameWorkbookError] = useState('');
-  const undoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
-  const redoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
+  const undoStack = useRef<{ sheet: string; worksheet: Worksheet }[]>([]);
+  const redoStack = useRef<{ sheet: string; worksheet: Worksheet }[]>([]);
   const editRef = useRef('');
   const formulaRef = useRef('');
   const dirtyRef = useRef(false);
@@ -127,6 +131,7 @@ export default function SheetPage() {
   const undoRedoQueueRef = useRef(Promise.resolve());
   const pendingWritesRef = useRef(Promise.resolve());
   const latestCellsRef = useRef<Record<string, Cell>>({});
+  const latestSheetRef = useRef<Worksheet | null>(null);
   const load = useCallback(async () => {
     try {
       const detail = await api.getWorkbook(id);
@@ -158,8 +163,18 @@ export default function SheetPage() {
   // Keep latestCellsRef in sync with the active worksheet so undo/redo snapshots
   // capture the last server-confirmed cell state instead of an empty map.
   useEffect(() => {
-    if (sheet) latestCellsRef.current = sheet.cells;
+    if (!sheet) return;
+    latestCellsRef.current = sheet.cells;
+    latestSheetRef.current = cloneWorksheet(sheet);
   }, [sheet]);
+
+  useEffect(() => {
+    const persisted = sheet?.filters?.[0] || null;
+    setAppliedFilter(persisted);
+    setFilterColumn(persisted?.column || '');
+    setFilterOp(persisted?.op || 'contains');
+    setFilterValue(persisted?.value || '');
+  }, [active, sheet?.name, sheet?.filters]);
 
   useEffect(() => {
     const cell = sheet?.cells[selected];
@@ -228,6 +243,7 @@ export default function SheetPage() {
 
   function applySheetResult(result: Worksheet) {
     latestCellsRef.current = result.cells;
+    latestSheetRef.current = cloneWorksheet(result);
     setWorkbook((current) =>
       current
         ? {
@@ -239,8 +255,9 @@ export default function SheetPage() {
   }
 
   function pushHistory() {
-    if (!sheet) return;
-    undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
+    const snapshot = latestSheetRef.current || sheet;
+    if (!snapshot) return;
+    undoStack.current.push({ sheet: snapshot.name, worksheet: cloneWorksheet(snapshot) });
     redoStack.current = [];
   }
 
@@ -439,6 +456,42 @@ export default function SheetPage() {
     }
   }
 
+  async function applyFilter(override?: FilterConfig) {
+    if (!sheet) return;
+    const next = override || {
+      column: filterColumn || 'A',
+      op: filterOp,
+      value: filterValue,
+    };
+    pushHistory();
+    setError('');
+    try {
+      const filters = await api.setFilters(id, sheet.name, [next]);
+      setAppliedFilter(filters[0] || null);
+      setFilterDialogOpen(false);
+      setDataMenuOpen(false);
+      setInfo('Filter applied.');
+      await load();
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  async function clearFilter() {
+    if (!sheet) return;
+    pushHistory();
+    setError('');
+    try {
+      await api.setFilters(id, sheet.name, []);
+      setAppliedFilter(null);
+      setFilterDialogOpen(false);
+      setInfo('Filter cleared.');
+      await load();
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
   function selectionBounds() {
     const parsed = selection
       .map((ref) => parseRef(ref))
@@ -483,8 +536,14 @@ export default function SheetPage() {
       await pendingWritesRef.current;
       const snapshot = undoStack.current.pop();
       if (!snapshot) return;
-      redoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
-      await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Undo.');
+      const current = latestSheetRef.current || sheet;
+      if (current) {
+        redoStack.current.push({
+          sheet: current.name,
+          worksheet: cloneWorksheet(current),
+        });
+      }
+      await run(() => api.replaceWorksheet(id, snapshot.sheet, snapshot.worksheet), 'Undo.');
       setActive(snapshot.sheet);
     });
   }
@@ -495,8 +554,14 @@ export default function SheetPage() {
       await pendingWritesRef.current;
       const snapshot = redoStack.current.pop();
       if (!snapshot) return;
-      undoStack.current.push({ sheet: sheet.name, cells: JSON.parse(JSON.stringify(latestCellsRef.current)) });
-      await run(() => api.replaceCells(id, snapshot.sheet, snapshot.cells), 'Redo.');
+      const current = latestSheetRef.current || sheet;
+      if (current) {
+        undoStack.current.push({
+          sheet: current.name,
+          worksheet: cloneWorksheet(current),
+        });
+      }
+      await run(() => api.replaceWorksheet(id, snapshot.sheet, snapshot.worksheet), 'Redo.');
       setActive(snapshot.sheet);
     });
   }
@@ -535,6 +600,12 @@ export default function SheetPage() {
           return Number(value) > Number(expected);
         case 'lt':
           return Number(value) < Number(expected);
+        case 'before':
+          return value !== '' && value < expected.toLowerCase();
+        case 'is_empty':
+          return value === '';
+        case 'is_not_empty':
+          return value !== '';
         default:
           return value.includes(expected.toLowerCase());
       }
@@ -912,13 +983,18 @@ export default function SheetPage() {
           placeholder="A"
           onChange={(event) => setFilterColumn(event.target.value.toUpperCase())}
         />
-        <select aria-label="Filter operator" value={filterOp} onChange={(event) => setFilterOp(event.target.value)}>
+        <select
+          aria-label="Filter operator"
+          value={filterOp}
+          onChange={(event) => setFilterOp(event.target.value as FilterConfig['op'])}
+        >
           <option value="contains">Text contains</option>
           <option value="eq">Equals</option>
           <option value="gt">Greater than</option>
           <option value="lt">Less than</option>
-          <option value="empty">Is empty</option>
-          <option value="notempty">Is not empty</option>
+          <option value="before">Before</option>
+          <option value="is_empty">Is empty</option>
+          <option value="is_not_empty">Is not empty</option>
         </select>
         <input
           aria-label="Filter value"
@@ -926,10 +1002,10 @@ export default function SheetPage() {
           value={filterValue}
           onChange={(event) => setFilterValue(event.target.value)}
         />
-        <button type="button" onClick={() => setAppliedFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue })}>
+        <button type="button" onClick={() => void applyFilter()}>
           Apply
         </button>
-        <button type="button" onClick={() => setAppliedFilter(null)}>
+        <button type="button" onClick={() => void clearFilter()}>
           Clear filter
         </button>
       </div>
@@ -1002,13 +1078,19 @@ export default function SheetPage() {
           </div>
           <div className="field">
             <label htmlFor="filter-op">Condition</label>
-            <select id="filter-op" aria-label="Condition" value={filterOp} onChange={(event) => setFilterOp(event.target.value)}>
+            <select
+              id="filter-op"
+              aria-label="Condition"
+              value={filterOp}
+              onChange={(event) => setFilterOp(event.target.value as FilterConfig['op'])}
+            >
               <option value="contains">Text contains</option>
               <option value="eq">Equals</option>
               <option value="gt">Greater than</option>
               <option value="lt">Less than</option>
-              <option value="empty">Is empty</option>
-              <option value="notempty">Is not empty</option>
+              <option value="before">Before</option>
+              <option value="is_empty">Is empty</option>
+              <option value="is_not_empty">Is not empty</option>
             </select>
           </div>
           <div className="field">
@@ -1016,8 +1098,8 @@ export default function SheetPage() {
             <input id="filter-value" aria-label="Value" type="text" value={filterValue} onChange={(event) => setFilterValue(event.target.value)} />
           </div>
           <div className="toolbar">
-            <button type="button" onClick={() => { setAppliedFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue }); setFilterDialogOpen(false); }}>Apply</button>
-            <button type="button" onClick={() => { setAppliedFilter(null); setFilterDialogOpen(false); }}>Clear filter</button>
+            <button type="button" onClick={() => void applyFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue })}>Apply</button>
+            <button type="button" onClick={() => { void clearFilter(); setFilterDialogOpen(false); }}>Clear selection</button>
             <button type="button" onClick={() => setFilterDialogOpen(false)}>Cancel</button>
           </div>
         </div>
@@ -1192,10 +1274,6 @@ export default function SheetPage() {
     </section>
   );
 }
-
-
-
-
 
 
 

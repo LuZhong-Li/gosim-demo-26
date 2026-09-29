@@ -10,7 +10,7 @@
 
 ## Sheet 模板
 
-- **REQ-3-2-2 Undo/Redo 快照不全**：当前 `pushHistory()` 只快照 `cells`，undo/redo 通过 `replaceCells` 恢复单元格内容。行列结构会因单元格坐标整体恢复而「等价撤销」，但**数据校验规则（validations）、筛选配置（filters）、工作表选区（selection）不会被捕获/恢复**。属于底层重构项，风险高，暂未做。
+- REQ-3-2-2 Undo/Redo 与 REQ-5-1-2 筛选持久化已完成：撤销栈保存完整 worksheet 状态（cells、validations、filters、selection、pivot），筛选通过 `/state` 与 `/filters` 路由持久化到后端。
 
 ## 平台 / 评测侧（非代码局限）
 
