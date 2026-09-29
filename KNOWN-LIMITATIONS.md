@@ -5,6 +5,7 @@
 
 ## GitHub 模板
 
+- **REQ-4-2-3 仓库内搜索代码**：未实现。`GET /api/search` 仅按仓库名/owner/描述搜索仓库（覆盖 REQ-3-1），没有按文件内容/片段搜索当前仓库的接口与 UI（关键字 → Code 结果页 → 命中片段/路径/分支上下文 → 点开文件）。`coverage.json` 已将其从 implemented 清单移除，避免 traceability 误标 CONVERGED。
 - **REQ-6-2-2 分支比较**：以「Pull requests」页内联的 `Compare changes` 面板实现，不是独立对比路由；base 与 head 相同时显示 `There is nothing to compare` 并禁用创建 PR，但没有独立的 `/compare` 页面 URL。
 - **REQ-6-3-4 评审 Comment**：已补齐（`1d501a2`）。评审三种类型 APPROVED / CHANGES_REQUESTED / COMMENTED 均已可提交。
 
