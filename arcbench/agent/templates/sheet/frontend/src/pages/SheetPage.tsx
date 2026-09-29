@@ -91,6 +91,13 @@ export default function SheetPage() {
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
   const [openDropdownRef, setOpenDropdownRef] = useState<string | null>(null);
   const [pivotDialogOpen, setPivotDialogOpen] = useState(false);
+  const [sortDialogOpen, setSortDialogOpen] = useState(false);
+  const [sortByCol, setSortByCol] = useState('A');
+  const [sortOrder, setSortOrder] = useState('asc');
+  const [sortHeaderRow, setSortHeaderRow] = useState(false);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const [validationType, setValidationType] = useState('list');
   const [pivotDraft, setPivotDraft] = useState({
     rowField: '',
     colField: '',
@@ -934,6 +941,15 @@ export default function SheetPage() {
         </button>
         {dataMenuOpen && (
           <div className="menu" role="menu">
+            <button type="button" role="menuitem" onClick={() => setSortDialogOpen(true)}>
+              Sort range
+            </button>
+            <button type="button" role="menuitem" onClick={() => setFilterDialogOpen(true)}>
+              Create filter
+            </button>
+            <button type="button" role="menuitem" onClick={() => setValidationDialogOpen(true)}>
+              Data validation
+            </button>
             <button type="button" role="menuitem" onClick={() => setPivotDialogOpen(true)}>
               Create pivot table
             </button>
@@ -946,7 +962,102 @@ export default function SheetPage() {
         )}
       </div>
 
-      {pivotDialogOpen && (
+      {sortDialogOpen && (
+        <div role="dialog" aria-label="Sort range" className="panel">
+          <h3>Sort range</h3>
+          <div className="field">
+            <label htmlFor="sort-by">Sort by</label>
+            <select id="sort-by" aria-label="Sort by" value={sortByCol} onChange={(event) => setSortByCol(event.target.value)}>
+              {Array.from({ length: COLS }, (_, index) => (
+                <option key={index} value={colLetter(index + 1)}>{colLetter(index + 1)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="sort-order">Order</label>
+            <select id="sort-order" aria-label="Order" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+              <option value="asc">Ascending</option>
+              <option value="desc">Descending</option>
+            </select>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={sortHeaderRow} onChange={(event) => setSortHeaderRow(event.target.checked)} />
+            Data has header row
+          </label>
+          <div className="toolbar">
+            <button type="button" onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, sortByCol, sortOrder), 'Sorted.').then(load); setSortDialogOpen(false); }}>
+              Sort
+            </button>
+            <button type="button" onClick={() => setSortDialogOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {filterDialogOpen && (
+        <div role="dialog" aria-label="Create filter" className="panel">
+          <h3>Create filter</h3>
+          <div className="field">
+            <label htmlFor="filter-col">Filter</label>
+            <input id="filter-col" aria-label="Filter column" type="text" value={filterColumn} placeholder="A" onChange={(event) => setFilterColumn(event.target.value.toUpperCase())} />
+          </div>
+          <div className="field">
+            <label htmlFor="filter-op">Condition</label>
+            <select id="filter-op" aria-label="Condition" value={filterOp} onChange={(event) => setFilterOp(event.target.value)}>
+              <option value="contains">Text contains</option>
+              <option value="eq">Equals</option>
+              <option value="gt">Greater than</option>
+              <option value="lt">Less than</option>
+              <option value="empty">Is empty</option>
+              <option value="notempty">Is not empty</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="filter-value">Value</label>
+            <input id="filter-value" aria-label="Value" type="text" value={filterValue} onChange={(event) => setFilterValue(event.target.value)} />
+          </div>
+          <div className="toolbar">
+            <button type="button" onClick={() => { setAppliedFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue }); setFilterDialogOpen(false); }}>Apply</button>
+            <button type="button" onClick={() => { setAppliedFilter(null); setFilterDialogOpen(false); }}>Clear filter</button>
+            <button type="button" onClick={() => setFilterDialogOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {validationDialogOpen && (
+        <div role="dialog" aria-label="Data validation" className="panel">
+          <h3>Data validation</h3>
+          <div className="field">
+            <label htmlFor="rule-type">Rule type</label>
+            <select id="rule-type" aria-label="Rule type" value={validationType} onChange={(event) => setValidationType(event.target.value)}>
+              <option value="list">Dropdown</option>
+              <option value="number">Number range</option>
+            </select>
+          </div>
+          {validationType === 'list' ? (
+            <div className="field">
+              <label htmlFor="allowed-values">Allowed values</label>
+              <input id="allowed-values" aria-label="Allowed values" type="text" value={listValues} placeholder="open,closed,pending" onChange={(event) => setListValues(event.target.value)} />
+            </div>
+          ) : (
+            <>
+              <div className="field">
+                <label htmlFor="val-min">Minimum</label>
+                <input id="val-min" aria-label="Minimum" type="number" value={numberMin} onChange={(event) => setNumberMin(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="val-max">Maximum</label>
+                <input id="val-max" aria-label="Maximum" type="number" value={numberMax} onChange={(event) => setNumberMax(event.target.value)} />
+              </div>
+            </>
+          )}
+          <div className="toolbar">
+            <button type="button" onClick={() => { if (validationType === 'list') applyListValidation(); else applyNumberValidation(); setValidationDialogOpen(false); }}>Apply</button>
+            <button type="button" onClick={() => setValidationDialogOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+            {pivotDialogOpen && (
         <div role="dialog" aria-label="Create pivot table" className="panel">
           <h3>Create pivot table</h3>
           <p>{`Source range: ${selectionBounds().start}:${selectionBounds().end}`}</p>

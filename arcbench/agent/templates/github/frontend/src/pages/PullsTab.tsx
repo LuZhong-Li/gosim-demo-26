@@ -19,6 +19,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [files, setFiles] = useState<PullFiles | null>(null);
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [inlineTarget, setInlineTarget] = useState<{ path: string; line: number } | null>(null);
   const [reviewerDraft, setReviewerDraft] = useState('');
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
@@ -31,6 +32,8 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [reviewState, setReviewState] = useState('APPROVED');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [mergeConfirm, setMergeConfirm] = useState(false);
+  const [branches, setBranches] = useState<string[]>([]);
+  const [showNewPull, setShowNewPull] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -43,6 +46,13 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    api
+      .getTree(owner, name)
+      .then((tree) => setBranches(tree.branches))
+      .catch(() => undefined);
+  }, [owner, name]);
 
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
@@ -230,46 +240,89 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
                     <p>
                       <strong>{file.path}</strong> <span className="muted">{file.status}</span>
                     </p>
-                    <pre aria-label={`Diff for ${file.path}`}>
-                      {file.lines
-                        .map(
-                          (line) =>
-                            `${line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}${line.text}`,
-                        )
-                        .join('\n')}
-                    </pre>
-                    {/* REQ-6-3-3: inline review comment anchored to this file */}
-                    <form
-                      className="inline-form"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        const body = (commentDraft[file.path] || '').trim();
-                        if (!body) return;
-                        api
-                          .addPullComment(owner, name, selected.pull.number, {
-                            path: file.path,
-                            line: 1,
-                            body,
-                          })
-                          .then(() => api.getPullComments(owner, name, selected.pull.number))
-                          .then((list) => {
-                            setComments(list);
-                            setCommentDraft({ ...commentDraft, [file.path]: '' });
-                          })
-                          .catch((caught) => setError(api.errorMessage(caught)));
-                      }}
-                    >
-                      <input
-                        aria-label={`Inline comment for ${file.path}`}
-                        type="text"
-                        value={commentDraft[file.path] || ''}
-                        placeholder="Comment on this file"
-                        onChange={(event) =>
-                          setCommentDraft({ ...commentDraft, [file.path]: event.target.value })
-                        }
-                      />
-                      <button type="submit">Add single comment</button>
-                    </form>
+                    {file.lines.map((line, lineIndex) => {
+                      const lineNo = lineIndex + 1;
+                      const commentable = line.type === 'added' || line.type === 'removed';
+                      const editing =
+                        inlineTarget && inlineTarget.path === file.path && inlineTarget.line === lineNo;
+                      const draftKey = `${file.path}:${lineNo}`;
+                      const prefix = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
+                      return (
+                        <div className="diff-line" key={`${file.path}-${lineNo}`}>
+                          <span className="diff-prefix">{prefix}</span>
+                          <span className="diff-text">{line.text}</span>
+                          {commentable && (
+                            <button
+                              type="button"
+                              aria-label="Add comment"
+                              onClick={() => setInlineTarget({ path: file.path, line: lineNo })}
+                            >
+                              +
+                            </button>
+                          )}
+                          {editing && (
+                            <div className="inline-comment-editor">
+                              <label>
+                                Comment
+                                <input
+                                  aria-label="Comment"
+                                  type="text"
+                                  value={commentDraft[draftKey] || ''}
+                                  onChange={(event) =>
+                                    setCommentDraft({ ...commentDraft, [draftKey]: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const body = (commentDraft[draftKey] || '').trim();
+                                  if (!body) return;
+                                  api
+                                    .addPullComment(owner, name, selected.pull.number, {
+                                      path: file.path,
+                                      line: lineNo,
+                                      body,
+                                    })
+                                    .then(() => api.getPullComments(owner, name, selected.pull.number))
+                                    .then((list) => {
+                                      setComments(list);
+                                      setCommentDraft({ ...commentDraft, [draftKey]: '' });
+                                      setInlineTarget(null);
+                                    })
+                                    .catch((caught) => setError(api.errorMessage(caught)));
+                                }}
+                              >
+                                Add single comment
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const body = (commentDraft[draftKey] || '').trim();
+                                  if (!body) return;
+                                  api
+                                    .addPullComment(owner, name, selected.pull.number, {
+                                      path: file.path,
+                                      line: lineNo,
+                                      body,
+                                      pending: true,
+                                    })
+                                    .then(() => api.getPullComments(owner, name, selected.pull.number))
+                                    .then((list) => {
+                                      setComments(list);
+                                      setCommentDraft({ ...commentDraft, [draftKey]: '' });
+                                      setInlineTarget(null);
+                                    })
+                                    .catch((caught) => setError(api.errorMessage(caught)));
+                                }}
+                              >
+                                Start a review
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))
               )}
@@ -281,6 +334,7 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
                       <li key={comment.id}>
                         <strong>{comment.author}</strong> on {comment.path}
                         {comment.outdated && <span className="muted"> · Outdated</span>}
+                        {!comment.published && <span className="muted"> · Pending review</span>}
                         <p>{comment.body}</p>
                       </li>
                     ))}
@@ -433,121 +487,140 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
         </div>
       )}
 
-      <h2>New pull request</h2>
-      <form
-        className="form-grid"
-        onSubmit={(event) => {
-          event.preventDefault();
-          run(
-            () => api.createPull(owner, name, { title, body, baseBranch, headBranch }),
-            'Pull request created.',
-          );
-          setTitle('');
-          setBody('');
-          setHeadBranch('');
-        }}
-      >
-        <div className="field">
-          <label htmlFor="pull-title">Title</label>
-          <input
-            id="pull-title"
-            type="text"
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="pull-base">Base branch</label>
-          <input
-            id="pull-base"
-            type="text"
-            value={baseBranch}
-            onChange={(event) => setBaseBranch(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="pull-head">Head branch</label>
-          <input
-            id="pull-head"
-            type="text"
-            value={headBranch}
-            placeholder="feature-branch"
-            onChange={(event) => setHeadBranch(event.target.value)}
-          />
-        </div>
-        <button type="button" onClick={() => void loadCompare()}>
-          Compare changes
-        </button>
-        {compareError && <p className="error">{compareError}</p>}
-        {compare && (
-          <div className="issue-detail">
-            <h4>
-              {compare.base} → {compare.head}
-            </h4>
-            {compare.same || !compare.hasDifference ? (
-              <p className="muted">There is nothing to compare</p>
-            ) : (
-              <>
-                <p className="muted">
-                  {compare.commits.length} commit(s) · {compare.stats.changedFiles} file(s) changed · +{compare.stats.added} / -{compare.stats.removed}
-                </p>
-                {compare.commits.length > 0 && (
-                  <ul className="repo-list">
-                    {compare.commits.map((commit) => (
-                      <li key={commit.sha}>
-                        <strong>{commit.message}</strong> · {commit.author} · {commit.sha.slice(0, 7)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {compare.files.length > 0 && (
-                  <ul className="repo-list">
-                    {compare.files.map((file) => (
-                      <li key={file.path}>
-                        <strong>{file.path}</strong> <span className="muted">{file.status}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
-          </div>
-        )}
-        <div className="field">
-          <label htmlFor="pull-body">Body (optional)</label>
-          <textarea
-            id="pull-body"
-            rows={3}
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-          />
-        </div>
-        <button type="submit" disabled={!!compare && !compare.hasDifference}>
-          Create pull request
-        </button>
-        <button
-          type="button"
-          disabled={!!compare && !compare.hasDifference}
-          onClick={() => {
+            <p>
+        <a href="#new-pull" onClick={() => setShowNewPull(true)}>
+          New pull request
+        </a>
+      </p>
+      {showNewPull && (
+        <form
+          className="form-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
             run(
-              () =>
-                api.createPull(owner, name, {
-                  title,
-                  body,
-                  baseBranch,
-                  headBranch,
-                  draft: true,
-                }),
-              'Draft pull request created.',
+              () => api.createPull(owner, name, { title, body, baseBranch, headBranch }),
+              'Pull request created.',
             );
             setTitle('');
             setBody('');
             setHeadBranch('');
+            setShowNewPull(false);
           }}
         >
-          Create draft pull request
-        </button>
-      </form>
+          <div className="field">
+            <label htmlFor="pull-title">Title</label>
+            <input
+              id="pull-title"
+              type="text"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="pull-base">Base</label>
+            <select
+              id="pull-base"
+              aria-label="base"
+              value={baseBranch}
+              onChange={(event) => setBaseBranch(event.target.value)}
+            >
+              {branches.map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="pull-head">Compare</label>
+            <select
+              id="pull-head"
+              aria-label="compare"
+              value={headBranch}
+              onChange={(event) => setHeadBranch(event.target.value)}
+            >
+              <option value="">(select branch)</option>
+              {branches.map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="button" onClick={() => void loadCompare()}>
+            Compare changes
+          </button>
+          {compareError && <p className="error">{compareError}</p>}
+          {compare && (
+            <div className="issue-detail">
+              <h4>
+                {compare.base} → {compare.head}
+              </h4>
+              {compare.same || !compare.hasDifference ? (
+                <p className="muted">No changes</p>
+              ) : (
+                <>
+                  <p className="muted">
+                    {compare.commits.length} commit(s) · {compare.stats.changedFiles} file(s) changed · +{compare.stats.added} / -{compare.stats.removed}
+                  </p>
+                  {compare.commits.length > 0 && (
+                    <ul className="repo-list">
+                      {compare.commits.map((commit) => (
+                        <li key={commit.sha}>
+                          <strong>{commit.message}</strong> · {commit.author} · {commit.sha.slice(0, 7)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {compare.files.length > 0 && (
+                    <ul className="repo-list">
+                      {compare.files.map((file) => (
+                        <li key={file.path}>
+                          <strong>{file.path}</strong> <span className="muted">{file.status}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="pull-body">Body (optional)</label>
+            <textarea
+              id="pull-body"
+              rows={3}
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+            />
+          </div>
+          <button type="submit" disabled={!!compare && !compare.hasDifference}>
+            Create pull request
+          </button>
+          <button
+            type="button"
+            disabled={!!compare && !compare.hasDifference}
+            onClick={() => {
+              run(
+                () =>
+                  api.createPull(owner, name, {
+                    title,
+                    body,
+                    baseBranch,
+                    headBranch,
+                    draft: true,
+                  }),
+                'Draft pull request created.',
+              );
+              setTitle('');
+              setBody('');
+              setHeadBranch('');
+            }}
+          >
+            Create draft pull request
+          </button>
+        </form>
+      )}
 
       <h2>Branch protection</h2>
       <form
