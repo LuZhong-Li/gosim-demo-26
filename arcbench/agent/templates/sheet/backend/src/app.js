@@ -488,6 +488,25 @@ app.get('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
   res.json({ validations: store.ensureValidations(sheet) });
 });
 
+app.delete('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  const range = String((req.body || {}).range || '').toUpperCase();
+  const match = /^([A-Z]+\d+):([A-Z]+\d+)$/.exec(range);
+  const refs = match
+    ? store.rangeRefs(match[1], match[2])
+    : store.parseRef(range)
+      ? [range]
+      : [];
+  if (!refs.length) return res.status(400).json({ error: 'A cell or range like A1:B3 is required.' });
+  const validations = store.ensureValidations(sheet);
+  for (const ref of refs) delete validations[ref];
+  touch(workbook);
+  res.json({ validations });
+});
+
 app.put('/api/workbooks/:id/worksheets/:sheet/filters', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;

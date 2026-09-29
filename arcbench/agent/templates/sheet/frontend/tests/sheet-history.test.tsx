@@ -131,7 +131,7 @@ describe('Sheet history and persistence', () => {
     await openDataTool('Data validation');
     const dialog = screen.getByRole('dialog', { name: 'Data validation' });
     await user.type(within(dialog).getByLabelText('Allowed values'), 'Open,Closed');
-    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
 
     await waitFor(() =>
       expect(mocks.setValidations).toHaveBeenCalledWith(

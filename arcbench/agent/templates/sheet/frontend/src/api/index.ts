@@ -206,6 +206,18 @@ export async function setValidations(
   return response.data.validations as Record<string, ValidationRule>;
 }
 
+export async function deleteValidations(
+  id: string,
+  sheet: string,
+  range: string,
+): Promise<Record<string, ValidationRule>> {
+  const response = await client.delete(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/validations`,
+    { data: { range } },
+  );
+  return response.data.validations as Record<string, ValidationRule>;
+}
+
 export async function setFilters(
   id: string,
   sheet: string,

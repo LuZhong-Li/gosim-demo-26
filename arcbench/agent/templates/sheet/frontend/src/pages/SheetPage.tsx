@@ -66,6 +66,22 @@ function matchesFilter(value: string, filter: FilterConfig): boolean {
   }
 }
 
+function validationError(rule: ValidationRule | null, value: string): string | null {
+  if (!rule || value === '') return null;
+  if (rule.type === 'list') {
+    return rule.values.includes(value)
+      ? null
+      : `Please select one of the following values: ${rule.values.join(', ')}`;
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric) || numeric < rule.min || numeric > rule.max) {
+    return rule.min === 0 && rule.max === 100
+      ? 'Please enter a number from 0 to 100'
+      : `Please enter a number between ${rule.min} and ${rule.max}`;
+  }
+  return null;
+}
+
 function refsBetween(startRef: string, endRef: string): string[] {
   const start = parseRef(startRef);
   const end = parseRef(endRef);
@@ -125,6 +141,7 @@ export default function SheetPage() {
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [validationType, setValidationType] = useState('list');
+  const [validationHasExistingRule, setValidationHasExistingRule] = useState(false);
   const [pivotDraft, setPivotDraft] = useState({
     rowField: '',
     colField: '',
@@ -382,12 +399,10 @@ export default function SheetPage() {
     const current = cell?.formula || (cell ? displayValue(cell) : '');
     if (forcedValue === undefined && value === current) return;
     const rule = validationFor(targetRef);
-    if (rule?.type === 'number' && value !== '') {
-      const numeric = Number(value);
-      if (Number.isNaN(numeric) || numeric < rule.min || numeric > rule.max) {
-        setError(`Value must be a number between ${rule.min} and ${rule.max}.`);
-        return;
-      }
+    const invalid = validationError(rule, value);
+    if (invalid) {
+      setError(invalid);
+      return;
     }
     pushHistory();
     let update: Cell | null;
@@ -442,6 +457,14 @@ export default function SheetPage() {
       if (cell.formula) next.formula = shiftFormula(cell.formula, rowDelta, colDelta);
       updates[dest] = next;
     }
+    for (const [ref, cell] of Object.entries(updates)) {
+      if (!cell) continue;
+      const invalid = validationError(validationFor(ref), displayValue(cell));
+      if (invalid) {
+        setError(invalid);
+        return;
+      }
+    }
     if (clipboard.mode === 'cut') {
       for (const ref of Object.keys(clipboard.cells)) updates[ref] = null;
       setClipboard(null);
@@ -450,37 +473,77 @@ export default function SheetPage() {
     await run(() => api.updateCells(id, sheet.name, updates), 'Pasted.');
   }
 
-  async function applyListValidation() {
-    pushHistory();
-    if (!sheet) return;
+  function validationRange() {
+    return selection.length > 1
+      ? `${selection[0]}:${selection[selection.length - 1]}`
+      : selection[0];
+  }
+
+  function openValidationDialog() {
+    const firstRule = selection.map((ref) => validationFor(ref)).find(Boolean) || null;
+    if (firstRule?.type === 'list') {
+      setValidationType('list');
+      setListValues(firstRule.values.join(','));
+    } else if (firstRule?.type === 'number') {
+      setValidationType('number');
+      setNumberMin(String(firstRule.min));
+      setNumberMax(String(firstRule.max));
+    }
+    setValidationHasExistingRule(Boolean(firstRule));
+    setError('');
+    setValidationDialogOpen(true);
+  }
+
+  async function applyListValidation(): Promise<boolean> {
+    if (!sheet) return false;
     const values = listValues.split(',').map((value) => value.trim()).filter(Boolean);
     if (!values.length) {
       setError('Provide at least one list value.');
-      return;
+      return false;
     }
-    const range =
-      selection.length > 1 ? `${selection[0]}:${selection[selection.length - 1]}` : selection[0];
+    pushHistory();
     try {
-      await api.setValidations(id, sheet.name, range, { type: 'list', values });
+      await api.setValidations(id, sheet.name, validationRange(), { type: 'list', values });
       setInfo('List validation applied.');
       await load();
+      return true;
     } catch (caught) {
       setError(api.errorMessage(caught));
+      return false;
     }
   }
 
-  async function applyNumberValidation() {
+  async function applyNumberValidation(): Promise<boolean> {
+    if (!sheet) return false;
     pushHistory();
-    if (!sheet) return;
-    const range =
-      selection.length > 1 ? `${selection[0]}:${selection[selection.length - 1]}` : selection[0];
     try {
-      await api.setValidations(id, sheet.name, range, {
+      await api.setValidations(id, sheet.name, validationRange(), {
         type: 'number',
         min: Number(numberMin),
         max: Number(numberMax),
       });
       setInfo('Number validation applied.');
+      await load();
+      return true;
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+      return false;
+    }
+  }
+
+  async function saveValidation() {
+    const saved =
+      validationType === 'list' ? await applyListValidation() : await applyNumberValidation();
+    if (saved) setValidationDialogOpen(false);
+  }
+
+  async function deleteValidationRule() {
+    if (!sheet) return;
+    pushHistory();
+    try {
+      await api.deleteValidations(id, sheet.name, validationRange());
+      setValidationDialogOpen(false);
+      setInfo('Validation rule deleted.');
       await load();
     } catch (caught) {
       setError(api.errorMessage(caught));
@@ -780,6 +843,8 @@ export default function SheetPage() {
 
   return (
     <section className="panel wide">
+      {error && <p className="error">{error}</p>}
+      {info && <p className="success">{info}</p>}
       <div className="toolbar">
         <button
           type="button"
@@ -858,6 +923,23 @@ export default function SheetPage() {
         <a className="button-link" href={api.exportUrl(id, sheet.name)}>
           Export CSV
         </a>
+      </div>
+      <div className="toolbar">
+        <input
+          aria-label="Formula bar"
+          className="formula-bar"
+          type="text"
+          value={formulaValue}
+          onChange={(event) => {
+            formulaRef.current = event.target.value;
+            setFormulaValue(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            void commitCell(formulaValue);
+          }}
+        />
       </div>
       <div className="grid-wrap">
         <table
@@ -1272,7 +1354,7 @@ export default function SheetPage() {
             >
               Create filter
             </button>
-            <button type="button" role="menuitem" onClick={() => setValidationDialogOpen(true)}>
+            <button type="button" role="menuitem" onClick={openValidationDialog}>
               Data validation
             </button>
             <button type="button" role="menuitem" onClick={() => setPivotDialogOpen(true)}>
@@ -1429,7 +1511,14 @@ export default function SheetPage() {
             </>
           )}
           <div className="toolbar">
-            <button type="button" onClick={() => { if (validationType === 'list') applyListValidation(); else applyNumberValidation(); setValidationDialogOpen(false); }}>Apply</button>
+            <button type="button" onClick={() => void saveValidation()}>
+              Save
+            </button>
+            {validationHasExistingRule && (
+              <button type="button" onClick={() => void deleteValidationRule()}>
+                Delete rule
+              </button>
+            )}
             <button type="button" onClick={() => setValidationDialogOpen(false)}>Cancel</button>
           </div>
         </div>
