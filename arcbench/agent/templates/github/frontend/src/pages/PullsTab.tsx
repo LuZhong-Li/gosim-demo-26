@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type {
   PullDetail,
   PullFiles,
@@ -8,13 +9,18 @@ import type {
 } from '../api';
 import * as api from '../api';
 
-export default function PullsTab({ owner, name }: { owner: string; name: string }) {
+export default function PullsTab({
+  owner,
+  name,
+  initialPullNumber = null,
+}: {
+  owner: string;
+  name: string;
+  initialPullNumber?: number | null;
+}) {
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [selected, setSelected] = useState<PullDetail | null>(null);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
   const [baseBranch, setBaseBranch] = useState('main');
-  const [headBranch, setHeadBranch] = useState('');
   const [reviewBody, setReviewBody] = useState('');
   const [files, setFiles] = useState<PullFiles | null>(null);
   const [comments, setComments] = useState<ReviewComment[]>([]);
@@ -24,16 +30,12 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
-  const [compare, setCompare] = useState<api.BranchCompare | null>(null);
-  const [compareError, setCompareError] = useState('');
   const [milestoneDraft, setMilestoneDraft] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [reviewState, setReviewState] = useState('APPROVED');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [mergeConfirm, setMergeConfirm] = useState(false);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [showNewPull, setShowNewPull] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -46,18 +48,6 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  useEffect(() => {
-    api
-      .getTree(owner, name)
-      .then((tree) => setBranches(tree.branches))
-      .catch(() => undefined);
-  }, [owner, name]);
-
-  useEffect(() => {
-    setCompare(null);
-    setCompareError('');
-  }, [baseBranch, headBranch]);
 
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
@@ -85,17 +75,14 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
     }
   }
 
-  async function loadCompare() {
-    setCompareError('');
-    try {
-      setCompare(await api.compareBranches(owner, name, baseBranch, headBranch));
-    } catch (caught) {
-      setCompare(null);
-      setCompareError(api.errorMessage(caught));
-    }
-  }
+  useEffect(() => {
+    if (!initialPullNumber) return;
+    if (!pulls.some((pull) => pull.number === initialPullNumber)) return;
+    void openPull(initialPullNumber);
+    // The requested PR is opened only after the list confirms it exists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPullNumber, pulls.length]);
 
-  const sameBranchSelection = Boolean(baseBranch && headBranch && baseBranch === headBranch);
   const missingApprovals = selected
     ? Math.max(0, selected.protection.requiredApprovals - selected.approvals)
     : 0;
@@ -108,8 +95,6 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       )
     : [];
   const mergeBlocked = missingApprovals > 0 || missingChecks.length > 0;
-  const creationDisabled =
-    sameBranchSelection || !compare || compare.same || !compare.hasDifference;
 
   return (
     <>
@@ -518,148 +503,9 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
         </div>
       )}
 
-            <p>
-        <a href="#new-pull" onClick={() => setShowNewPull(true)}>
-          New pull request
-        </a>
+      <p>
+        <Link to={`/${owner}/${name}/compare`}>New pull request</Link>
       </p>
-      {showNewPull && (
-        <form
-          className="form-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            run(
-              () => api.createPull(owner, name, { title, body, baseBranch, headBranch }),
-              'Pull request created.',
-            );
-            setTitle('');
-            setBody('');
-            setHeadBranch('');
-            setShowNewPull(false);
-          }}
-        >
-          <div className="field">
-            <label htmlFor="pull-title">Title</label>
-            <input
-              id="pull-title"
-              type="text"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="pull-base">Base</label>
-            <select
-              id="pull-base"
-              aria-label="base"
-              value={baseBranch}
-              onChange={(event) => setBaseBranch(event.target.value)}
-            >
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="pull-head">Compare</label>
-            <select
-              id="pull-head"
-              aria-label="compare"
-              value={headBranch}
-              onChange={(event) => setHeadBranch(event.target.value)}
-            >
-              <option value="">(select branch)</option>
-              {branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="button" onClick={() => void loadCompare()}>
-            Compare changes
-          </button>
-          {compareError && <p className="error">{compareError}</p>}
-          {sameBranchSelection && (
-            <div className="issue-detail">
-              <h4>
-                {baseBranch} → {headBranch}
-              </h4>
-              <p className="muted">No changes</p>
-            </div>
-          )}
-          {!sameBranchSelection && compare && (
-            <div className="issue-detail">
-              <h4>
-                {compare.base} → {compare.head}
-              </h4>
-              {compare.same || !compare.hasDifference ? (
-                <p className="muted">No changes</p>
-              ) : (
-                <>
-                  <p className="muted">
-                    {compare.commits.length} commit(s) · {compare.stats.changedFiles} file(s) changed · +{compare.stats.added} / -{compare.stats.removed}
-                  </p>
-                  {compare.commits.length > 0 && (
-                    <ul className="repo-list">
-                      {compare.commits.map((commit) => (
-                        <li key={commit.sha}>
-                          <strong>{commit.message}</strong> · {commit.author} · {commit.sha.slice(0, 7)}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {compare.files.length > 0 && (
-                    <ul className="repo-list">
-                      {compare.files.map((file) => (
-                        <li key={file.path}>
-                          <strong>{file.path}</strong> <span className="muted">{file.status}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <div className="field">
-            <label htmlFor="pull-body">Body (optional)</label>
-            <textarea
-              id="pull-body"
-              rows={3}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-            />
-          </div>
-          <button type="submit" disabled={creationDisabled}>
-            Create pull request
-          </button>
-          <button
-            type="button"
-            disabled={creationDisabled}
-            onClick={() => {
-              run(
-                () =>
-                  api.createPull(owner, name, {
-                    title,
-                    body,
-                    baseBranch,
-                    headBranch,
-                    draft: true,
-                  }),
-                'Draft pull request created.',
-              );
-              setTitle('');
-              setBody('');
-              setHeadBranch('');
-            }}
-          >
-            Create draft pull request
-          </button>
-        </form>
-      )}
 
       <h2>Branch protection</h2>
       <form

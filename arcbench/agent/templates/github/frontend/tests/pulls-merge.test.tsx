@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import * as api from '../src/api';
 import PullsTab from '../src/pages/PullsTab';
@@ -46,7 +47,11 @@ describe('PullsTab merge and comparison states', () => {
   it('disables merge and explains branch protection when approval is missing', async () => {
     mockPullsApi(0);
     const user = userEvent.setup();
-    render(<PullsTab owner="acme-demo" name="acme-docs" />);
+    render(
+      <MemoryRouter>
+        <PullsTab owner="acme-demo" name="acme-docs" />
+      </MemoryRouter>,
+    );
 
     await user.click(await screen.findByRole('button', { name: /#2 Fix search/ }));
 
@@ -54,15 +59,4 @@ describe('PullsTab merge and comparison states', () => {
     expect(screen.getByRole('button', { name: 'Merge pull request' })).toBeDisabled();
   });
 
-  it('shows No changes immediately and disables creation when both branches match', async () => {
-    mockPullsApi(1);
-    const user = userEvent.setup();
-    render(<PullsTab owner="acme-demo" name="acme-docs" />);
-
-    await user.click(await screen.findByRole('link', { name: 'New pull request' }));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'compare' }), 'main');
-
-    await waitFor(() => expect(screen.getByText('No changes')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Create pull request' })).toBeDisabled();
-  });
 });

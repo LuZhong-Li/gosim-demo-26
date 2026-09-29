@@ -3,6 +3,7 @@ import { Link, Route, Routes, useNavigate } from 'react-router-dom';
 import type { User } from './api';
 import * as api from './api';
 import AuthPage from './pages/AuthPage';
+import ComparePage from './pages/ComparePage';
 import HomePage from './pages/HomePage';
 import OrgPage from './pages/OrgPage';
 import OrgsPage from './pages/OrgsPage';
@@ -127,6 +128,7 @@ function App() {
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:name" element={<OrgPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/:owner/:name/compare" element={<ComparePage />} />
             <Route path="/:owner/:name" element={<RepoPage />} />
           </Routes>
         </main>

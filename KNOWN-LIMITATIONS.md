@@ -5,7 +5,7 @@
 
 ## GitHub 模板
 
-- **REQ-6-2-2 分支比较**：以「Pull requests」页内联的 `Compare changes` 面板实现，不是独立对比路由；base 与 head 相同时显示 `There is nothing to compare` 并禁用创建 PR，但没有独立的 `/compare` 页面 URL。
+- REQ-6-2-2 分支比较已改为独立 `/:owner/:name/compare` 页面：`New pull request` 是链接，base/compare 是原生 combobox，同分支立即显示 `No changes` 并禁用创建。
 - （REQ-4-2-3 仓库内搜索代码、REQ-6-3-4 评审 Comment 均已实现。）
 
 ## Sheet 模板

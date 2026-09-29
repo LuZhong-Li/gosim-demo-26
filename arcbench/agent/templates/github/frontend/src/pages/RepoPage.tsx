@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { Issue, Repo } from '../api';
 import type { CommitDiff } from '../api';
 import * as api from '../api';
@@ -16,9 +16,14 @@ type Commit = {
 export default function RepoPage() {
   const { owner = '', name = '' } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
-  const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>('code');
+  const requestedTab = searchParams.get('tab');
+  const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>(
+    requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code',
+  );
+  const requestedPull = Number(searchParams.get('pull')) || null;
   const [codeQuery, setCodeQuery] = useState('');
   const [codePath, setCodePath] = useState('');
   const [codeResults, setCodeResults] = useState<api.CodeMatch[] | null>(null);
@@ -707,7 +712,9 @@ export default function RepoPage() {
           </form>
         </>
       )}
-      {tab === 'pulls' && <PullsTab owner={owner} name={name} />}
+      {tab === 'pulls' && (
+        <PullsTab owner={owner} name={name} initialPullNumber={requestedPull} />
+      )}
       <p>
         <Link to="/">Back to home</Link>
       </p>
