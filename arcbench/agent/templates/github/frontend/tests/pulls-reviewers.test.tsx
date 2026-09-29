@@ -9,7 +9,9 @@ vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
   getPull: vi.fn(),
   getPullComments: vi.fn(),
+  getPullFiles: vi.fn(),
   listPulls: vi.fn(),
+  listPullCommits: vi.fn(),
   removePullReviewer: vi.fn(),
   requestPullReviewer: vi.fn(),
 }));
@@ -39,6 +41,18 @@ describe('Pull request reviewer picker', () => {
     });
     vi.mocked(api.requestPullReviewer).mockResolvedValue([{ username: 'bob-reviewer' }]);
     vi.mocked(api.removePullReviewer).mockResolvedValue([]);
+    vi.mocked(api.getPullFiles).mockResolvedValue({
+      baseBranch: 'main',
+      headBranch: 'feature-search',
+      files: [],
+      stats: { changedFiles: 0, added: 0, removed: 0 },
+    });
+    vi.mocked(api.listPullCommits).mockResolvedValue({
+      baseBranch: 'main',
+      headBranch: 'feature-search',
+      commits: [],
+      stats: { changedFiles: 0, added: 0, removed: 0 },
+    });
 
     const user = userEvent.setup();
     render(
@@ -46,7 +60,7 @@ describe('Pull request reviewer picker', () => {
         <PullsTab owner="acme-demo" name="acme-docs" />
       </MemoryRouter>,
     );
-    await user.click(await screen.findByRole('button', { name: /#5 Reviewer test/ }));
+    await user.click(await screen.findByRole('link', { name: 'Reviewer test' }));
     await user.click(screen.getByRole('button', { name: 'Reviewers' }));
 
     const search = screen.getByRole('textbox', { name: 'Search' });

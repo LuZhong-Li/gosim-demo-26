@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type {
   PullDetail,
   PullFiles,
@@ -20,7 +20,6 @@ export default function PullsTab({
 }) {
   const [pulls, setPulls] = useState<PullRequest[]>([]);
   const [selected, setSelected] = useState<PullDetail | null>(null);
-  const [baseBranch, setBaseBranch] = useState('main');
   const [reviewBody, setReviewBody] = useState('');
   const [files, setFiles] = useState<PullFiles | null>(null);
   const [comments, setComments] = useState<ReviewComment[]>([]);
@@ -29,8 +28,6 @@ export default function PullsTab({
   const [reviewerDraft, setReviewerDraft] = useState('');
   const [reviewerPickerOpen, setReviewerPickerOpen] = useState(false);
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
-  const [requiredApprovals, setRequiredApprovals] = useState(1);
-  const [requiredChecks, setRequiredChecks] = useState('test');
   const [milestoneDraft, setMilestoneDraft] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -39,6 +36,13 @@ export default function PullsTab({
   const [mergeConfirm, setMergeConfirm] = useState(false);
   const [canAdmin, setCanAdmin] = useState(false);
   const [checkDraft, setCheckDraft] = useState('pending');
+  const [commits, setCommits] = useState<
+    { sha: string; message: string; author: string; timestamp: string }[]
+  >([]);
+  const [searchParams] = useSearchParams();
+  // REQ-6-3-1: the same PR number and view survive a reload or a re-opened URL.
+  const requestedPull = Number(searchParams.get('pull')) || initialPullNumber || null;
+  const view = searchParams.get('view') || 'conversation';
 
   const refresh = useCallback(async () => {
     try {
@@ -77,18 +81,29 @@ export default function PullsTab({
       setCheckDraft(
         (detail.pull.checks || []).find((check) => check.name === 'test')?.state || 'pending',
       );
+      try {
+        const [fileList, commitList] = await Promise.all([
+          api.getPullFiles(owner, name, number),
+          api.listPullCommits(owner, name, number),
+        ]);
+        setFiles(fileList);
+        setCommits(commitList.commits || []);
+      } catch {
+        // Diff and commit details are read-only extras; the overview still renders.
+        setCommits([]);
+      }
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
   }
 
   useEffect(() => {
-    if (!initialPullNumber) return;
-    if (!pulls.some((pull) => pull.number === initialPullNumber)) return;
-    void openPull(initialPullNumber);
+    if (!requestedPull) return;
+    if (!pulls.some((pull) => pull.number === requestedPull)) return;
+    void openPull(requestedPull);
     // The requested PR is opened only after the list confirms it exists.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPullNumber, pulls.length]);
+  }, [requestedPull, pulls.length]);
 
   const missingApprovals = selected
     ? Math.max(0, selected.protection.requiredApprovals - selected.approvals)
@@ -114,12 +129,12 @@ export default function PullsTab({
         <ul className="repo-list">
           {pulls.map((pull) => (
             <li key={pull.number}>
-              <button className="link-button" type="button" onClick={() => openPull(pull.number)}>
-                #{pull.number} {pull.title}
-              </button>
+              {/* REQ-6-2-1: the title is the link that opens the PR detail page. */}
+              <Link to={`/${owner}/${name}?tab=pulls&pull=${pull.number}`}>{pull.title}</Link>
               <span className="muted">
                 {' '}
-                · {pull.state} · {pull.headBranch} → {pull.baseBranch} · by {pull.author}
+                # {pull.number} · {pull.state} · {pull.headBranch} → {pull.baseBranch} · by{' '}
+                {pull.author}
               </span>
             </li>
           ))}
@@ -128,15 +143,66 @@ export default function PullsTab({
 
       {selected && (
         <div className="issue-detail">
-          <h3>
-            #{selected.pull.number} {selected.pull.title}
-          </h3>
+          {/* REQ-6-3-1: the heading shows the exact PR title. */}
+          <h3>{selected.pull.title}</h3>
           <p className="muted">
-            {selected.pull.state} · {selected.pull.headBranch} → {selected.pull.baseBranch} · by{' '}
-            {selected.pull.author} · approvals {selected.approvals}/
-            {selected.protection.requiredApprovals}
+            #{selected.pull.number} · {selected.pull.state} · {selected.pull.headBranch} →{' '}
+            {selected.pull.baseBranch} · by {selected.pull.author} · approvals{' '}
+            {selected.approvals}/{selected.protection.requiredApprovals}
           </p>
-          {selected.pull.body && <p>{selected.pull.body}</p>}
+          {/* REQ-6-3-1: Conversation / Commits / Files changed are links. */}
+          <nav className="tabs" aria-label="Pull request views">
+            <Link to={`/${owner}/${name}?tab=pulls&pull=${selected.pull.number}`}>
+              Conversation
+            </Link>
+            <Link to={`/${owner}/${name}?tab=pulls&pull=${selected.pull.number}&view=commits`}>
+              Commits
+            </Link>
+            <Link to={`/${owner}/${name}?tab=pulls&pull=${selected.pull.number}&view=files`}>
+              Files changed
+            </Link>
+          </nav>
+          {view === 'conversation' && (
+            <>
+              {selected.pull.body && <p>{selected.pull.body}</p>}
+              <h4>Discussion</h4>
+              {comments.length === 0 ? (
+                <p className="muted">No comments yet.</p>
+              ) : (
+                <ul className="repo-list">
+                  {comments.map((comment) => (
+                    <li key={comment.id}>
+                      <strong>{comment.author}</strong>
+                      {comment.path && <span className="muted">{` · ${comment.path}`}</span>}
+                      <p>{comment.body}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+          {view === 'commits' && (
+            <section>
+              <h4>Commit summary</h4>
+              <p className="muted">
+                {`${commits.length} commit(s) on ${selected.pull.headBranch} relative to ${selected.pull.baseBranch}`}
+              </p>
+              {commits.length === 0 ? (
+                <p className="muted">No commits on this comparison.</p>
+              ) : (
+                <ul className="repo-list">
+                  {commits.map((commit) => (
+                    <li key={commit.sha}>
+                      <strong>{commit.message}</strong>
+                      <span className="muted">
+                        {` · ${commit.sha.slice(0, 7)} · ${commit.author} · ${new Date(commit.timestamp).toLocaleString()}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
           <form
             className="inline-form"
             onSubmit={(event) => {
@@ -277,23 +343,13 @@ export default function PullsTab({
               ))}
             </ul>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              api
-                .getPullFiles(owner, name, selected.pull.number)
-                .then((result) => setFiles(result))
-                .catch((caught) => setError(api.errorMessage(caught)));
-            }}
-          >
-            Files changed
-          </button>
-          {files && (
+          {view === 'files' && files && (
             <div className="diff-view">
-              <h4>Files changed ({files.stats.changedFiles})</h4>
+              <h4>Changed files ({files.stats.changedFiles})</h4>
+              {/* REQ-6-3-2: aggregate statistics use the official additions/deletions format. */}
+              <p className="muted">{`${files.stats.added} additions, ${files.stats.removed} deletions`}</p>
               <p className="muted">
-                +{files.stats.added} / -{files.stats.removed} · {files.headBranch} →{' '}
-                {files.baseBranch}
+                {files.headBranch} → {files.baseBranch}
               </p>
               {files.files.length === 0 ? (
                 <p className="muted">No changed files.</p>
@@ -555,46 +611,6 @@ export default function PullsTab({
       <p>
         <Link to={`/${owner}/${name}/compare`}>New pull request</Link>
       </p>
-
-      <h2>Branch protection</h2>
-      <form
-        className="form-grid"
-        onSubmit={(event) => {
-          event.preventDefault();
-          run(
-            () =>
-              api.setBranchProtection(owner, name, baseBranch, {
-                requiredApprovals,
-                requiredChecks: requiredChecks
-                  .split(',')
-                  .map((check) => check.trim())
-                  .filter(Boolean),
-              }),
-            'Branch protection updated.',
-          );
-        }}
-      >
-        <div className="field">
-          <label htmlFor="protect-approvals">Required approvals</label>
-          <input
-            id="protect-approvals"
-            type="number"
-            min={0}
-            value={requiredApprovals}
-            onChange={(event) => setRequiredApprovals(Number(event.target.value))}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="protect-checks">Required checks (comma separated)</label>
-          <input
-            id="protect-checks"
-            type="text"
-            value={requiredChecks}
-            onChange={(event) => setRequiredChecks(event.target.value)}
-          />
-        </div>
-        <button type="submit">Save protection</button>
-      </form>
     </>
   );
 }

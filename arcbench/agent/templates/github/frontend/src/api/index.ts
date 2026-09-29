@@ -571,6 +571,23 @@ export async function forgotPassword(email: string): Promise<{ code: string }> {
   return response.data;
 }
 
+// REQ-6-3-1: commits on the PR's compare branch relative to its base.
+export async function listPullCommits(
+  owner: string,
+  name: string,
+  number: number,
+): Promise<{
+  baseBranch: string;
+  headBranch: string;
+  commits: { sha: string; message: string; author: string; timestamp: string }[];
+  stats: { changedFiles: number; added: number; removed: number };
+}> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/commits`,
+  );
+  return response.data;
+}
+
 export async function resetPassword(input: {
   email: string;
   code: string;
