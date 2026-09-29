@@ -8,17 +8,7 @@ import type {
   ReviewerRequest,
 } from '../api';
 import * as api from '../api';
-
-// REQ-6-2-1 / REQ-6-5: status is shown with the official capitalisation.
-function stateLabel(state: string) {
-  const labels: Record<string, string> = {
-    open: 'Open',
-    closed: 'Closed',
-    draft: 'Draft',
-    merged: 'Merged',
-  };
-  return labels[String(state || '').toLowerCase()] || state;
-}
+import { reviewLabel, stateLabel } from '../labels';
 
 export default function PullsTab({
   owner,
@@ -293,7 +283,7 @@ export default function PullsTab({
               {(selected.pull.reviews || []).map((review) => (
                 <li key={review.id}>
                   <strong>
-                    {review.author} · {review.state}
+                    {review.author} · {reviewLabel(review.state)}
                   </strong>
                   {review.body && <p>{review.body}</p>}
                 </li>

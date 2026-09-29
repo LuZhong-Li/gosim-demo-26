@@ -317,26 +317,68 @@ function seed(store) {
     });
   }
 
-  // ----- seed issue (for issue tests) -----
+  // ----- repository milestones (REQ-5-3-3 seed) -----
+  if (docs && (!docs.milestones || docs.milestones.length === 0)) {
+    docs.milestones = ['Q3 launch', 'v1.0'];
+  }
+
+  // ----- seed issues (REQ-5-1-1 / REQ-5-2-2 / REQ-5-4 seeds) -----
   if (docs && store.listIssues(orgName, 'acme-docs').length === 0) {
-    const number = store.nextIssueNumber(orgName, 'acme-docs');
+    const now = new Date().toISOString();
     store.state.issues.push({
       key: `${orgName}/acme-docs`,
       owner: orgName,
       repo: 'acme-docs',
-      number,
-      title: 'Search results are case-sensitive',
+      number: store.nextIssueNumber(orgName, 'acme-docs'),
+      title: 'Improve onboarding',
       body: 'Seed issue used by issue tests.',
       author: 'alice-dev',
       state: 'open',
       assignees: ['bob-reviewer'],
-      labels: ['bug'],
-      milestone: 'v1.0',
+      labels: ['bug', 'documentation'],
+      milestone: 'Q3 launch',
       comments: [
-        { id: 'seed-issue-comment', author: 'bob-reviewer', body: 'Confirmed.', createdAt: new Date().toISOString() },
+        { id: 'seed-issue-comment', author: 'bob-reviewer', body: 'Confirmed.', createdAt: now },
       ],
       reactions: [],
-      createdAt: new Date().toISOString(),
+      activities: [],
+      createdAt: now,
+    });
+    // REQ-5-1-1: the closed issue used by the Open/Closed filter scenarios.
+    store.state.issues.push({
+      key: `${orgName}/acme-docs`,
+      owner: orgName,
+      repo: 'acme-docs',
+      number: store.nextIssueNumber(orgName, 'acme-docs'),
+      title: 'Legacy welcome text',
+      body: 'Closed seed issue.',
+      author: 'bob-reviewer',
+      state: 'closed',
+      assignees: [],
+      labels: ['bug'],
+      milestone: null,
+      comments: [],
+      reactions: [],
+      activities: [],
+      createdAt: now,
+    });
+    // REQ-5-2-2: a separate issue used by the invalid-edit scenario.
+    store.state.issues.push({
+      key: `${orgName}/acme-docs`,
+      owner: orgName,
+      repo: 'acme-docs',
+      number: store.nextIssueNumber(orgName, 'acme-docs'),
+      title: 'Original issue title',
+      body: 'Original issue description.',
+      author: 'alice-dev',
+      state: 'open',
+      assignees: [],
+      labels: [],
+      milestone: null,
+      comments: [],
+      reactions: [],
+      activities: [],
+      createdAt: now,
     });
   }
 }

@@ -766,16 +766,22 @@ app.post('/api/repos/:owner/:name/branches', requireUser, (req, res) => {
 });
 
 app.get('/api/repos/:owner/:name/issues', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  const user = store.userByToken(authToken(req));
   const issues = store.listIssues(req.params.owner, req.params.name).map((issue) => ({
     number: issue.number,
     title: issue.title,
     author: issue.author,
     state: issue.state,
     createdAt: issue.createdAt,
+    updatedAt: issue.updatedAt || issue.createdAt,
     assignee: issue.assignee || null,
     labels: issue.labels || [],
     milestone: issue.milestone || null,
     comments: (issue.comments || []).length,
+    // REQ-5-2-2 / REQ-5-4: the list can hide edit/close affordances for read-only users.
+    canEdit: Boolean(repo && store.canWrite(repo, user && user.username)),
+    canClose: Boolean(repo && canTriage(repo, user && user.username)),
   }));
   res.json({ issues });
 });
@@ -812,6 +818,11 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
       ? (req.body || {}).labels.map((label) => String(label).trim()).filter(Boolean)
       : [],
     milestone: String((req.body || {}).milestone || '').trim() || null,
+    // REQ-5-2-1: creation is recorded in the activity timeline.
+    activities: [
+      { type: 'Created issue', actor: req.user.username, at: new Date().toISOString() },
+    ],
+    updatedAt: new Date().toISOString(),
   };
   store.state.issues.push(issue);
   return res.status(201).json({ issue });
@@ -820,7 +831,20 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
 app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const body = req.body || {};
+  // REQ-5-2-2: editing the title/description needs Write, Maintain or Admin.
+  const editingContent =
+    Object.prototype.hasOwnProperty.call(body, 'title') ||
+    Object.prototype.hasOwnProperty.call(body, 'body');
+  if (editingContent && !store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to edit issues.' });
+  }
+  // REQ-5-4: closing or reopening needs Triage, Maintain or Admin.
+  if (body.state && !canTriage(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to change the issue status.' });
+  }
   // REQ-5-2-2: editing an issue title rejects a whitespace-only value.
   if (Object.prototype.hasOwnProperty.call(body, 'title')) {
     const title = String(body.title || '').trim();
@@ -838,7 +862,18 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
     if (!['open', 'closed'].includes(state)) {
       return res.status(400).json({ error: 'Issue state must be open or closed.' });
     }
-    issue.state = state;
+    if (state !== issue.state) {
+      issue.state = state;
+      issue.stateChangedBy = req.user.username;
+      issue.stateChangedAt = new Date().toISOString();
+      // REQ-5-4: the transition is recorded in the activity timeline.
+      issue.activities = issue.activities || [];
+      issue.activities.push({
+        type: state === 'closed' ? 'Closed issue' : 'Reopened issue',
+        actor: req.user.username,
+        at: issue.stateChangedAt,
+      });
+    }
   }
   if (Object.prototype.hasOwnProperty.call(body, 'assignee')) {
     issue.assignee = String(body.assignee || '').trim() || null;
@@ -886,7 +921,20 @@ app.post('/api/repos/:owner/:name/issues/:number/reactions', requireUser, (req, 
 app.get('/api/repos/:owner/:name/issues/:number', (req, res) => {
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
-  res.json({ issue });
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  const user = store.userByToken(authToken(req));
+  res.json({
+    issue,
+    canEdit: Boolean(repo && store.canWrite(repo, user && user.username)),
+    canClose: Boolean(repo && canTriage(repo, user && user.username)),
+  });
+});
+
+// REQ-5-3-3: milestones belong to one repository and are selectable metadata.
+app.get('/api/repos/:owner/:name/milestones', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({ milestones: repo.milestones || [] });
 });
 
 app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, res) => {
@@ -1019,6 +1067,16 @@ function canMaintain(repo, username) {
   if (['Maintain', 'Admin'].includes(grant)) return true;
   const member = store.membership(repo.owner, username);
   return ['Maintain', 'Admin', 'Owner'].includes((member && member.role) || '');
+}
+
+// REQ-5-3-3 / REQ-5-4: Triage, Maintain or Admin may manage issue metadata and status.
+function canTriage(repo, username) {
+  if (!username) return false;
+  if (canMaintain(repo, username)) return true;
+  const grant = store.bestGrantPermission(repo.owner, repo.name, username);
+  if (grant === 'Triage') return true;
+  const member = store.membership(repo.owner, username);
+  return (member && member.role) === 'Triage';
 }
 
 app.get('/api/repos/:owner/:name/pulls', (req, res) => {

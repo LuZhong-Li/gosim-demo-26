@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Issue, Repo } from '../api';
 import type { CommitDiff } from '../api';
 import * as api from '../api';
+import { stateLabel } from '../labels';
 import PullsTab from './PullsTab';
 
 type Commit = {
@@ -16,7 +17,7 @@ type Commit = {
 export default function RepoPage() {
   const { owner = '', name = '' } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const requestedTab = searchParams.get('tab');
@@ -25,6 +26,18 @@ export default function RepoPage() {
     requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code';
   const requestedPull = Number(searchParams.get('pull')) || null;
   const requestedFile = searchParams.get('file');
+  const requestedIssue = Number(searchParams.get('issue')) || null;
+  // REQ-5-1-1: state, keyword and label filters live in the URL so a refresh keeps them.
+  const issueState = searchParams.get('state') === 'closed' ? 'closed' : 'open';
+  const issueQuery = searchParams.get('q') || '';
+  const issueLabel = searchParams.get('label') || '';
+  const showIssueForm = searchParams.get('new') === '1';
+  const [issueSearch, setIssueSearch] = useState(issueQuery);
+  const [editingIssueTitle, setEditingIssueTitle] = useState(false);
+  const [editingIssueDescription, setEditingIssueDescription] = useState(false);
+  const [issueTitleDraft, setIssueTitleDraft] = useState('');
+  const [issueBodyDraft, setIssueBodyDraft] = useState('');
+  const [issueEditError, setIssueEditError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneProtocol, setCloneProtocol] = useState<'https' | 'ssh'>('https');
@@ -78,6 +91,16 @@ export default function RepoPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    setIssueSearch(issueQuery);
+  }, [issueQuery]);
+
+  useEffect(() => {
+    if (!requestedIssue) return;
+    void openIssue(requestedIssue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedIssue]);
 
   // REQ-4-1: a search result links straight to the file it matched.
   useEffect(() => {
@@ -492,31 +515,103 @@ export default function RepoPage() {
       {tab === 'issues' && (
         <>
           <h2>Issues ({issues.length})</h2>
-          {issues.length === 0 ? (
-            <p>No issues yet.</p>
-          ) : (
-            <ul className="repo-list">
-              {issues.map((issue) => (
-                <li key={issue.number}>
-                  <button className="link-button" type="button" onClick={() => openIssue(issue.number)}>
-                    #{issue.number} {issue.title}
-                  </button>
-                  <span className="muted">
-                    {' '}
-                    · {issue.state} · opened by {issue.author}
-                  </span>
-                </li>
+          {/* REQ-5-1-1: Open and Closed are links, not buttons or tabs. */}
+          <nav className="tabs" aria-label="Issue state filters">
+            <Link
+              className={issueState === 'open' ? 'active' : ''}
+              to={`/${owner}/${name}?tab=issues&state=open`}
+            >
+              Open
+            </Link>
+            <Link
+              className={issueState === 'closed' ? 'active' : ''}
+              to={`/${owner}/${name}?tab=issues&state=closed`}
+            >
+              Closed
+            </Link>
+          </nav>
+          <div className="inline-form">
+            {/* REQ-5-1-1: the search box filters as the user types. */}
+            <input
+              aria-label="Search issues"
+              type="search"
+              value={issueSearch}
+              placeholder="Search issues"
+              onChange={(event) => {
+                const value = event.target.value;
+                setIssueSearch(value);
+                const next = new URLSearchParams(searchParams);
+                next.set('tab', 'issues');
+                next.set('state', issueState);
+                if (value) next.set('q', value);
+                else next.delete('q');
+                setSearchParams(next, { replace: true });
+              }}
+            />
+            <label htmlFor="issue-label-filter">Label</label>
+            <select
+              id="issue-label-filter"
+              aria-label="Label"
+              value={issueLabel}
+              onChange={(event) => {
+                const value = event.target.value;
+                const next = new URLSearchParams(searchParams);
+                next.set('tab', 'issues');
+                next.set('state', issueState);
+                if (value) next.set('label', value);
+                else next.delete('label');
+                setSearchParams(next, { replace: true });
+              }}
+            >
+              <option value="">All labels</option>
+              {Array.from(new Set(issues.flatMap((issue) => issue.labels || []))).map((label) => (
+                <option key={label} value={label}>
+                  {label}
+                </option>
               ))}
-            </ul>
-          )}
+            </select>
+            <Link to={`/${owner}/${name}?tab=issues&new=1`}>New issue</Link>
+          </div>
+          {(() => {
+            const visible = issues.filter(
+              (issue) =>
+                issue.state === issueState &&
+                (!issueQuery ||
+                  issue.title.toLowerCase().includes(issueQuery.toLowerCase()) ||
+                  String(issue.body || '')
+                    .toLowerCase()
+                    .includes(issueQuery.toLowerCase())) &&
+                (!issueLabel || (issue.labels || []).includes(issueLabel)),
+            );
+            return visible.length === 0 ? (
+              <p>No issues match this filter.</p>
+            ) : (
+              <ul className="repo-list">
+                {visible.map((issue) => (
+                  <li key={issue.number}>
+                    {/* REQ-5-1-1: each result title is a link with the exact title as its name. */}
+                    <Link to={`/${owner}/${name}?tab=issues&issue=${issue.number}`}>
+                      {issue.title}
+                    </Link>
+                    <span className="muted">
+                      {' '}
+                      # {issue.number} · {stateLabel(issue.state)} · opened by {issue.author}
+                      {(issue.labels || []).length > 0 && ` · ${issue.labels?.join(', ')}`}
+                      {issue.milestone ? ` · milestone ${issue.milestone}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
 
           {selected && (
             <div className="issue-detail">
-              <h3>
-                #{selected.number} {selected.title}
-              </h3>
+              {/* REQ-5-2-1 / REQ-5-2-2: the heading carries the exact issue title. */}
+              <h3>{selected.title}</h3>
               <p className="muted">
-                {selected.state} by {selected.author} · assignees:{' '}
+                # {selected.number} · {stateLabel(selected.state)} · opened by {selected.author} ·
+                assignees:{' '}
                 {(selected.assignees && selected.assignees.length
                   ? selected.assignees
                   : selected.assignee
@@ -528,6 +623,90 @@ export default function RepoPage() {
                 {selected.labels && selected.labels.length ? selected.labels.join(', ') : 'none'}
               </p>
               {selected.body && <p>{selected.body}</p>}
+              {/* REQ-5-2-2: unique edit buttons for the title and the description. */}
+              {selected.canEdit && (
+                <div className="inline-form">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingIssueTitle((open) => !open);
+                      setIssueTitleDraft(selected.title);
+                      setIssueEditError('');
+                    }}
+                  >
+                    Edit issue title
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingIssueDescription((open) => !open);
+                      setIssueBodyDraft(selected.body || '');
+                      setIssueEditError('');
+                    }}
+                  >
+                    Edit issue description
+                  </button>
+                </div>
+              )}
+              {editingIssueTitle && (
+                <form
+                  className="form-grid"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!issueTitleDraft.trim()) {
+                      setIssueEditError('Title is required');
+                      return;
+                    }
+                    setIssueEditError('');
+                    void run(
+                      () => api.updateIssue(owner, name, selected.number, { title: issueTitleDraft.trim() }),
+                      'Issue title saved.',
+                    ).then(() => {
+                      setEditingIssueTitle(false);
+                      void openIssue(selected.number);
+                    });
+                  }}
+                >
+                  <div className="field">
+                    <label htmlFor="issue-title-edit">Issue title</label>
+                    <input
+                      id="issue-title-edit"
+                      type="text"
+                      value={issueTitleDraft}
+                      onChange={(event) => setIssueTitleDraft(event.target.value)}
+                    />
+                  </div>
+                  <button type="submit">Save issue title</button>
+                  {issueEditError && <p className="error">{issueEditError}</p>}
+                </form>
+              )}
+              {editingIssueDescription && (
+                <form
+                  className="form-grid"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    setIssueEditError('');
+                    void run(
+                      () => api.updateIssue(owner, name, selected.number, { body: issueBodyDraft }),
+                      'Issue description saved.',
+                    ).then(() => {
+                      setEditingIssueDescription(false);
+                      void openIssue(selected.number);
+                    });
+                  }}
+                >
+                  <div className="field">
+                    <label htmlFor="issue-description-edit">Issue description</label>
+                    <textarea
+                      id="issue-description-edit"
+                      rows={3}
+                      value={issueBodyDraft}
+                      onChange={(event) => setIssueBodyDraft(event.target.value)}
+                    />
+                  </div>
+                  <button type="submit">Save issue description</button>
+                </form>
+              )}
               {/* REQ-5-2-3: reactions on the issue itself */}
               <button
                 type="button"
@@ -546,20 +725,23 @@ export default function RepoPage() {
                   ).length
                 }
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  run(
-                    () =>
-                      api.updateIssue(owner, name, selected.number, {
-                        state: selected.state === 'open' ? 'closed' : 'open',
-                      }),
-                    'Issue state updated.',
-                  ).then(() => openIssue(selected.number))
-                }
-              >
-                {selected.state === 'open' ? 'Close issue' : 'Reopen issue'}
-              </button>
+              {/* REQ-5-4: read-only viewers must not see either status control. */}
+              {selected.canClose && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    run(
+                      () =>
+                        api.updateIssue(owner, name, selected.number, {
+                          state: selected.state === 'open' ? 'closed' : 'open',
+                        }),
+                      'Issue state updated.',
+                    ).then(() => openIssue(selected.number))
+                  }
+                >
+                  {selected.state === 'open' ? 'Close issue' : 'Reopen issue'}
+                </button>
+              )}
               <h4>Comments</h4>
               {(selected.comments || []).length === 0 ? (
                 <p className="muted">No comments.</p>
@@ -615,10 +797,27 @@ export default function RepoPage() {
                 />
                 <button type="submit">Comment</button>
               </form>
+              {/* REQ-5-4: status transitions appear in the activity timeline. */}
+              {(selected.activities || []).length > 0 && (
+                <>
+                  <h4>Activity</h4>
+                  <ul className="repo-list">
+                    {(selected.activities || []).map((activity, index) => (
+                      <li key={`${activity.type}-${index}`}>
+                        <strong>{activity.type}</strong>
+                        <span className="muted">
+                          {` · ${activity.actor} · ${new Date(activity.at).toLocaleString()}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
             </div>
           )}
 
-          <h2>New issue</h2>
+          {/* REQ-5-2-1: the unique "New issue" link opens the creation form. */}
+          {showIssueForm && (
           <form
             className="form-grid"
             onSubmit={(event) => {
@@ -630,8 +829,8 @@ export default function RepoPage() {
               }
               setIssueTitleError('');
               run(
-                () =>
-                  api.createIssue(owner, name, {
+                async () => {
+                  const created = await api.createIssue(owner, name, {
                     title: title.trim(),
                     body,
                     assignees: assignee
@@ -643,7 +842,11 @@ export default function RepoPage() {
                       .map((label) => label.trim())
                       .filter(Boolean),
                     milestone: milestone || undefined,
-                  }),
+                  });
+                  // REQ-5-2-1: a successful submission opens the new issue detail.
+                  navigate(`/${owner}/${name}?tab=issues&issue=${created.number}`);
+                  return created;
+                },
                 'Issue created.',
               );
               setTitle('');
@@ -667,7 +870,7 @@ export default function RepoPage() {
               {issueTitleError && <p className="error">{issueTitleError}</p>}
             </div>
             <div className="field">
-              <label htmlFor="issue-body">Body (optional)</label>
+              <label htmlFor="issue-body">Description</label>
               <textarea
                 id="issue-body"
                 rows={3}
@@ -754,6 +957,7 @@ export default function RepoPage() {
             </div>
             <button type="submit">Submit new issue</button>
           </form>
+          )}
         </>
       )}
       {tab === 'pulls' && (

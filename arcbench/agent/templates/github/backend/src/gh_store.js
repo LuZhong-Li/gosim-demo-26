@@ -390,11 +390,12 @@ function findFile(repo, filePath) {
 
 function canWrite(repo, username) {
   if (!username) return false;
+  // An explicit repository grant is authoritative, including a read-only grant.
+  const explicit = bestGrantPermission(repo.owner, repo.name, username);
+  if (explicit) return ['Write', 'Maintain', 'Admin'].includes(explicit);
   if (repo.ownerType === 'user') {
     return String(repo.owner).toLowerCase() === String(username).toLowerCase();
   }
-  const grant = bestGrantPermission(repo.owner, repo.name, username);
-  if (grant && ['Write', 'Maintain', 'Admin'].includes(grant)) return true;
   const member = membership(repo.owner, username);
   const order = ['Read', 'Triage', 'Write', 'Maintain', 'Admin', 'Owner', 'Member'];
   const role = member ? member.role : '';

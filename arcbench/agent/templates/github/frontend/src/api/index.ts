@@ -29,6 +29,11 @@ export type Issue = {
   labels?: string[];
   milestone?: string | null;
   reactions?: Reaction[];
+  updatedAt?: string;
+  activities?: { type: string; actor: string; at: string }[];
+  /** REQ-5-2-2 / REQ-5-4: permission flags for the issue detail view. */
+  canEdit?: boolean;
+  canClose?: boolean;
 };
 export type Reaction = { user: string; type: string; commentId?: string | null };
 export type Comment = {
@@ -239,7 +244,15 @@ export async function updateIssue(
   owner: string,
   name: string,
   number: number,
-  input: { state?: string; assignee?: string | null; labels?: string[]; milestone?: string | null },
+  input: {
+    state?: string;
+    title?: string;
+    body?: string;
+    assignee?: string | null;
+    assignees?: string[];
+    labels?: string[];
+    milestone?: string | null;
+  },
 ): Promise<Issue> {
   const response = await client.patch(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
@@ -637,7 +650,19 @@ export async function getIssue(owner: string, name: string, number: number): Pro
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,
   );
-  return response.data.issue as Issue;
+  return {
+    ...(response.data.issue as Issue),
+    canEdit: response.data.canEdit,
+    canClose: response.data.canClose,
+  };
+}
+
+// REQ-5-3-3: the selectable milestones of the current repository.
+export async function listMilestones(owner: string, name: string): Promise<string[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/milestones`,
+  );
+  return response.data.milestones as string[];
 }
 
 export async function setIssueState(
