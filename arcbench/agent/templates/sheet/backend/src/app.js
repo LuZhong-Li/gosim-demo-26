@@ -278,28 +278,83 @@ app.post('/api/workbooks/:id/worksheets/:sheet/sort', (req, res) => {
   if (!workbook) return;
   const sheet = store.findSheet(workbook, req.params.sheet);
   if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
-  const column = store.colToIndex(String((req.body || {}).column || 'A'));
-  const direction = String((req.body || {}).direction || 'asc').toLowerCase() === 'desc' ? -1 : 1;
-  const { maxCol, maxRow } = store.usedBounds(sheet);
-  if (maxRow < 2) return res.json({ sheet: sheetPayload(sheet) });
+  const body = req.body || {};
+  const column = store.colToIndex(String(body.column || 'A'));
+  const direction = String(body.direction || 'asc').toLowerCase() === 'desc' ? -1 : 1;
+  const hasHeader = Boolean(body.hasHeader);
+  const used = store.usedBounds(sheet);
+  const start = store.parseRef(String(body.start || ''));
+  const end = store.parseRef(String(body.end || ''));
+  const bounds = start && end
+    ? {
+        startCol: Math.min(start.col, end.col),
+        endCol: Math.max(start.col, end.col),
+        startRow: Math.min(start.row, end.row),
+        endRow: Math.max(start.row, end.row),
+      }
+    : { startCol: 1, endCol: used.maxCol, startRow: 1, endRow: used.maxRow };
+  if (column < bounds.startCol || column > bounds.endCol || bounds.endRow < bounds.startRow) {
+    return res.status(400).json({ error: 'Sort column must be inside the selected range.' });
+  }
+
   const rows = [];
-  for (let row = 1; row <= maxRow; row += 1) {
+  for (let row = bounds.startRow; row <= bounds.endRow; row += 1) {
     const cells = [];
-    for (let col = 1; col <= maxCol; col += 1) {
+    for (let col = bounds.startCol; col <= bounds.endCol; col += 1) {
       cells.push(sheet.cells[store.refOf(col, row)] || null);
     }
-    rows.push(cells);
+    rows.push({ row, cells });
   }
-  rows.sort((left, right) => {
-    const a = left[column - 1]?.value ?? '';
-    const b = right[column - 1]?.value ?? '';
-    if (typeof a === 'number' && typeof b === 'number') return (a - b) * direction;
-    return String(a).localeCompare(String(b)) * direction;
-  });
-  const rebuilt = {};
-  rows.forEach((cells, rowIndex) => {
-    cells.forEach((cell, colIndex) => {
-      if (cell) rebuilt[store.refOf(colIndex + 1, rowIndex + 1)] = cell;
+
+  const sortValue = (cell) => {
+    const value = cell?.value;
+    if (typeof value === 'number') return { kind: 'number', value };
+    const text = value === null || value === undefined ? '' : String(value);
+    const timestamp = /^\d{4}-\d{2}-\d{2}/.test(text) ? Date.parse(text) : NaN;
+    if (!Number.isNaN(timestamp)) return { kind: 'date', value: timestamp };
+    return { kind: 'text', value: text.toLowerCase() };
+  };
+  const compareCells = (left, right) => {
+    const a = sortValue(left);
+    const b = sortValue(right);
+    if (a.kind === b.kind && (a.kind === 'number' || a.kind === 'date')) {
+      return (a.value - b.value) * direction;
+    }
+    return String(a.value).localeCompare(String(b.value)) * direction;
+  };
+
+  const columnIndex = column - bounds.startCol;
+  const header = hasHeader ? rows.slice(0, 1) : [];
+  const sortable = hasHeader ? rows.slice(1) : rows.slice();
+  sortable.sort((left, right) =>
+    compareCells(left.cells[columnIndex], right.cells[columnIndex]),
+  );
+  const ordered = [...header, ...sortable];
+
+  const rebuilt = { ...sheet.cells };
+  for (let row = bounds.startRow; row <= bounds.endRow; row += 1) {
+    for (let col = bounds.startCol; col <= bounds.endCol; col += 1) {
+      delete rebuilt[store.refOf(col, row)];
+    }
+  }
+  ordered.forEach((record, rowIndex) => {
+    const targetRow = bounds.startRow + rowIndex;
+    const rowDelta = targetRow - record.row;
+    record.cells.forEach((cell, colIndexValue) => {
+      if (!cell) return;
+      const moved = JSON.parse(JSON.stringify(cell));
+      if (rowDelta && typeof moved.formula === 'string' && moved.formula.startsWith('=')) {
+        moved.formula = moved.formula.replace(
+          /(\$?)([A-Za-z]+)(\$?)(\d+)/g,
+          (match, colAbsolute, letters, rowAbsolute, digits) => {
+            const nextRow = Number(digits) + rowDelta;
+            return nextRow < 1
+              ? '#REF!'
+              : `${colAbsolute}${letters.toUpperCase()}${rowAbsolute}${nextRow}`;
+          },
+        );
+      }
+      rebuilt[store.refOf(bounds.startCol + colIndexValue, targetRow)] = moved;
     });
   });
   sheet.cells = rebuilt;

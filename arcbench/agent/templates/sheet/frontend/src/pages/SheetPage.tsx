@@ -586,6 +586,22 @@ export default function SheetPage() {
   }, []);
 
   undoRedoRef.current = { undo: () => void handleUndo(), redo: () => void handleRedo() };
+  const sortBounds = selectionBounds();
+  const sortColumns: { column: string; label: string }[] = [];
+  if (sheet) {
+    const start = parseRef(sortBounds.start);
+    const end = parseRef(sortBounds.end);
+    if (start && end) {
+      for (let col = Math.min(start.col, end.col); col <= Math.max(start.col, end.col); col += 1) {
+        const column = colLetter(col);
+        const header = displayValue(sheet.cells[refOf(col, Math.min(start.row, end.row))]);
+        sortColumns.push({ column, label: header || column });
+      }
+    }
+  }
+  const activeSortByCol = sortColumns.some((option) => option.column === sortByCol)
+    ? sortByCol
+    : sortColumns[0]?.column || 'A';
   const visibleRows = useMemo(() => {
     const rows = Array.from({ length: ROWS }, (_, index) => index + 1);
     if (!appliedFilter || !sheet) return rows;
@@ -687,13 +703,39 @@ export default function SheetPage() {
         </button>
         <button
           type="button"
-          onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'asc'), 'Sorted ascending.'); }}
+          onClick={() => {
+            pushHistory();
+            void run(
+              () =>
+                api.sortSheet(id, sheet.name, {
+                  column: colLetter(selectedParsed.col),
+                  direction: 'asc',
+                  start: sortBounds.start,
+                  end: sortBounds.end,
+                  hasHeader: sortHeaderRow,
+                }),
+              'Sorted ascending.',
+            );
+          }}
         >
           Sort ascending
         </button>
         <button
           type="button"
-          onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'desc'), 'Sorted descending.'); }}
+          onClick={() => {
+            pushHistory();
+            void run(
+              () =>
+                api.sortSheet(id, sheet.name, {
+                  column: colLetter(selectedParsed.col),
+                  direction: 'desc',
+                  start: sortBounds.start,
+                  end: sortBounds.end,
+                  hasHeader: sortHeaderRow,
+                }),
+              'Sorted descending.',
+            );
+          }}
         >
           Sort descending
         </button>
@@ -1017,7 +1059,14 @@ export default function SheetPage() {
         </button>
         {dataMenuOpen && (
           <div className="menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => setSortDialogOpen(true)}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setSortByCol(activeSortByCol);
+                setSortDialogOpen(true);
+              }}
+            >
               Sort range
             </button>
             <button type="button" role="menuitem" onClick={() => setFilterDialogOpen(true)}>
@@ -1043,9 +1092,11 @@ export default function SheetPage() {
           <h3>Sort range</h3>
           <div className="field">
             <label htmlFor="sort-by">Sort by</label>
-            <select id="sort-by" aria-label="Sort by" value={sortByCol} onChange={(event) => setSortByCol(event.target.value)}>
-              {Array.from({ length: COLS }, (_, index) => (
-                <option key={index} value={colLetter(index + 1)}>{colLetter(index + 1)}</option>
+            <select id="sort-by" aria-label="Sort by" value={activeSortByCol} onChange={(event) => setSortByCol(event.target.value)}>
+              {sortColumns.map((option) => (
+                <option key={option.column} value={option.column}>
+                  {option.label}
+                </option>
               ))}
             </select>
           </div>
@@ -1061,7 +1112,24 @@ export default function SheetPage() {
             Data has header row
           </label>
           <div className="toolbar">
-            <button type="button" onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, sortByCol, sortOrder), 'Sorted.').then(load); setSortDialogOpen(false); }}>
+            <button
+              type="button"
+              onClick={() => {
+                pushHistory();
+                void run(
+                  () =>
+                    api.sortSheet(id, sheet.name, {
+                      column: activeSortByCol,
+                      direction: sortOrder === 'desc' ? 'desc' : 'asc',
+                      start: sortBounds.start,
+                      end: sortBounds.end,
+                      hasHeader: sortHeaderRow,
+                    }),
+                  'Sorted.',
+                ).then(load);
+                setSortDialogOpen(false);
+              }}
+            >
               Sort
             </button>
             <button type="button" onClick={() => setSortDialogOpen(false)}>Cancel</button>
@@ -1274,7 +1342,6 @@ export default function SheetPage() {
     </section>
   );
 }
-
 
 
 

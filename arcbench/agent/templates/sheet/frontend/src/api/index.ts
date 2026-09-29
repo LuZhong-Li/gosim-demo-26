@@ -168,12 +168,17 @@ export async function insertColumns(
 export async function sortSheet(
   id: string,
   sheet: string,
-  column: string,
-  direction: 'asc' | 'desc',
+  input: {
+    column: string;
+    direction: 'asc' | 'desc';
+    start: string;
+    end: string;
+    hasHeader: boolean;
+  },
 ): Promise<Worksheet> {
   const response = await client.post(
     `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/sort`,
-    { column, direction },
+    input,
   );
   return response.data.sheet as Worksheet;
 }
