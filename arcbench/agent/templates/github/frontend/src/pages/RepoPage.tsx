@@ -19,6 +19,10 @@ export default function RepoPage() {
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>('code');
+  const [codeQuery, setCodeQuery] = useState('');
+  const [codePath, setCodePath] = useState('');
+  const [codeResults, setCodeResults] = useState<api.CodeMatch[] | null>(null);
+  const [codeError, setCodeError] = useState('');
   const [files, setFiles] = useState<string[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
@@ -234,6 +238,53 @@ export default function RepoPage() {
             />
             <button type="submit">Create branch</button>
           </form>
+
+          <h2>Search code</h2>
+          <form
+            className="inline-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setCodeError('');
+              try {
+                setCodeResults(await api.searchCode(owner, name, codeQuery, codePath));
+              } catch (caught) {
+                setCodeError(api.errorMessage(caught));
+                setCodeResults([]);
+              }
+            }}
+          >
+            <input
+              aria-label="Search code"
+              type="search"
+              value={codeQuery}
+              placeholder="Search code"
+              onChange={(event) => setCodeQuery(event.target.value)}
+            />
+            <input
+              aria-label="Path filter"
+              type="text"
+              value={codePath}
+              placeholder="Path filter (e.g. src/)"
+              onChange={(event) => setCodePath(event.target.value)}
+            />
+            <button type="submit">Search code</button>
+          </form>
+          {codeError && <p className="error">{codeError}</p>}
+          {codeResults !== null &&
+            (codeResults.length === 0 ? (
+              <p className="muted">No code matches.</p>
+            ) : (
+              <ul className="repo-list">
+                {codeResults.map((match) => (
+                  <li key={`${match.path}:${match.line}`}>
+                    <button className="link-button" type="button" onClick={() => openFile(match.path)}>
+                      {match.path}:{match.line}
+                    </button>
+                    <p className="muted">{match.snippet}</p>
+                  </li>
+                ))}
+              </ul>
+            ))}
 
           <h2>Files</h2>
           {files.length === 0 ? (

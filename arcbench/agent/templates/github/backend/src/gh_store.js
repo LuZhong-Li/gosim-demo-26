@@ -393,6 +393,29 @@ function branchHead(repo, branchName) {
   return branch ? branch.head : null;
 }
 
+function searchCode(repo, term, pathPrefix) {
+  const query = String(term || '').trim().toLowerCase();
+  const prefix = String(pathPrefix || '').trim();
+  if (!query) return [];
+  const matches = [];
+  for (const file of repo.files || []) {
+    if (prefix && !String(file.path || '').startsWith(prefix)) continue;
+    const lines = String(file.content || '').split('\n');
+    lines.forEach((lineText, index) => {
+      if (lineText.toLowerCase().includes(query)) {
+        matches.push({
+          path: file.path,
+          line: index + 1,
+          snippet: lineText.trim(),
+          branch: 'main',
+          sha: branchHead(repo, 'main'),
+        });
+      }
+    });
+  }
+  return matches;
+}
+
 function commitBySha2(repo, sha) {
   return (repo.commits || []).find((commit) => commit.sha === sha) || null;
 }
@@ -490,6 +513,7 @@ module.exports = {
   removeFile,
   bestGrantPermission,
   branchHead,
+  searchCode,
   compareBranches,
   commitBySha,
   diffSnapshots,

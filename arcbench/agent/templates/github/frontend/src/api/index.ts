@@ -173,6 +173,22 @@ export async function listRepos(): Promise<Repo[]> {
   return response.data.repos as Repo[];
 }
 
+export type CodeMatch = {
+  path: string;
+  line: number;
+  snippet: string;
+  branch: string;
+  sha: string;
+};
+
+export async function searchCode(owner: string, name: string, query: string, pathPrefix: string): Promise<CodeMatch[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/search`,
+    { params: { q: query, path: pathPrefix } },
+  );
+  return response.data.matches as CodeMatch[];
+}
+
 export async function searchRepos(query: string): Promise<Repo[]> {
   const response = await client.get('/search', { params: { q: query } });
   return response.data.repos as Repo[];

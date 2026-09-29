@@ -593,6 +593,25 @@ app.get('/api/repos/:owner/:name', (req, res) => {
   });
 });
 
+app.get('/api/repos/:owner/:name/search', (req, res) => {
+  const user = store.userByToken(authToken(req));
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (repo.visibility === 'private') {
+    const authorized =
+      (repo.ownerType === 'user' && user && String(repo.owner).toLowerCase() === user.username) ||
+      (repo.ownerType === 'organization' &&
+        Boolean(
+          user &&
+            (store.membership(repo.owner, user.username) ||
+              store.bestGrantPermission(repo.owner, repo.name, user.username)),
+        ));
+    if (!authorized) return res.status(403).json({ error: 'Repository is private.' });
+  }
+  const matches = store.searchCode(repo, req.query.q, req.query.path);
+  res.json({ matches });
+});
+
 app.get('/api/repos/:owner/:name/tree', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });

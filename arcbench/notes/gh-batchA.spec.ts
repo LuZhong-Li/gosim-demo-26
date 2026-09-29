@@ -471,3 +471,36 @@ test('REQ-6-3-4 submit a Comment review decision', async ({ page }) => {
   await expect(page.getByText(new RegExp(`${reviewer} · COMMENTED`))).toBeVisible();
   await expect(page.getByText('Just commenting')).toBeVisible();
 });
+test('REQ-4-2-3 search code within a repository', async ({ page }) => {
+  const owner = unique('sc');
+  await register(page, owner);
+  await signIn(page, owner);
+  await createOrgRepo(page, owner, 'app');
+
+  await page.getByLabel('File path').fill('src/app.js');
+  await page.getByLabel('Commit message').fill('Add app');
+  await page.getByLabel('Content').fill('const answer = 42;');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByLabel('File path').fill('docs/guide.md');
+  await page.getByLabel('Commit message').fill('Add guide');
+  await page.getByLabel('Content').fill('# Guide\nanswer here');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByLabel('Search code').fill('answer');
+  await page.getByRole('button', { name: /^search code$/i }).click();
+  await expect(page.getByText(/src\/app\.js:1/)).toBeVisible();
+  await expect(page.getByText(/docs\/guide\.md:2/)).toBeVisible();
+
+  await page.getByLabel('Path filter').fill('src/');
+  await page.getByRole('button', { name: /^search code$/i }).click();
+  await expect(page.getByText(/src\/app\.js:1/)).toBeVisible();
+  await expect(page.getByText(/docs\/guide\.md:2/)).toHaveCount(0);
+
+  await page.getByLabel('Path filter').fill('');
+  await page.getByLabel('Search code').fill('zzz-no-match');
+  await page.getByRole('button', { name: /^search code$/i }).click();
+  await expect(page.getByText('No code matches.')).toBeVisible();
+});
