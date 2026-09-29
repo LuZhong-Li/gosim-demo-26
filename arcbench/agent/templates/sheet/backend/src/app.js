@@ -547,7 +547,7 @@ app.put('/api/workbooks/:id/worksheets/:sheet/selection', (req, res) => {
 
 // ---------- pivot ----------
 
-const PIVOT_FIELD_MISSING = 'Pivot field no longer exists; please select the field again';
+const PIVOT_FIELD_MISSING = 'Pivot field is no longer available. Select a new field.';
 
 function pivotRange(startRef, endRef) {
   const start = store.parseRef(startRef);
@@ -650,6 +650,9 @@ function computePivotCells(source, config) {
       addBucket(grand, bucket);
     }
   }
+  if ((agg === 'sum' || agg === 'average') && grand.numeric === 0) {
+    return { error: 'Value field requires numeric values' };
+  }
 
   const cells = {};
   const write = (col, row, value) => {
@@ -709,9 +712,10 @@ function requirePivotSheet(req, res, workbook) {
 function applyPivotConfig(workbook, sheet, config) {
   const source = store.findSheet(workbook, sheet.pivot.source);
   if (!source) return { error: PIVOT_FIELD_MISSING };
-  sheet.pivot = { ...sheet.pivot, ...config };
-  const result = computePivotCells(source, sheet.pivot);
+  const nextPivot = { ...sheet.pivot, ...config };
+  const result = computePivotCells(source, nextPivot);
   if (result.error) return result;
+  sheet.pivot = nextPivot;
   sheet.cells = result.cells;
   store.recompute(sheet);
   return { sheet };
