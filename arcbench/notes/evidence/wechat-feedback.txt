@@ -1,0 +1,14 @@
+【ARC-Bench 官方评测问题反馈】队伍 LiMengYuan / Agentic Software Factory Hackathon
+
+现象：初赛提交了 4 个版本（r14、r14-fixed、r15、r16），GitHub 和 Sheet 两个任务全部 0.00 分 / 0.0% 通过，单个 run 约 1 秒、0 token、¥0 成本。运行日志在 “Backend listening at http://127.0.0.1:3000” 之后没有任何 Playwright 测试输出，和之前 “No Playwright tests found” 现象一致，疑似评测时任务测试套件没被找到/执行。
+
+涉及 run：
+- r16 GitHub：https://arc-bench.com/runs/443e0bacf2f4
+- r16 Sheet：https://arc-bench.com/runs/b7511d28f837
+（r14/r15 另有多组 run，结果相同，均可在 History 里查看）
+
+本地验证：用官方同一命令（npx playwright test <tests 目录> --config playwright.config.ts，TARGET_URL=127.0.0.1:3301）对我们的应用跑，12/12 通过、日志完整。说明应用能构建、能启动、能通过真实 Playwright 测试，0% 不是应用问题。
+
+已同步在官方仓库提交 Issue：https://github.com/code-philia/arc-bench/issues/2
+
+恳请主办方核对初赛两个任务（TASK-001 GitHub、TASK-002 Sheets）的测试套件是否已挂到评测 runner 的 tests 目录；确认后我们立即复跑验证。谢谢！
