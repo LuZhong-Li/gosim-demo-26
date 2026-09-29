@@ -23,6 +23,9 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
+  const [compare, setCompare] = useState<api.BranchCompare | null>(null);
+  const [compareError, setCompareError] = useState('');
+  const [milestoneDraft, setMilestoneDraft] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -56,9 +59,21 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       setReviewBody('');
       setFiles(null);
       setComments(await api.getPullComments(owner, name, number));
-      setReviewers((await api.getPull(owner, name, number)).pull.reviewers || []);
+      const detail = await api.getPull(owner, name, number);
+      setReviewers(detail.pull.reviewers || []);
+      setMilestoneDraft(detail.pull.milestone || '');
     } catch (caught) {
       setError(api.errorMessage(caught));
+    }
+  }
+
+  async function loadCompare() {
+    setCompareError('');
+    try {
+      setCompare(await api.compareBranches(owner, name, baseBranch, headBranch));
+    } catch (caught) {
+      setCompare(null);
+      setCompareError(api.errorMessage(caught));
     }
   }
 
@@ -96,6 +111,25 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
             {selected.protection.requiredApprovals}
           </p>
           {selected.pull.body && <p>{selected.pull.body}</p>}
+          <form
+            className="inline-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              run(
+                () => api.updatePullMilestone(owner, name, selected.pull.number, milestoneDraft),
+                'Milestone updated.',
+              ).then(() => openPull(selected.pull.number));
+            }}
+          >
+            <input
+              aria-label="Milestone"
+              type="text"
+              value={milestoneDraft}
+              placeholder="Milestone (or empty to clear)"
+              onChange={(event) => setMilestoneDraft(event.target.value)}
+            />
+            <button type="submit">Save milestone</button>
+          </form>
           <p className="muted">
             Checks:{' '}
             {(selected.pull.checks || []).length
@@ -369,6 +403,44 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
             onChange={(event) => setHeadBranch(event.target.value)}
           />
         </div>
+        <button type="button" onClick={() => void loadCompare()}>
+          Compare changes
+        </button>
+        {compareError && <p className="error">{compareError}</p>}
+        {compare && (
+          <div className="issue-detail">
+            <h4>
+              {compare.base} → {compare.head}
+            </h4>
+            {compare.same || !compare.hasDifference ? (
+              <p className="muted">There is nothing to compare</p>
+            ) : (
+              <>
+                <p className="muted">
+                  {compare.commits.length} commit(s) · {compare.stats.changedFiles} file(s) changed · +{compare.stats.added} / -{compare.stats.removed}
+                </p>
+                {compare.commits.length > 0 && (
+                  <ul className="repo-list">
+                    {compare.commits.map((commit) => (
+                      <li key={commit.sha}>
+                        <strong>{commit.message}</strong> · {commit.author} · {commit.sha.slice(0, 7)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {compare.files.length > 0 && (
+                  <ul className="repo-list">
+                    {compare.files.map((file) => (
+                      <li key={file.path}>
+                        <strong>{file.path}</strong> <span className="muted">{file.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <div className="field">
           <label htmlFor="pull-body">Body (optional)</label>
           <textarea
@@ -378,9 +450,12 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
             onChange={(event) => setBody(event.target.value)}
           />
         </div>
-        <button type="submit">Create pull request</button>
+        <button type="submit" disabled={!!compare && !compare.hasDifference}>
+          Create pull request
+        </button>
         <button
           type="button"
+          disabled={!!compare && !compare.hasDifference}
           onClick={() => {
             run(
               () =>

@@ -12,6 +12,7 @@ function sheetPayload(sheet) {
     name: sheet.name,
     cells: sheet.cells,
     validations: sheet.validations || {},
+    filters: sheet.filters || [],
     selection: sheet.selection || null,
     pivot: sheet.pivot
       ? {
@@ -32,6 +33,7 @@ function workbookSummary(workbook) {
     name: workbook.name,
     createdAt: workbook.createdAt,
     updatedAt: workbook.updatedAt || workbook.createdAt,
+    lastActiveSheet: workbook.lastActiveSheet || workbook.worksheets[0]?.name || '',
     worksheets: workbook.worksheets.map((sheet) => sheet.name),
   };
 }
@@ -89,6 +91,17 @@ app.delete('/api/workbooks/:id', (req, res) => {
   if (!workbook) return;
   store.state.workbooks = store.state.workbooks.filter((item) => item.id !== workbook.id);
   res.json({ ok: true });
+});
+
+app.put('/api/workbooks/:id/active-sheet', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = String((req.body || {}).sheet || '').trim();
+  if (!store.findSheet(workbook, sheet)) {
+    return res.status(400).json({ error: 'Worksheet not found.' });
+  }
+  workbook.lastActiveSheet = sheet;
+  res.json({ lastActiveSheet: sheet });
 });
 
 // ---------- worksheets ----------
@@ -370,6 +383,28 @@ app.get('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
   const sheet = store.findSheet(workbook, req.params.sheet);
   if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
   res.json({ validations: store.ensureValidations(sheet) });
+});
+
+app.put('/api/workbooks/:id/worksheets/:sheet/filters', (req, res) => {
+  const workbook = requireWorkbook(req, res);
+  if (!workbook) return;
+  const sheet = store.findSheet(workbook, req.params.sheet);
+  if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
+  const filters = (req.body || {}).filters || [];
+  if (!Array.isArray(filters)) {
+    return res.status(400).json({ error: 'filters must be an array.' });
+  }
+  const allowed = ['contains', 'eq', 'gt', 'lt', 'before', 'is_empty', 'is_not_empty'];
+  const normalized = filters
+    .map((item) => ({
+      column: String(item.column || 'A').toUpperCase(),
+      op: allowed.includes(String(item.op || '')) ? String(item.op) : 'contains',
+      value: item.value === undefined || item.value === null ? '' : String(item.value),
+    }))
+    .filter((item) => /^[A-Z]+$/.test(item.column));
+  sheet.filters = normalized;
+  touch(workbook);
+  res.json({ filters: sheet.filters });
 });
 
 // ---------- selection ----------

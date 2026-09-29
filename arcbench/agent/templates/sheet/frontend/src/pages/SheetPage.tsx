@@ -124,11 +124,16 @@ export default function SheetPage() {
     try {
       const detail = await api.getWorkbook(id);
       setWorkbook(detail);
-      setActive((current) =>
-        current && detail.sheets.some((sheet) => sheet.name === current)
-          ? current
-          : detail.sheets[0]?.name || '',
-      );
+      setActive((current) => {
+        const preferred =
+          detail.lastActiveSheet && detail.sheets.some((sheet) => sheet.name === detail.lastActiveSheet)
+            ? detail.lastActiveSheet
+            : '';
+        const candidate = preferred || current;
+        return candidate && detail.sheets.some((sheet) => sheet.name === candidate)
+          ? candidate
+          : detail.sheets[0]?.name || '';
+      });
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -852,7 +857,10 @@ export default function SheetPage() {
             key={item.name}
             type="button"
             className={item.name === active ? 'active' : ''}
-            onClick={() => setActive(item.name)}
+            onClick={() => {
+              setActive(item.name);
+              void api.setActiveSheet(id, item.name);
+            }}
           >
             {item.name}
           </button>

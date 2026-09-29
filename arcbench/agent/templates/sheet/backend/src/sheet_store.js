@@ -303,6 +303,7 @@ function createWorkbook(name) {
     name: String(name || 'Untitled workbook').trim() || 'Untitled workbook',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    lastActiveSheet: 'Sheet1',
     worksheets: [{ name: 'Sheet1', cells: {}, validations: {}, selection: null }],
   };
   state.workbooks.push(workbook);

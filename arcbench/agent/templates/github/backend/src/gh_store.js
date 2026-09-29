@@ -393,6 +393,44 @@ function branchHead(repo, branchName) {
   return branch ? branch.head : null;
 }
 
+function commitBySha2(repo, sha) {
+  return (repo.commits || []).find((commit) => commit.sha === sha) || null;
+}
+
+function compareBranches(repo, baseName, headName) {
+  const baseCommit = branchHead(repo, baseName);
+  const headCommit = branchHead(repo, headName);
+  if (!baseCommit || !headCommit) return null;
+  const base = commitBySha2(repo, baseCommit);
+  const head = commitBySha2(repo, headCommit);
+  if (!base || !head) return null;
+  const commits = [];
+  let current = head;
+  const seen = new Set();
+  while (current && !seen.has(current.sha)) {
+    seen.add(current.sha);
+    commits.push({
+      sha: current.sha,
+      message: current.message,
+      author: current.author,
+      timestamp: current.timestamp,
+    });
+    if (current.sha === base.sha) break;
+    current = current.parents && current.parents.length ? commitBySha2(repo, current.parents[0]) : null;
+  }
+  const diff = diffSnapshots(base.snapshot || [], head.snapshot || []);
+  const same = String(baseName).toLowerCase() === String(headName).toLowerCase() || base.sha === head.sha;
+  return {
+    base: baseName,
+    head: headName,
+    same,
+    hasDifference: !same && diff.stats.changedFiles > 0,
+    commits: same ? [] : commits,
+    files: same ? [] : diff.files,
+    stats: same ? { changedFiles: 0, added: 0, removed: 0 } : diff.stats,
+  };
+}
+
 function removeMembership(orgName, username) {
   const normalizedOrg = String(orgName || '').trim().toLowerCase();
   const target = String(username || '').trim().toLowerCase();
@@ -452,6 +490,7 @@ module.exports = {
   removeFile,
   bestGrantPermission,
   branchHead,
+  compareBranches,
   commitBySha,
   diffSnapshots,
   canAdmin,

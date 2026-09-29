@@ -5,6 +5,11 @@ export type ValidationRule =
   | { type: 'list'; values: string[] }
   | { type: 'number'; min: number; max: number };
 export type GridSelection = { anchor: string; focus: string };
+export type FilterConfig = {
+  column: string;
+  op: 'contains' | 'eq' | 'gt' | 'lt' | 'before' | 'is_empty' | 'is_not_empty';
+  value: string;
+};
 export type PivotConfig = {
   source: string;
   range: { start: string; end: string };
@@ -17,6 +22,7 @@ export type Worksheet = {
   name: string;
   cells: Record<string, Cell>;
   validations?: Record<string, ValidationRule>;
+  filters?: FilterConfig[];
   selection?: GridSelection | null;
   pivot?: PivotConfig | null;
 };
@@ -25,6 +31,7 @@ export type WorkbookSummary = {
   name: string;
   createdAt: string;
   updatedAt: string;
+  lastActiveSheet?: string;
   worksheets: string[];
 };
 export type WorkbookDetail = WorkbookSummary & { sheets: Worksheet[] };
@@ -74,6 +81,10 @@ export async function importCsvFile(name: string, csv: string): Promise<Workbook
 
 export async function renameWorkbook(id: string, name: string): Promise<void> {
   await client.patch(`/workbooks/${encodeURIComponent(id)}`, { name });
+}
+
+export async function setActiveSheet(id: string, sheet: string): Promise<void> {
+  await client.put(`/workbooks/${encodeURIComponent(id)}/active-sheet`, { sheet });
 }
 
 export async function addWorksheet(id: string, name: string): Promise<void> {
@@ -175,6 +186,18 @@ export async function setValidations(
     { range, rule },
   );
   return response.data.validations as Record<string, ValidationRule>;
+}
+
+export async function setFilters(
+  id: string,
+  sheet: string,
+  filters: FilterConfig[],
+): Promise<FilterConfig[]> {
+  const response = await client.put(
+    `/workbooks/${encodeURIComponent(id)}/worksheets/${encodeURIComponent(sheet)}/filters`,
+    { filters },
+  );
+  return response.data.filters as FilterConfig[];
 }
 
 export async function createPivot(

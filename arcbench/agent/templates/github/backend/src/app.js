@@ -606,6 +606,17 @@ app.get('/api/repos/:owner/:name/tree', (req, res) => {
   });
 });
 
+app.get('/api/repos/:owner/:name/compare', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const base = String(req.query.base || 'main').trim();
+  const head = String(req.query.head || '').trim();
+  if (!head) return res.status(400).json({ error: 'A head branch is required.' });
+  const result = store.compareBranches(repo, base, head);
+  if (!result) return res.status(404).json({ error: 'One of the branches was not found.' });
+  return res.json(result);
+});
+
 app.get('/api/repos/:owner/:name/contents', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
@@ -922,6 +933,7 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
     baseBranch,
     headBranch,
     headSha: store.branchHead(repo, headBranch),
+    milestone: String((req.body || {}).milestone || '').trim() || null,
     createdAt: new Date().toISOString(),
     reviews: [],
     checks: [],
@@ -970,6 +982,9 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
     return res.status(403).json({ error: 'You cannot change this pull request.' });
   }
   pull.state = state;
+  if (body.milestone !== undefined) {
+    pull.milestone = String(body.milestone || '').trim() || null;
+  }
   return res.json({ pull });
 });
 

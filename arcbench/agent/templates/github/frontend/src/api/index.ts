@@ -53,6 +53,7 @@ export type PullRequest = {
   checks?: { name: string; state: string }[];
   reviewers?: ReviewerRequest[];
   mergedBy?: string;
+  milestone?: string | null;
 };
 export type PullDetail = {
   pull: PullRequest;
@@ -267,6 +268,29 @@ export async function deleteFile(
   return response.data;
 }
 
+export type BranchCompare = {
+  base: string;
+  head: string;
+  same: boolean;
+  hasDifference: boolean;
+  commits: { sha: string; message: string; author: string; timestamp: string }[];
+  files: { path: string; status: string; lines: { type: string; text: string }[] }[];
+  stats: { changedFiles: number; added: number; removed: number };
+};
+
+export async function compareBranches(
+  owner: string,
+  name: string,
+  base: string,
+  head: string,
+): Promise<BranchCompare> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/compare`,
+    { params: { base, head } },
+  );
+  return response.data as BranchCompare;
+}
+
 export async function listCommits(
   owner: string,
   name: string,
@@ -428,6 +452,19 @@ export async function getPullFiles(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/files`,
   );
   return response.data as PullFiles;
+}
+
+export async function updatePullMilestone(
+  owner: string,
+  name: string,
+  number: number,
+  milestone: string,
+): Promise<PullRequest> {
+  const response = await client.patch(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}`,
+    { milestone },
+  );
+  return response.data.pull as PullRequest;
 }
 
 export async function setPullState(
