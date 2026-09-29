@@ -125,6 +125,9 @@ app.post('/api/auth/password', requireUser, (req, res) => {
   const currentPassword = String(body.currentPassword || '');
   const newPassword = String(body.newPassword || '');
   const confirmPassword = String(body.confirmPassword || '');
+  if (!currentPassword) {
+    return res.status(400).json({ error: 'Current password is required' });
+  }
   if (currentPassword !== String(req.user.password || '')) {
     return res.status(400).json({ error: 'Current password is incorrect' });
   }
