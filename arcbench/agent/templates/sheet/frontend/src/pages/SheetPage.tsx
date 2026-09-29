@@ -117,7 +117,6 @@ export default function SheetPage() {
   const undoRedoQueueRef = useRef(Promise.resolve());
   const pendingWritesRef = useRef(Promise.resolve());
   const latestCellsRef = useRef<Record<string, Cell>>({});
-
   const load = useCallback(async () => {
     try {
       const detail = await api.getWorkbook(id);
@@ -140,6 +139,12 @@ export default function SheetPage() {
     () => workbook?.sheets.find((item) => item.name === active) || null,
     [workbook, active],
   );
+
+  // Keep latestCellsRef in sync with the active worksheet so undo/redo snapshots
+  // capture the last server-confirmed cell state instead of an empty map.
+  useEffect(() => {
+    if (sheet) latestCellsRef.current = sheet.cells;
+  }, [sheet]);
 
   useEffect(() => {
     const cell = sheet?.cells[selected];
