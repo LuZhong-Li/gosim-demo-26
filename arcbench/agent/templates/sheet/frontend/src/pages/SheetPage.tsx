@@ -45,6 +45,27 @@ function cloneWorksheet(worksheet: Worksheet): Worksheet {
   return JSON.parse(JSON.stringify(worksheet)) as Worksheet;
 }
 
+function matchesFilter(value: string, filter: FilterConfig): boolean {
+  const actual = value.toLowerCase();
+  const expected = filter.value.toLowerCase();
+  switch (filter.op) {
+    case 'eq':
+      return actual === expected;
+    case 'gt':
+      return Number(actual) > Number(expected);
+    case 'lt':
+      return Number(actual) < Number(expected);
+    case 'before':
+      return actual !== '' && actual < expected;
+    case 'is_empty':
+      return actual === '';
+    case 'is_not_empty':
+      return actual !== '';
+    default:
+      return actual.includes(expected);
+  }
+}
+
 function refsBetween(startRef: string, endRef: string): string[] {
   const start = parseRef(startRef);
   const end = parseRef(endRef);
@@ -88,7 +109,9 @@ export default function SheetPage() {
   const [filterColumn, setFilterColumn] = useState('');
   const [filterOp, setFilterOp] = useState<FilterConfig['op']>('contains');
   const [filterValue, setFilterValue] = useState('');
-  const [appliedFilter, setAppliedFilter] = useState<FilterConfig | null>(null);
+  const [appliedFilters, setAppliedFilters] = useState<FilterConfig[]>([]);
+  const [filterValueSelections, setFilterValueSelections] = useState<string[]>([]);
+  const [filterDialogLabel, setFilterDialogLabel] = useState('Create filter');
   const [listValues, setListValues] = useState('');
   const [numberMin, setNumberMin] = useState('0');
   const [numberMax, setNumberMax] = useState('100');
@@ -173,11 +196,15 @@ export default function SheetPage() {
   }, [sheet]);
 
   useEffect(() => {
-    const persisted = sheet?.filters?.[0] || null;
-    setAppliedFilter(persisted);
-    setFilterColumn(persisted?.column || '');
-    setFilterOp(persisted?.op || 'contains');
-    setFilterValue(persisted?.value || '');
+    const persisted = sheet?.filters || [];
+    const first = persisted[0] || null;
+    setAppliedFilters(persisted);
+    setFilterColumn(first?.column || '');
+    setFilterOp(first?.op || 'contains');
+    setFilterValue(first?.value || '');
+    setFilterValueSelections(
+      persisted.filter((filter) => filter.op === 'eq').map((filter) => filter.value),
+    );
   }, [active, sheet?.name, sheet?.filters]);
 
   useEffect(() => {
@@ -460,18 +487,13 @@ export default function SheetPage() {
     }
   }
 
-  async function applyFilter(override?: FilterConfig) {
+  async function applyFilter(nextFilters: FilterConfig[]) {
     if (!sheet) return;
-    const next = override || {
-      column: filterColumn || 'A',
-      op: filterOp,
-      value: filterValue,
-    };
     pushHistory();
     setError('');
     try {
-      const filters = await api.setFilters(id, sheet.name, [next]);
-      setAppliedFilter(filters[0] || null);
+      const filters = await api.setFilters(id, sheet.name, nextFilters);
+      setAppliedFilters(filters);
       setFilterDialogOpen(false);
       setDataMenuOpen(false);
       setInfo('Filter applied.');
@@ -481,13 +503,30 @@ export default function SheetPage() {
     }
   }
 
+  function applyDialogFilter() {
+    const column = filterColumn || sortColumns[0]?.column || 'A';
+    const additions: FilterConfig[] = filterValueSelections.length
+      ? filterValueSelections.map((value) => ({ column, op: 'eq', value }))
+      : [
+          {
+            column,
+            op: filterOp,
+            value:
+              filterOp === 'is_empty' || filterOp === 'is_not_empty' ? '' : filterValue,
+          },
+        ];
+    const next = appliedFilters.filter((filter) => filter.column !== column).concat(additions);
+    void applyFilter(next);
+  }
+
   async function clearFilter() {
     if (!sheet) return;
     pushHistory();
     setError('');
     try {
       await api.setFilters(id, sheet.name, []);
-      setAppliedFilter(null);
+      setAppliedFilters([]);
+      setFilterValueSelections([]);
       setFilterDialogOpen(false);
       setInfo('Filter cleared.');
       await load();
@@ -670,31 +709,40 @@ export default function SheetPage() {
   const activeSortByCol = sortColumns.some((option) => option.column === sortByCol)
     ? sortByCol
     : sortColumns[0]?.column || 'A';
+  const columnHeaders = Array.from({ length: COLS }, (_, index) => {
+    const column = colLetter(index + 1);
+    const label = displayValue(sheet?.cells[refOf(index + 1, 1)]);
+    return { column, label: label || column };
+  });
+  const filterValueOptions: string[] = [];
+  if (sheet && filterColumn) {
+    const column = colIndex(filterColumn);
+    const seen = new Set<string>();
+    for (let row = 2; row <= ROWS; row += 1) {
+      const value = displayValue(sheet.cells[refOf(column, row)]);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      filterValueOptions.push(value);
+    }
+  }
   const visibleRows = useMemo(() => {
     const rows = Array.from({ length: ROWS }, (_, index) => index + 1);
-    if (!appliedFilter || !sheet) return rows;
-    const column = colIndex(appliedFilter.column || 'A');
-    const expected = appliedFilter.value;
-    return rows.filter((row) => {
-      const value = displayValue(sheet.cells[refOf(column, row)]).toLowerCase();
-      switch (appliedFilter.op) {
-        case 'eq':
-          return value === expected.toLowerCase();
-        case 'gt':
-          return Number(value) > Number(expected);
-        case 'lt':
-          return Number(value) < Number(expected);
-        case 'before':
-          return value !== '' && value < expected.toLowerCase();
-        case 'is_empty':
-          return value === '';
-        case 'is_not_empty':
-          return value !== '';
-        default:
-          return value.includes(expected.toLowerCase());
-      }
-    });
-  }, [appliedFilter, sheet]);
+    if (!appliedFilters.length || !sheet) return rows;
+    const byColumn = new Map<string, FilterConfig[]>();
+    for (const filter of appliedFilters) {
+      const group = byColumn.get(filter.column) || [];
+      group.push(filter);
+      byColumn.set(filter.column, group);
+    }
+    const groups = [...byColumn.values()];
+    return rows.filter((row) =>
+      groups.every((group) =>
+        group.some((filter) =>
+          matchesFilter(displayValue(sheet.cells[refOf(colIndex(filter.column), row)]), filter),
+        ),
+      ),
+    );
+  }, [appliedFilters, sheet]);
 
   if (!workbook || !sheet) {
     return (
@@ -812,12 +860,41 @@ export default function SheetPage() {
         </a>
       </div>
       <div className="grid-wrap">
-        <table className="sheet-grid" role="grid" aria-multiselectable="true">
+        <table
+          className="sheet-grid"
+          role="grid"
+          aria-label="Worksheet grid"
+          aria-multiselectable="true"
+        >
           <thead>
             <tr>
               <th />
-              {Array.from({ length: COLS }, (_, index) => (
-                <th key={index}>{colLetter(index + 1)}</th>
+              {columnHeaders.map((header) => (
+                <th key={header.column}>
+                  {header.column}
+                  <button
+                    type="button"
+                    aria-label={`Filter ${header.label}`}
+                    onClick={() => {
+                      const columnFilters = appliedFilters.filter(
+                        (filter) => filter.column === header.column,
+                      );
+                      const condition = columnFilters.find((filter) => filter.op !== 'eq');
+                      setFilterDialogLabel(`Filter ${header.label}`);
+                      setFilterColumn(header.column);
+                      setFilterValueSelections(
+                        columnFilters
+                          .filter((filter) => filter.op === 'eq')
+                          .map((filter) => filter.value),
+                      );
+                      setFilterOp(condition?.op || 'contains');
+                      setFilterValue(condition?.value || '');
+                      setFilterDialogOpen(true);
+                    }}
+                  >
+                    Filter
+                  </button>
+                </th>
               ))}
             </tr>
           </thead>
@@ -1156,7 +1233,7 @@ export default function SheetPage() {
           value={filterValue}
           onChange={(event) => setFilterValue(event.target.value)}
         />
-        <button type="button" onClick={() => void applyFilter()}>
+        <button type="button" onClick={applyDialogFilter}>
           Apply
         </button>
         <button type="button" onClick={() => void clearFilter()}>
@@ -1181,7 +1258,18 @@ export default function SheetPage() {
             >
               Sort range
             </button>
-            <button type="button" role="menuitem" onClick={() => setFilterDialogOpen(true)}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setFilterDialogLabel('Create filter');
+                setFilterColumn('');
+                setFilterValueSelections([]);
+                setFilterOp('contains');
+                setFilterValue('');
+                setFilterDialogOpen(true);
+              }}
+            >
               Create filter
             </button>
             <button type="button" role="menuitem" onClick={() => setValidationDialogOpen(true)}>
@@ -1250,12 +1338,32 @@ export default function SheetPage() {
       )}
 
       {filterDialogOpen && (
-        <div role="dialog" aria-label="Create filter" className="panel">
-          <h3>Create filter</h3>
+        <div role="dialog" aria-label={filterDialogLabel} className="panel">
+          <h3>{filterDialogLabel}</h3>
           <div className="field">
             <label htmlFor="filter-col">Filter</label>
             <input id="filter-col" aria-label="Filter column" type="text" value={filterColumn} placeholder="A" onChange={(event) => setFilterColumn(event.target.value.toUpperCase())} />
           </div>
+          <fieldset>
+            <legend>Select values</legend>
+            {filterValueOptions.map((value) => (
+              <label key={value}>
+                <input
+                  type="checkbox"
+                  aria-label={value}
+                  checked={filterValueSelections.includes(value)}
+                  onChange={(event) =>
+                    setFilterValueSelections((current) =>
+                      event.target.checked
+                        ? [...current, value]
+                        : current.filter((item) => item !== value),
+                    )
+                  }
+                />
+                {value}
+              </label>
+            ))}
+          </fieldset>
           <div className="field">
             <label htmlFor="filter-op">Condition</label>
             <select
@@ -1278,8 +1386,16 @@ export default function SheetPage() {
             <input id="filter-value" aria-label="Value" type="text" value={filterValue} onChange={(event) => setFilterValue(event.target.value)} />
           </div>
           <div className="toolbar">
-            <button type="button" onClick={() => void applyFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue })}>Apply</button>
-            <button type="button" onClick={() => { void clearFilter(); setFilterDialogOpen(false); }}>Clear selection</button>
+            <button type="button" onClick={applyDialogFilter}>Apply</button>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterValueSelections([]);
+                setFilterValue('');
+              }}
+            >
+              Clear selection
+            </button>
             <button type="button" onClick={() => setFilterDialogOpen(false)}>Cancel</button>
           </div>
         </div>
@@ -1454,11 +1570,3 @@ export default function SheetPage() {
     </section>
   );
 }
-
-
-
-
-
-
-
-
