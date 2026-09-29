@@ -134,3 +134,55 @@ test('milestones come from the current repository only', async () => {
   const other = await json('/api/repos/acme-demo/acme-private/milestones');
   assert.deepEqual(other.payload.milestones, []);
 });
+
+test('assigning a milestone needs triage-or-higher on issues and pull requests', async () => {
+  const carol = await login('carol-reader');
+  const bob = await login('bob-reviewer');
+  const alice = await login('alice-dev');
+
+  const denied = await json(`${REPO}/issues/1`, {
+    method: 'PATCH',
+    headers: auth(carol),
+    body: JSON.stringify({ milestone: 'v1.0' }),
+  });
+  assert.equal(denied.response.status, 403);
+
+  const saved = await json(`${REPO}/issues/1`, {
+    method: 'PATCH',
+    headers: auth(bob),
+    body: JSON.stringify({ milestone: 'v1.0' }),
+  });
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.payload.issue.milestone, 'v1.0');
+
+  const detail = await json(`${REPO}/issues/1`, { headers: auth(alice) });
+  assert.equal(detail.payload.issue.milestone, 'v1.0');
+
+  // REQ-5-3-3: a milestone-only pull-request update is accepted with triage rights.
+  const prDenied = await json(`${REPO}/pulls/1`, {
+    method: 'PATCH',
+    headers: auth(carol),
+    body: JSON.stringify({ milestone: 'v1.0' }),
+  });
+  assert.equal(prDenied.response.status, 403);
+
+  const prSaved = await json(`${REPO}/pulls/1`, {
+    method: 'PATCH',
+    headers: auth(bob),
+    body: JSON.stringify({ milestone: 'v1.0' }),
+  });
+  assert.equal(prSaved.response.status, 200);
+  assert.equal(prSaved.payload.pull.milestone, 'v1.0');
+
+  // Restore the seeded associations.
+  await json(`${REPO}/issues/1`, {
+    method: 'PATCH',
+    headers: auth(alice),
+    body: JSON.stringify({ milestone: 'Q3 launch' }),
+  });
+  await json(`${REPO}/pulls/1`, {
+    method: 'PATCH',
+    headers: auth(alice),
+    body: JSON.stringify({ milestone: null }),
+  });
+});

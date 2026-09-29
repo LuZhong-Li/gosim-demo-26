@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Issue, Repo } from '../api';
 import type { CommitDiff } from '../api';
 import * as api from '../api';
+import MilestonePicker from '../components/MilestonePicker';
 import { stateLabel } from '../labels';
 import PullsTab from './PullsTab';
 
@@ -38,6 +39,7 @@ export default function RepoPage() {
   const [issueTitleDraft, setIssueTitleDraft] = useState('');
   const [issueBodyDraft, setIssueBodyDraft] = useState('');
   const [issueEditError, setIssueEditError] = useState('');
+  const [milestones, setMilestones] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneProtocol, setCloneProtocol] = useState<'https' | 'ssh'>('https');
@@ -83,6 +85,10 @@ export default function RepoPage() {
       setBranches(treeResult.branches);
       setNewFileBranch((current) => current || treeResult.defaultBranch || 'main');
       setFileContent(null);
+      void api
+        .listMilestones(owner, name)
+        .then(setMilestones)
+        .catch(() => setMilestones([]));
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -622,6 +628,19 @@ export default function RepoPage() {
                 milestone: {selected.milestone || 'none'} · labels:{' '}
                 {selected.labels && selected.labels.length ? selected.labels.join(', ') : 'none'}
               </p>
+              {/* REQ-5-3-3: milestone selection lives on the right of the detail view. */}
+              <MilestonePicker
+                current={selected.milestone || null}
+                milestones={milestones}
+                canEdit={Boolean(selected.canTriage)}
+                onSelect={(value) =>
+                  void run(
+                    () =>
+                      api.updateIssue(owner, name, selected.number, { milestone: value || null }),
+                    'Milestone updated.',
+                  ).then(() => openIssue(selected.number))
+                }
+              />
               {selected.body && <p>{selected.body}</p>}
               {/* REQ-5-2-2: unique edit buttons for the title and the description. */}
               {selected.canEdit && (
@@ -948,12 +967,18 @@ export default function RepoPage() {
             </div>
             <div className="field">
               <label htmlFor="issue-milestone">Milestone</label>
-              <input
+              <select
                 id="issue-milestone"
-                type="text"
                 value={milestone}
                 onChange={(event) => setMilestone(event.target.value)}
-              />
+              >
+                <option value="">None</option>
+                {milestones.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
             </div>
             <button type="submit">Submit new issue</button>
           </form>

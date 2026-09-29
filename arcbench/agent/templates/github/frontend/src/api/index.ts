@@ -34,6 +34,8 @@ export type Issue = {
   /** REQ-5-2-2 / REQ-5-4: permission flags for the issue detail view. */
   canEdit?: boolean;
   canClose?: boolean;
+  /** REQ-5-3-3: Triage+ may change the milestone. */
+  canTriage?: boolean;
 };
 export type Reaction = { user: string; type: string; commentId?: string | null };
 export type Comment = {
@@ -76,6 +78,8 @@ export type PullDetail = {
   canClose?: boolean;
   /** REQ-6-5: whether the signed-in user may merge this PR. */
   canMerge?: boolean;
+  /** REQ-5-3-3: whether the signed-in user may change the milestone. */
+  canTriage?: boolean;
 };
 export type DiffLine = { type: string; text: string };
 export type DiffFile = { path: string; status: string; lines: DiffLine[] };
@@ -654,6 +658,7 @@ export async function getIssue(owner: string, name: string, number: number): Pro
     ...(response.data.issue as Issue),
     canEdit: response.data.canEdit,
     canClose: response.data.canClose,
+    canTriage: response.data.canTriage,
   };
 }
 

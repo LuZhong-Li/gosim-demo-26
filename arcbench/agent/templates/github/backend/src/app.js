@@ -782,6 +782,7 @@ app.get('/api/repos/:owner/:name/issues', (req, res) => {
     // REQ-5-2-2 / REQ-5-4: the list can hide edit/close affordances for read-only users.
     canEdit: Boolean(repo && store.canWrite(repo, user && user.username)),
     canClose: Boolean(repo && canTriage(repo, user && user.username)),
+    canTriage: Boolean(repo && canTriage(repo, user && user.username)),
   }));
   res.json({ issues });
 });
@@ -844,6 +845,10 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   // REQ-5-4: closing or reopening needs Triage, Maintain or Admin.
   if (body.state && !canTriage(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have permission to change the issue status.' });
+  }
+  // REQ-5-3-3: milestone assignment needs Triage, Maintain or Admin.
+  if (Object.prototype.hasOwnProperty.call(body, 'milestone') && !canTriage(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to change the milestone.' });
   }
   // REQ-5-2-2: editing an issue title rejects a whitespace-only value.
   if (Object.prototype.hasOwnProperty.call(body, 'title')) {
@@ -927,6 +932,7 @@ app.get('/api/repos/:owner/:name/issues/:number', (req, res) => {
     issue,
     canEdit: Boolean(repo && store.canWrite(repo, user && user.username)),
     canClose: Boolean(repo && canTriage(repo, user && user.username)),
+    canTriage: Boolean(repo && canTriage(repo, user && user.username)),
   });
 });
 
@@ -1156,6 +1162,8 @@ app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
     canClose: canManagePull(repo, user && user.username, pull),
     // REQ-6-5: only Maintain, Admin or organization Owner may merge.
     canMerge: canMaintain(repo, user && user.username),
+    // REQ-5-3-3: milestone changes need Triage, Maintain or Admin.
+    canTriage: canTriage(repo, user && user.username),
   });
 });
 
@@ -1177,16 +1185,27 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
     pull.readyAt = new Date().toISOString();
     return res.json({ pull });
   }
-  const state = String(body.state || '').trim().toLowerCase();
-  if (!['open', 'closed'].includes(state)) {
-    return res.status(400).json({ error: 'Pull request state must be open or closed.' });
+  const hasState = body.state !== undefined;
+  const hasMilestone = Object.prototype.hasOwnProperty.call(body, 'milestone');
+  if (!hasState && !hasMilestone) {
+    return res.status(400).json({ error: 'Nothing to update.' });
   }
-  if (!canManagePull(repo, req.user.username, pull)) {
-    return res.status(403).json({ error: 'You cannot change this pull request.' });
-  }
-  pull.state = state;
-  if (body.milestone !== undefined) {
+  // REQ-5-3-3: milestone changes on a PR need Triage, Maintain or Admin.
+  if (hasMilestone) {
+    if (!canTriage(repo, req.user.username)) {
+      return res.status(403).json({ error: 'You do not have permission to change the milestone.' });
+    }
     pull.milestone = String(body.milestone || '').trim() || null;
+  }
+  if (hasState) {
+    const state = String(body.state).trim().toLowerCase();
+    if (!['open', 'closed'].includes(state)) {
+      return res.status(400).json({ error: 'Pull request state must be open or closed.' });
+    }
+    if (!canManagePull(repo, req.user.username, pull)) {
+      return res.status(403).json({ error: 'You cannot change this pull request.' });
+    }
+    pull.state = state;
   }
   return res.json({ pull });
 });

@@ -8,6 +8,7 @@ import type {
   ReviewerRequest,
 } from '../api';
 import * as api from '../api';
+import MilestonePicker from '../components/MilestonePicker';
 import { reviewLabel, stateLabel } from '../labels';
 
 export default function PullsTab({
@@ -29,7 +30,7 @@ export default function PullsTab({
   const [reviewerDraft, setReviewerDraft] = useState('');
   const [reviewerPickerOpen, setReviewerPickerOpen] = useState(false);
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
-  const [milestoneDraft, setMilestoneDraft] = useState('');
+  const [milestones, setMilestones] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [reviewState, setReviewState] = useState('APPROVED');
@@ -57,6 +58,14 @@ export default function PullsTab({
     refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    // REQ-5-3-3: the picker only offers milestones of the current repository.
+    void api
+      .listMilestones(owner, name)
+      .then(setMilestones)
+      .catch(() => setMilestones([]));
+  }, [owner, name]);
+
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
@@ -77,7 +86,6 @@ export default function PullsTab({
       setComments(await api.getPullComments(owner, name, number));
       const detail = await api.getPull(owner, name, number);
       setReviewers(detail.pull.reviewers || []);
-      setMilestoneDraft(detail.pull.milestone || '');
       setCanAdmin(Boolean(detail.canAdmin));
       setCheckDraft(
         (detail.pull.checks || []).find((check) => check.name === 'test')?.state || 'pending',
@@ -211,25 +219,18 @@ export default function PullsTab({
               )}
             </section>
           )}
-          <form
-            className="inline-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              run(
-                () => api.updatePullMilestone(owner, name, selected.pull.number, milestoneDraft),
+          {/* REQ-5-3-3: the same milestone picker as the issue detail view. */}
+          <MilestonePicker
+            current={selected.pull.milestone || null}
+            milestones={milestones}
+            canEdit={Boolean(selected.canTriage)}
+            onSelect={(value) =>
+              void run(
+                () => api.updatePullMilestone(owner, name, selected.pull.number, value),
                 'Milestone updated.',
-              ).then(() => openPull(selected.pull.number));
-            }}
-          >
-            <input
-              aria-label="Milestone"
-              type="text"
-              value={milestoneDraft}
-              placeholder="Milestone (or empty to clear)"
-              onChange={(event) => setMilestoneDraft(event.target.value)}
-            />
-            <button type="submit">Save milestone</button>
-          </form>
+              ).then(() => openPull(selected.pull.number))
+            }
+          />
           {/* REQ-6-1: the Checks area is on the page on arrival and is driven by the compare commit. */}
           <h4>Checks</h4>
           {(selected.pull.checks || []).length === 0 ? (

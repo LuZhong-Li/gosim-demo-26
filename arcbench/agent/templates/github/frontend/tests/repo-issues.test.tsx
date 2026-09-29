@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   getRepo: vi.fn(),
   getTree: vi.fn(),
   listIssues: vi.fn(),
+  listMilestones: vi.fn(),
   updateIssue: vi.fn(),
 }));
 
@@ -59,6 +60,7 @@ function mockIssuesApi(options: { canEdit: boolean; canClose: boolean }) {
     ...openIssue,
     canEdit: options.canEdit,
     canClose: options.canClose,
+    canTriage: options.canClose,
   });
 }
 
@@ -135,5 +137,23 @@ describe('repository issues workspace', () => {
     expect(screen.queryByRole('button', { name: 'Edit issue title' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit issue description' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close issue' })).not.toBeInTheDocument();
+  });
+
+  it('assigns a milestone from the Milestone picker', async () => {
+    mockIssuesApi({ canEdit: true, canClose: true });
+    vi.mocked(api.listMilestones).mockResolvedValue(['Q3 launch', 'v1.0']);
+    vi.mocked(api.updateIssue).mockResolvedValue(openIssue);
+    const user = userEvent.setup();
+    renderIssues('/acme-demo/acme-docs?tab=issues&issue=1');
+
+    await screen.findByRole('heading', { name: 'Improve onboarding' });
+    await user.click(await screen.findByRole('button', { name: 'Milestone' }));
+    await user.click(screen.getByRole('option', { name: 'v1.0' }));
+
+    await waitFor(() =>
+      expect(api.updateIssue).toHaveBeenCalledWith('acme-demo', 'acme-docs', 1, {
+        milestone: 'v1.0',
+      }),
+    );
   });
 });
