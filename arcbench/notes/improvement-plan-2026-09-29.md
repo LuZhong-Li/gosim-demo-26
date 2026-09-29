@@ -1,0 +1,52 @@
+# ARC-Bench 差距改进计划（2026-09-29）
+
+基于当前代码审计，按赛事风险排序。
+
+## P0｜高风险，优先补
+
+### GitHub · REQ-4-4 文件删除接口 + 前端入口
+- 后端：补 `DELETE /api/repos/:owner/:name/contents`（query `path`），实现删除文件并生成新 commit；权限用 `canWrite`。
+- 前端：文件浏览页增加删除按钮，二次确认；新增 `deleteFile` API。
+- 验证：新增本地 Playwright 用例：建文件 → 删除 → 文件消失、commit history 更新。
+
+### Sheet · REQ-1-1-1 Last updated
+- 后端：workbook 增加 `updatedAt`，创建和所有修改（改名/工作表/单元格/排序/校验/透视）时更新。
+- 前端：首页列表、编辑器标题区域显示 `Last updated: <value>`。
+- 验证：新增 smoke：修改单元格后首页显示更新时间。
+
+### Sheet · REQ-1-2-2 Rename Workbook UI
+- 前端：编辑器标题旁加 `Rename workbook` 按钮 + 对话框；空名校验提示 `Workbook name cannot be empty`。
+- 后端：空名返回该文案。
+- 验证：新增 smoke：改名成功 + 空名被拒。
+
+## P0 进度（已实现并本地验证通过）
+
+- [x] GitHub REQ-4-4 文件删除：后端 DELETE /contents + 前端 Delete 按钮（`gh-delete.spec.ts` 通过）。
+- [x] Sheet REQ-1-1-1 Last updated：后端 updatedAt + 首页/编辑器展示（`sheet-lifecycle.spec.ts` 通过）。
+- [x] Sheet REQ-1-2-2 Rename Workbook UI：编辑器按钮 + 对话框 + 空名提示（同 lifecycle spec 通过）。
+
+## P1｜中等风险
+
+### GitHub · REQ-6-2-2 Compare Branches 分支比较页
+- 新增独立比较路由/页面，选择 base/head 后展示 commits、changed files、diff summary。
+- base 与 head 相同或无差异时禁用创建 PR 并提示。
+
+### GitHub · REQ-5-3-3 PR Milestone
+- PR 实体增加 milestone 字段，编辑面板下拉选择；复用 Issue Milestone 组件。
+
+### Sheet · 活动工作表持久化
+- workbook 增加 `lastActiveSheet` 字段；打开时恢复，切换时保存。
+
+### Sheet · REQ-5-1-2 筛选持久化 + 完整筛选弹窗
+- sheet 数据结构持久化筛选配置；表头筛选按钮 + 勾选/条件对话框；支持多条件、空值判断。
+
+## P2｜低风险 / 大改
+
+### GitHub · REQ-6-3-3 行级评审评论
+- diff 行 hover `+`，支持 `Add single comment` / `Start a review` pending 草稿。
+
+### GitHub · REQ-6-3-4 Submit Review 增加 Comment 评审类型
+- 前端补 `Comment` 评审提交，后端已支持 `COMMENTED`。
+
+### Sheet · REQ-3-2-2 Undo/Redo 快照不全
+- `pushHistory()` 保存完整 sheet 状态（行列、校验、筛选、pivot），支持结构性撤销。

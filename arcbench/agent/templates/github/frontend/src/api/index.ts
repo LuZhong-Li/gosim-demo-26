@@ -254,6 +254,19 @@ export async function createFile(
   return response.data;
 }
 
+export async function deleteFile(
+  owner: string,
+  name: string,
+  filePath: string,
+  input: { message: string; branch?: string },
+): Promise<{ deleted: string; sha: string }> {
+  const response = await client.delete(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/contents`,
+    { params: { path: filePath, ...input } },
+  );
+  return response.data;
+}
+
 export async function listCommits(
   owner: string,
   name: string,

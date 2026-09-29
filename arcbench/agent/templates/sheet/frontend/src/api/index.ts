@@ -24,6 +24,7 @@ export type WorkbookSummary = {
   id: string;
   name: string;
   createdAt: string;
+  updatedAt: string;
   worksheets: string[];
 };
 export type WorkbookDetail = WorkbookSummary & { sheets: Worksheet[] };

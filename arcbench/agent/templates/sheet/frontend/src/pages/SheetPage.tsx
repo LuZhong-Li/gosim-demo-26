@@ -102,6 +102,9 @@ export default function SheetPage() {
   const [importText, setImportText] = useState('');
   const [newSheetName, setNewSheetName] = useState('');
   const [renameValue, setRenameValue] = useState('');
+  const [renameWorkbookOpen, setRenameWorkbookOpen] = useState(false);
+  const [renameWorkbookValue, setRenameWorkbookValue] = useState('');
+  const [renameWorkbookError, setRenameWorkbookError] = useState('');
   const undoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const redoStack = useRef<{ sheet: string; cells: Record<string, Cell> }[]>([]);
   const editRef = useRef('');
@@ -212,6 +215,7 @@ export default function SheetPage() {
   }, [active, workbook?.sheets.length]);
 
   function applySheetResult(result: Worksheet) {
+    latestCellsRef.current = result.cells;
     setWorkbook((current) =>
       current
         ? {
@@ -537,10 +541,38 @@ export default function SheetPage() {
 
   const selectedParsed = parseRef(selected) || { col: 1, row: 1 };
 
+  function openRenameWorkbook() {
+    setRenameWorkbookValue(workbook?.name || '');
+    setRenameWorkbookError('');
+    setRenameWorkbookOpen(true);
+  }
+
+  async function saveRenameWorkbook() {
+    const next = renameWorkbookValue.trim();
+    if (!next) {
+      setRenameWorkbookError('Workbook name cannot be empty');
+      return;
+    }
+    setError('');
+    try {
+      await api.renameWorkbook(id, next);
+      setRenameWorkbookOpen(false);
+      await load();
+    } catch (caught) {
+      setRenameWorkbookError(api.errorMessage(caught));
+    }
+  }
+
   return (
     <section className="panel wide">
-      <h1>{workbook.name}</h1>
+      <div className="toolbar">
+        <h1>{workbook.name}</h1>
+        <button type="button" onClick={openRenameWorkbook}>
+          Rename workbook
+        </button>
+      </div>
       <p className="muted">
+        Last updated: {new Date(workbook.updatedAt || workbook.createdAt).toLocaleString()} ·{' '}
         <Link to="/">← All workbooks</Link>
       </p>
       {error && <p className="error">{error}</p>}
@@ -1045,6 +1077,36 @@ export default function SheetPage() {
       >
         Import into {active}
       </button>
+
+      {renameWorkbookOpen && (
+        <div role="dialog" aria-label="Rename workbook" className="panel">
+          <h3>Rename workbook</h3>
+          {renameWorkbookError && <p className="error">{renameWorkbookError}</p>}
+          <label>
+            Workbook name
+            <input
+              aria-label="Workbook name"
+              type="text"
+              value={renameWorkbookValue}
+              onChange={(event) => {
+                setRenameWorkbookValue(event.target.value);
+                setRenameWorkbookError('');
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void saveRenameWorkbook();
+              }}
+            />
+          </label>
+          <div className="toolbar">
+            <button type="button" onClick={() => void saveRenameWorkbook()}>
+              Save
+            </button>
+            <button type="button" onClick={() => setRenameWorkbookOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

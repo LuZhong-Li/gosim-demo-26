@@ -245,6 +245,27 @@ export default function RepoPage() {
                   <button className="link-button" type="button" onClick={() => openFile(filePath)}>
                     {filePath}
                   </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete ${filePath}`}
+                    onClick={async () => {
+                      if (!window.confirm(`Delete ${filePath}?`)) return;
+                      setError('');
+                      setInfo('');
+                      try {
+                        await api.deleteFile(owner, name, filePath, {
+                          message: `Delete ${filePath}`,
+                          branch: repo?.defaultBranch || 'main',
+                        });
+                        setInfo('File deleted.');
+                        await refresh();
+                      } catch (caught) {
+                        setError(api.errorMessage(caught));
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
                 </li>
               ))}
             </ul>

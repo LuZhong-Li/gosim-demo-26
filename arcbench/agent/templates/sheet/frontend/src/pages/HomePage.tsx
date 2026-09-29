@@ -73,7 +73,7 @@ export default function HomePage() {
           {workbooks.map((workbook) => (
             <li key={workbook.id}>
               <Link to={`/workbooks/${workbook.id}`}>{workbook.name}</Link>
-              <span className="muted"> · {workbook.worksheets.join(', ')}</span>
+              <span className="muted"> · {workbook.worksheets.join(', ')} · Last updated: {new Date(workbook.updatedAt || workbook.createdAt).toLocaleString()}</span>
             </li>
           ))}
         </ul>

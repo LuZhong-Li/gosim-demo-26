@@ -634,6 +634,30 @@ app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   store.addFile(repo, filePath, content, req.user.username, message, branchName);
   return res.status(201).json({ path: filePath, message });
 });
+app.delete('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have write permission to this repository.' });
+  }
+  const filePath = String(req.query.path || '');
+  const branchName = String(req.query.branch || 'main').trim();
+  if (!filePath || !/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) {
+    return res.status(400).json({ error: 'Invalid file path.' });
+  }
+  const existing = store.findFile(repo, filePath);
+  if (!existing) return res.status(404).json({ error: 'File not found.' });
+  if (!(repo.branches || []).some((branch) => branch.name === branchName)) {
+    return res.status(400).json({ error: 'Branch not found.' });
+  }
+  const message = String(req.query.message || '').trim() || `Delete ${filePath}`;
+  if (message.length < 1 || message.length > 72) {
+    return res.status(400).json({ error: 'Commit message must be between 1 and 72 characters.' });
+  }
+  const sha = store.removeFile(repo, filePath, req.user.username, message, branchName);
+  return res.json({ deleted: filePath, sha });
+});
+
 
 // REQ-4-2-2 Inspect Commit and Revision Differences
 app.get('/api/repos/:owner/:name/commits/:sha', (req, res) => {

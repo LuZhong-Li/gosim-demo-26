@@ -31,8 +31,14 @@ function workbookSummary(workbook) {
     id: workbook.id,
     name: workbook.name,
     createdAt: workbook.createdAt,
+    updatedAt: workbook.updatedAt || workbook.createdAt,
     worksheets: workbook.worksheets.map((sheet) => sheet.name),
   };
+}
+
+function touch(workbook) {
+  workbook.updatedAt = new Date().toISOString();
+  return workbook;
 }
 
 function requireWorkbook(req, res) {
@@ -72,8 +78,9 @@ app.patch('/api/workbooks/:id', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;
   const name = String((req.body || {}).name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Workbook name is required.' });
+  if (!name) return res.status(400).json({ error: 'Workbook name cannot be empty' });
   workbook.name = name;
+  touch(workbook);
   res.json({ workbook: workbookSummary(workbook) });
 });
 
@@ -95,6 +102,7 @@ app.post('/api/workbooks/:id/worksheets', (req, res) => {
   }
   const sheet = { name, cells: {}, validations: {} };
   workbook.worksheets.push(sheet);
+  touch(workbook);
   res.status(201).json({ sheet: sheetPayload(sheet) });
 });
 
@@ -109,6 +117,7 @@ app.patch('/api/workbooks/:id/worksheets/:sheet', (req, res) => {
     return res.status(409).json({ error: 'A worksheet with that name already exists.' });
   }
   sheet.name = name;
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -121,6 +130,7 @@ app.delete('/api/workbooks/:id/worksheets/:sheet', (req, res) => {
   const exists = store.findSheet(workbook, req.params.sheet);
   if (!exists) return res.status(404).json({ error: 'Worksheet not found.' });
   workbook.worksheets = workbook.worksheets.filter((sheet) => sheet.name !== req.params.sheet);
+  touch(workbook);
   res.json({ ok: true });
 });
 
@@ -147,6 +157,7 @@ app.patch('/api/workbooks/:id/worksheets/:sheet/cells', (req, res) => {
     sheet.cells[ref] = cell;
   }
   store.recompute(sheet);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -161,6 +172,7 @@ app.put('/api/workbooks/:id/worksheets/:sheet/cells', (req, res) => {
   }
   sheet.cells = JSON.parse(JSON.stringify(cells));
   store.recompute(sheet);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -187,6 +199,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/rows', (req, res) => {
   sheet.cells = moved;
   store.recompute(sheet);
   adjustPivotRanges(workbook, sheet.name, 'row', index, count, action);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -213,6 +226,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/columns', (req, res) => {
   sheet.cells = moved;
   store.recompute(sheet);
   adjustPivotRanges(workbook, sheet.name, 'col', index, count, action);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -249,6 +263,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/sort', (req, res) => {
   });
   sheet.cells = rebuilt;
   store.recompute(sheet);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -314,6 +329,7 @@ app.post('/api/workbooks/:id/import', (req, res) => {
   });
   sheet.cells = cells;
   store.recompute(sheet);
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -344,6 +360,7 @@ app.put('/api/workbooks/:id/worksheets/:sheet/validations', (req, res) => {
   }
   const validations = store.ensureValidations(sheet);
   for (const ref of refs) validations[ref] = rule;
+  touch(workbook);
   res.json({ validations });
 });
 
@@ -600,6 +617,7 @@ app.post('/api/workbooks/:id/pivot', (req, res) => {
     },
   };
   workbook.worksheets.push(target);
+  touch(workbook);
   res.status(201).json({
     sheet: sheetPayload(target),
     worksheets: workbook.worksheets.map((item) => item.name),
@@ -619,6 +637,7 @@ app.put('/api/workbooks/:id/worksheets/:sheet/pivot', (req, res) => {
     agg: String(body.agg || 'sum').toLowerCase(),
   });
   if (result.error) return res.status(409).json({ error: result.error });
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 
@@ -629,6 +648,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/pivot/refresh', (req, res) => {
   if (!sheet) return;
   const result = applyPivotConfig(workbook, sheet, {});
   if (result.error) return res.status(409).json({ error: result.error });
+  touch(workbook);
   res.json({ sheet: sheetPayload(sheet) });
 });
 

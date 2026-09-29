@@ -254,6 +254,28 @@ function addFile(repo, filePath, content, author, message, branchName) {
   return sha;
 }
 
+function removeFile(repo, filePath, author, message, branchName) {
+  const existing = (repo.files || []).find((file) => file.path === filePath);
+  if (!existing) return null;
+  repo.files = (repo.files || []).filter((file) => file.path !== filePath);
+  const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const branch =
+    repo.branches.find(
+      (item) => String(item.name).toLowerCase() === String(branchName || 'main').toLowerCase(),
+    ) || repo.branches[0];
+  if (branch) branch.head = sha;
+  repo.commits.unshift({
+    sha,
+    message: String(message || `Delete ${filePath}`),
+    author,
+    parents: branch && branch.head ? [branch.head] : [],
+    timestamp: new Date().toISOString(),
+    changed: [filePath],
+    snapshot: repo.files.map((file) => ({ ...file })),
+  });
+  return sha;
+}
+
 function commitBySha(repo, sha) {
   return (repo.commits || []).find((commit) => commit.sha === sha) || null;
 }
@@ -427,6 +449,7 @@ module.exports = {
   addTeamMember,
   addBranch,
   addFile,
+  removeFile,
   bestGrantPermission,
   branchHead,
   commitBySha,
