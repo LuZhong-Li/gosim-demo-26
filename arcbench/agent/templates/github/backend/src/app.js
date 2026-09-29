@@ -665,10 +665,16 @@ app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   }
   const filePath = String((req.body || {}).path || '');
   const content = String((req.body || {}).content || '');
-  const message = String((req.body || {}).message || '').trim() || `Update ${filePath}`;
+  const message = String((req.body || {}).message || '').trim();
   const branchName = String((req.body || {}).branch || 'main').trim();
-  if (!filePath || !/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) {
-    return res.status(400).json({ error: 'Invalid file path.' });
+  // REQ-4-4: a path must not be absolute or contain a ".." segment.
+  if (!filePath || !isValidFilePath(filePath)) {
+    return res.status(400).json({ error: 'Invalid file path' });
+  }
+  // REQ-4-4: an empty commit message is rejected with the official message.
+  if (!message) return res.status(400).json({ error: 'Commit message is required' });
+  if (message.length > 72) {
+    return res.status(400).json({ error: 'Commit message must be between 1 and 72 characters.' });
   }
   if (!(repo.branches || []).some((branch) => branch.name === branchName)) {
     return res.status(400).json({ error: 'Branch not found.' });
@@ -688,8 +694,8 @@ app.delete('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   }
   const filePath = String(req.query.path || '');
   const branchName = String(req.query.branch || 'main').trim();
-  if (!filePath || !/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) {
-    return res.status(400).json({ error: 'Invalid file path.' });
+  if (!filePath || !isValidFilePath(filePath)) {
+    return res.status(400).json({ error: 'Invalid file path' });
   }
   const existing = store.findFile(repo, filePath);
   if (!existing) return res.status(404).json({ error: 'File not found.' });
@@ -948,6 +954,13 @@ function protectionOf(repo, branchName) {
 function isProtectedBranch(repo, branchName) {
   const rule = store.state.protections[store.repoKey(repo.owner, repo.name)];
   return Boolean(rule && rule.branch === branchName);
+}
+
+// REQ-4-4: repository file paths must be relative and free of ".." segments.
+function isValidFilePath(filePath) {
+  if (!/^[A-Za-z0-9_./-]{1,200}$/.test(filePath)) return false;
+  if (filePath.startsWith('/')) return false;
+  return !filePath.split('/').includes('..');
 }
 
 // REQ-6-6: closing/reopening is limited to the author, Maintain, Admin or organization Owner.

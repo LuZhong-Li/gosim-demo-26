@@ -158,7 +158,12 @@ test('a protected branch rejects direct file writes from a non-admin writer', as
   const blocked = await json(`${REPO}/contents`, {
     method: 'POST',
     headers: auth(bob),
-    body: JSON.stringify({ path: 'docs/protected.md', content: 'nope', branch: 'main' }),
+    body: JSON.stringify({
+      path: 'docs/protected.md',
+      content: 'nope',
+      message: 'Attempt a direct write',
+      branch: 'main',
+    }),
   });
   assert.equal(blocked.response.status, 403);
   assert.match(blocked.payload.error, /protected/i);
@@ -169,8 +174,26 @@ test('a protected branch rejects direct file writes from a non-admin writer', as
     body: JSON.stringify({
       path: 'docs/unprotected.md',
       content: 'ok',
+      message: 'Add unprotected doc',
       branch: 'feature-search',
     }),
   });
   assert.equal(allowed.response.status, 201);
+
+  // REQ-4-4: the official messages for an invalid path and an empty commit message.
+  const invalidPath = await json(`${REPO}/contents`, {
+    method: 'POST',
+    headers: auth(bob),
+    body: JSON.stringify({ path: '../secret.md', content: 'x', branch: 'feature-search' }),
+  });
+  assert.equal(invalidPath.response.status, 400);
+  assert.equal(invalidPath.payload.error, 'Invalid file path');
+
+  const emptyMessage = await json(`${REPO}/contents`, {
+    method: 'POST',
+    headers: auth(bob),
+    body: JSON.stringify({ path: 'docs/other.md', content: 'x', message: '   ', branch: 'feature-search' }),
+  });
+  assert.equal(emptyMessage.response.status, 400);
+  assert.equal(emptyMessage.payload.error, 'Commit message is required');
 });

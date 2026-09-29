@@ -8,6 +8,7 @@ import HomePage from './pages/HomePage';
 import OrgPage from './pages/OrgPage';
 import OrgsPage from './pages/OrgsPage';
 import RepoPage from './pages/RepoPage';
+import RepoSearchPage from './pages/RepoSearchPage';
 import RepoSettingsPage from './pages/RepoSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 
@@ -130,6 +131,8 @@ function App() {
             <Route path="/orgs/:name" element={<OrgPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/:owner/:name/compare" element={<ComparePage />} />
+            {/* REQ-4-2-3: code search results with a unique "Code" filter link */}
+            <Route path="/:owner/:name/search" element={<RepoSearchPage />} />
             {/* REQ-3-4 / REQ-4-3-3 / REQ-6-1 repository settings surface */}
             <Route path="/:owner/:name/settings" element={<RepoSettingsPage section="general" />} />
             <Route

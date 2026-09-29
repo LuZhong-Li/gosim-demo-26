@@ -20,14 +20,15 @@ export default function RepoPage() {
   const [repo, setRepo] = useState<Repo | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const requestedTab = searchParams.get('tab');
-  const [tab, setTab] = useState<'code' | 'issues' | 'pulls'>(
-    requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code',
-  );
+  // REQ-3-3 / REQ-3-2-3: Code / Issues / Pull requests are navigation links.
+  const tab: 'code' | 'issues' | 'pulls' =
+    requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code';
   const requestedPull = Number(searchParams.get('pull')) || null;
-  const [codeQuery, setCodeQuery] = useState('');
-  const [codePath, setCodePath] = useState('');
-  const [codeResults, setCodeResults] = useState<api.CodeMatch[] | null>(null);
-  const [codeError, setCodeError] = useState('');
+  const requestedFile = searchParams.get('file');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneProtocol, setCloneProtocol] = useState<'https' | 'ssh'>('https');
+  const [copied, setCopied] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
@@ -39,6 +40,9 @@ export default function RepoPage() {
   const [newFileContent, setNewFileContent] = useState('');
   const [newFileMessage, setNewFileMessage] = useState('');
   const [branchName, setBranchName] = useState('');
+  const [addFileOpen, setAddFileOpen] = useState(false);
+  const [fileEditorOpen, setFileEditorOpen] = useState(false);
+  const [fileEditorError, setFileEditorError] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [assignee, setAssignee] = useState('');
@@ -64,6 +68,7 @@ export default function RepoPage() {
       setIssues(issueResult);
       setFiles(treeResult.files);
       setBranches(treeResult.branches);
+      setNewFileBranch((current) => current || treeResult.defaultBranch || 'main');
       setFileContent(null);
     } catch (caught) {
       setError(api.errorMessage(caught));
@@ -73,6 +78,14 @@ export default function RepoPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // REQ-4-1: a search result links straight to the file it matched.
+  useEffect(() => {
+    if (!requestedFile || files.length === 0) return;
+    if (!files.includes(requestedFile)) return;
+    void openFile(requestedFile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedFile, files.length]);
 
   // REQ-5-3-1: assignable members come from the owning organization.
   useEffect(() => {
@@ -145,6 +158,25 @@ export default function RepoPage() {
         {repo.visibility === 'private' ? 'Private' : 'Public'} · default branch:{' '}
         {repo.defaultBranch}
       </p>
+      {/* REQ-4-2-3: the repository page exposes one searchbox named "Search". */}
+      <form
+        className="inline-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const term = searchTerm.trim();
+          if (!term) return;
+          navigate(`/${owner}/${name}/search?q=${encodeURIComponent(term)}`);
+        }}
+      >
+        <input
+          aria-label="Search"
+          type="search"
+          value={searchTerm}
+          placeholder="Search"
+          onChange={(event) => setSearchTerm(event.target.value)}
+        />
+        <button type="submit">Search</button>
+      </form>
       <div className="repo-actions">
         {/* REQ-3-4 / REQ-4-3-3 / REQ-6-1: repository settings live behind this link. */}
         <Link to={`/${owner}/${name}/settings`}>Settings</Link>
@@ -164,55 +196,90 @@ export default function RepoPage() {
         >
           Fork
         </button>
-        <button type="button" className={tab === 'code' ? 'active' : ''} onClick={() => setTab('code')}>
+        <Link className={tab === 'code' ? 'active' : ''} to={`/${owner}/${name}?tab=code`}>
           Code
-        </button>
-        <button
-          type="button"
-          className={tab === 'issues' ? 'active' : ''}
-          onClick={() => setTab('issues')}
-        >
+        </Link>
+        <Link className={tab === 'issues' ? 'active' : ''} to={`/${owner}/${name}?tab=issues`}>
           Issues ({issues.length})
-        </button>
-        <button
-          type="button"
-          className={tab === 'pulls' ? 'active' : ''}
-          onClick={() => setTab('pulls')}
-        >
+        </Link>
+        <Link className={tab === 'pulls' ? 'active' : ''} to={`/${owner}/${name}?tab=pulls`}>
           Pull requests
-        </button>
+        </Link>
       </div>
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
 
       {tab === 'code' && (
         <>
-          {/* REQ-3-2-3 Copy a Repository Clone URL */}
-          <h2>Clone</h2>
-          <div className="inline-form">
-            <input
-              aria-label="Clone URL"
-              readOnly
-              value={repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                const value =
-                  repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`;
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                  navigator.clipboard
-                    .writeText(value)
-                    .then(() => setInfo('Clone URL copied.'))
-                    .catch(() => setInfo('Clone URL ready to copy.'));
-                } else {
-                  setInfo('Clone URL ready to copy.');
-                }
-              }}
-            >
-              Copy
-            </button>
-          </div>
+          {/* REQ-3-2-3 Copy a Repository Clone URL: the popover opens from the Code button. */}
+          <button
+            type="button"
+            className={cloneOpen ? 'active' : ''}
+            onClick={() => {
+              setCloneOpen((open) => !open);
+              setCopied(false);
+            }}
+          >
+            Code
+          </button>
+          {cloneOpen && (
+            <div role="dialog" aria-label="Clone" className="clone-popover">
+              <div role="tablist" aria-label="Clone protocol" className="tabs">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={cloneProtocol === 'https'}
+                  className={cloneProtocol === 'https' ? 'active' : ''}
+                  onClick={() => {
+                    setCloneProtocol('https');
+                    setCopied(false);
+                  }}
+                >
+                  HTTPS
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={cloneProtocol === 'ssh'}
+                  className={cloneProtocol === 'ssh' ? 'active' : ''}
+                  onClick={() => {
+                    setCloneProtocol('ssh');
+                    setCopied(false);
+                  }}
+                >
+                  SSH
+                </button>
+              </div>
+              <div className="inline-form">
+                <input
+                  aria-label="Clone value"
+                  readOnly
+                  value={
+                    cloneProtocol === 'https'
+                      ? repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`
+                      : `git@arc-bench.local:${repo.owner}/${repo.name}.git`
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    // REQ-3-2-3: copying writes the selected value and shows "Copied".
+                    const value =
+                      cloneProtocol === 'https'
+                        ? repo.cloneUrl || `https://arc-bench.local/${repo.owner}/${repo.name}.git`
+                        : `git@arc-bench.local:${repo.owner}/${repo.name}.git`;
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                      void navigator.clipboard.writeText(value).catch(() => undefined);
+                    }
+                    setCopied(true);
+                  }}
+                >
+                  Copy clone value
+                </button>
+              </div>
+              {copied && <p className="success">Copied</p>}
+            </div>
+          )}
           <h2>Branches</h2>
           {branches.length === 0 ? <p className="muted">No branches.</p> : <p>{branches.join(', ')}</p>}
           <form
@@ -232,53 +299,6 @@ export default function RepoPage() {
             />
             <button type="submit">Create branch</button>
           </form>
-
-          <h2>Search code</h2>
-          <form
-            className="inline-form"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              setCodeError('');
-              try {
-                setCodeResults(await api.searchCode(owner, name, codeQuery, codePath));
-              } catch (caught) {
-                setCodeError(api.errorMessage(caught));
-                setCodeResults([]);
-              }
-            }}
-          >
-            <input
-              aria-label="Search code"
-              type="search"
-              value={codeQuery}
-              placeholder="Search code"
-              onChange={(event) => setCodeQuery(event.target.value)}
-            />
-            <input
-              aria-label="Path filter"
-              type="text"
-              value={codePath}
-              placeholder="Path filter (e.g. src/)"
-              onChange={(event) => setCodePath(event.target.value)}
-            />
-            <button type="submit">Search code</button>
-          </form>
-          {codeError && <p className="error">{codeError}</p>}
-          {codeResults !== null &&
-            (codeResults.length === 0 ? (
-              <p className="muted">No code matches.</p>
-            ) : (
-              <ul className="repo-list">
-                {codeResults.map((match) => (
-                  <li key={`${match.path}:${match.line}`}>
-                    <button className="link-button" type="button" onClick={() => openFile(match.path)}>
-                      {match.path}:{match.line}
-                    </button>
-                    <p className="muted">{match.snippet}</p>
-                  </li>
-                ))}
-              </ul>
-            ))}
 
           <h2>Files</h2>
           {files.length === 0 ? (
@@ -322,34 +342,57 @@ export default function RepoPage() {
             </div>
           )}
 
-          <h2>Add file</h2>
+          {/* REQ-4-4: the unique "Add file" button opens the "Create new file" menuitem. */}
+          <button type="button" onClick={() => setAddFileOpen((open) => !open)}>
+            Add file
+          </button>
+          {addFileOpen && (
+            <div role="menu" aria-label="Add file">
+              <button type="button" role="menuitem" onClick={() => setFileEditorOpen(true)}>
+                Create new file
+              </button>
+            </div>
+          )}
+          {fileEditorOpen && (
           <form
             className="form-grid"
             onSubmit={(event) => {
               event.preventDefault();
+              // REQ-4-4: invalid path and empty commit message messages.
+              if (!/^[A-Za-z0-9_./-]{1,200}$/.test(newFilePath) || newFilePath.startsWith('/') || newFilePath.includes('..')) {
+                setFileEditorError('Invalid file path');
+                return;
+              }
+              if (!newFileMessage.trim()) {
+                setFileEditorError('Commit message is required');
+                return;
+              }
+              setFileEditorError('');
               run(
                 () =>
                   api.createFile(owner, name, newFilePath, {
                     content: newFileContent,
-                    message: newFileMessage,
+                    message: newFileMessage.trim(),
                     branch: newFileBranch,
                   }),
                 'File created.',
               );
               setNewFilePath('');
-              setNewFileBranch('main');
               setNewFileContent('');
               setNewFileMessage('');
             }}
           >
             <div className="field">
-              <label htmlFor="file-path">File path</label>
+              <label htmlFor="file-name">File name</label>
               <input
-                id="file-path"
+                id="file-name"
                 type="text"
                 value={newFilePath}
                 placeholder="docs/guide.md"
-                onChange={(event) => setNewFilePath(event.target.value)}
+                onChange={(event) => {
+                  setNewFilePath(event.target.value);
+                  if (fileEditorError) setFileEditorError('');
+                }}
               />
             </div>
             <div className="field">
@@ -371,7 +414,7 @@ export default function RepoPage() {
               />
             </div>
             <div className="field full">
-              <label htmlFor="file-content">Content</label>
+              <label htmlFor="file-content">File contents</label>
               <textarea
                 id="file-content"
                 rows={6}
@@ -379,8 +422,10 @@ export default function RepoPage() {
                 onChange={(event) => setNewFileContent(event.target.value)}
               />
             </div>
-            <button type="submit">Commit file</button>
+            {fileEditorError && <p className="error">{fileEditorError}</p>}
+            <button type="submit">Commit changes</button>
           </form>
+          )}
 
       <h2>Commits</h2>
       {/* REQ-4-2-2: inspect the difference introduced by a revision */}
