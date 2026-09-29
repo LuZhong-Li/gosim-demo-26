@@ -57,6 +57,9 @@ export type PullRequest = {
   checks?: { name: string; state: string; setBy?: string; setAt?: string; headSha?: string }[];
   reviewers?: ReviewerRequest[];
   mergedBy?: string;
+  mergedAt?: string;
+  mergeCommit?: string;
+  mergeMethod?: string;
   milestone?: string | null;
 };
 export type PullDetail = {
@@ -64,6 +67,10 @@ export type PullDetail = {
   protection: { branch: string; requiredApprovals: number; requiredChecks: string[] };
   approvals: number;
   canAdmin?: boolean;
+  /** REQ-6-6: whether the signed-in user may close or reopen this PR. */
+  canClose?: boolean;
+  /** REQ-6-5: whether the signed-in user may merge this PR. */
+  canMerge?: boolean;
 };
 export type DiffLine = { type: string; text: string };
 export type DiffFile = { path: string; status: string; lines: DiffLine[] };

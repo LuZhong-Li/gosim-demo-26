@@ -280,6 +280,32 @@ function commitBySha(repo, sha) {
   return (repo.commits || []).find((commit) => commit.sha === sha) || null;
 }
 
+// REQ-6-5: merging creates a commit whose parents are the target head and the compare head.
+function mergeBranches(repo, { baseBranch, headBranch, author }) {
+  const base = (repo.branches || []).find((item) => item.name === baseBranch);
+  const head = (repo.branches || []).find((item) => item.name === headBranch);
+  if (!base || !head) return null;
+  const headCommit = commitBySha(repo, head.head);
+  if (!headCommit) return null;
+  const baseHeadBefore = base.head;
+  const headHeadBefore = head.head;
+  const snapshot = ((headCommit.snapshot || repo.files || []) || []).map((file) => ({ ...file }));
+  const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  repo.commits.unshift({
+    sha,
+    message: `Merge pull request from ${headBranch}`,
+    author,
+    parents: [baseHeadBefore, headHeadBefore].filter(Boolean),
+    timestamp: new Date().toISOString(),
+    changed: (headCommit.changed || []).slice(),
+    snapshot,
+  });
+  base.head = sha;
+  repo.files = snapshot.map((file) => ({ ...file }));
+  save();
+  return { sha, baseCommit: baseHeadBefore, headCommit: headHeadBefore };
+}
+
 // Minimal LCS-based line diff; repository files are small in this simulation.
 function lineDiff(baseText, headText) {
   const base = String(baseText == null ? '' : baseText).split('\n');
@@ -534,6 +560,7 @@ module.exports = {
   findUserByUsername,
   listIssues,
   membership,
+  mergeBranches,
   orgMembers,
   orgTeams,
   nextIssueNumber,

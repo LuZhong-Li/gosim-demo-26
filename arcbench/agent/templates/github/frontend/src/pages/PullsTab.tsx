@@ -9,6 +9,17 @@ import type {
 } from '../api';
 import * as api from '../api';
 
+// REQ-6-2-1 / REQ-6-5: status is shown with the official capitalisation.
+function stateLabel(state: string) {
+  const labels: Record<string, string> = {
+    open: 'Open',
+    closed: 'Closed',
+    draft: 'Draft',
+    merged: 'Merged',
+  };
+  return labels[String(state || '').toLowerCase()] || state;
+}
+
 export default function PullsTab({
   owner,
   name,
@@ -117,6 +128,12 @@ export default function PullsTab({
       )
     : [];
   const mergeBlocked = missingApprovals > 0 || missingChecks.length > 0;
+  // REQ-6-6: a viewer who is not the author or a maintainer must not see close/reopen.
+  const canClose = Boolean(selected?.canClose);
+  const canMerge = Boolean(selected?.canMerge);
+  const changesRequested = (selected?.pull.reviews || []).some(
+    (review) => review.state === 'CHANGES_REQUESTED',
+  );
 
   return (
     <>
@@ -133,8 +150,8 @@ export default function PullsTab({
               <Link to={`/${owner}/${name}?tab=pulls&pull=${pull.number}`}>{pull.title}</Link>
               <span className="muted">
                 {' '}
-                # {pull.number} · {pull.state} · {pull.headBranch} → {pull.baseBranch} · by{' '}
-                {pull.author}
+                # {pull.number} · {stateLabel(pull.state)} · {pull.headBranch} →{' '}
+                {pull.baseBranch} · by {pull.author}
               </span>
             </li>
           ))}
@@ -146,8 +163,9 @@ export default function PullsTab({
           {/* REQ-6-3-1: the heading shows the exact PR title. */}
           <h3>{selected.pull.title}</h3>
           <p className="muted">
-            #{selected.pull.number} · {selected.pull.state} · {selected.pull.headBranch} →{' '}
-            {selected.pull.baseBranch} · by {selected.pull.author} · approvals{' '}
+            #{selected.pull.number} · {stateLabel(selected.pull.state)} ·{' '}
+            {selected.pull.headBranch} → {selected.pull.baseBranch} · by{' '}
+            {selected.pull.author} · approvals{' '}
             {selected.approvals}/{selected.protection.requiredApprovals}
           </p>
           {/* REQ-6-3-1: Conversation / Commits / Files changed are links. */}
@@ -477,17 +495,19 @@ export default function PullsTab({
           )}
           {selected.pull.state === 'open' && (
             <>
-              <button
-                type="button"
-                onClick={() =>
-                  run(
-                    () => api.setPullState(owner, name, selected.pull.number, 'closed'),
-                    'Pull request closed.',
-                  ).then(() => openPull(selected.pull.number))
-                }
-              >
-                Close pull request
-              </button>
+              {canClose && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    run(
+                      () => api.setPullState(owner, name, selected.pull.number, 'closed'),
+                      'Pull request closed.',
+                    ).then(() => openPull(selected.pull.number))
+                  }
+                >
+                  Close pull request
+                </button>
+              )}
               {reviewOpen ? (
                 <form
                   className="form-grid"
@@ -554,7 +574,38 @@ export default function PullsTab({
                   Review changes
                 </button>
               )}
-              {mergeBlocked ? (
+              {/* REQ-6-5: the only supported method is a merge commit. */}
+              <div className="field">
+                <label htmlFor="merge-method">Merge method</label>
+                <select id="merge-method" aria-label="Merge method" value="merge commit" onChange={() => {}}>
+                  <option value="merge commit">Create a merge commit</option>
+                </select>
+              </div>
+              <ul className="repo-list merge-status">
+                <li>
+                  {missingApprovals > 0
+                    ? `Required approval not satisfied (${selected.approvals}/${selected.protection.requiredApprovals})`
+                    : 'Required approvals satisfied'}
+                </li>
+                <li>
+                  {changesRequested
+                    ? 'Changes requested is not satisfied: a reviewer must re-review'
+                    : 'No changes requested'}
+                </li>
+                <li>
+                  {missingChecks.length > 0
+                    ? `Required status check ${missingChecks.join(', ')} not satisfied`
+                    : 'Required status checks satisfied'}
+                </li>
+              </ul>
+              {!canMerge ? (
+                <div className="merge-status">
+                  <button type="button" disabled>
+                    Merge pull request
+                  </button>
+                  <p>You do not have permission to merge this pull request</p>
+                </div>
+              ) : mergeBlocked || changesRequested ? (
                 <div className="merge-status">
                   <button type="button" disabled>
                     Merge pull request
@@ -563,6 +614,7 @@ export default function PullsTab({
                   {missingChecks.length > 0 && (
                     <p>{`Required status check ${missingChecks.join(', ')} has not passed`}</p>
                   )}
+                  {changesRequested && <p>Changes requested by a reviewer must be resolved</p>}
                 </div>
               ) : mergeConfirm ? (
                 <span className="inline-form">
@@ -588,7 +640,7 @@ export default function PullsTab({
               )}
             </>
           )}
-          {selected.pull.state === 'closed' && (
+          {selected.pull.state === 'closed' && canClose && (
             <button
               type="button"
               onClick={() =>
@@ -600,6 +652,16 @@ export default function PullsTab({
             >
               Reopen pull request
             </button>
+          )}
+          {/* REQ-6-5: a merged PR shows the merger, time and resulting commit. */}
+          {selected.pull.state === 'merged' && (
+            <p className="muted">
+              {`Merged by ${selected.pull.mergedBy || 'unknown'}`}
+              {selected.pull.mergedAt
+                ? ` · ${new Date(selected.pull.mergedAt).toLocaleString()}`
+                : ''}
+              {selected.pull.mergeCommit ? ` · commit ${selected.pull.mergeCommit.slice(0, 7)}` : ''}
+            </p>
           )}
           <p>
             Branch protection on {selected.protection.branch}: {selected.protection.requiredApprovals}{' '}

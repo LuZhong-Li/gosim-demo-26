@@ -38,6 +38,7 @@ describe('Pull request reviewer picker', () => {
       pull,
       protection: { branch: 'main', requiredApprovals: 1, requiredChecks: ['test'] },
       approvals: 0,
+      canMerge: true,
     });
     vi.mocked(api.requestPullReviewer).mockResolvedValue([{ username: 'bob-reviewer' }]);
     vi.mocked(api.removePullReviewer).mockResolvedValue([]);

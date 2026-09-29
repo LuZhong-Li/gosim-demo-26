@@ -54,6 +54,7 @@ function mockPullsApi(approvals: number) {
     pull,
     protection: { branch: 'main', requiredApprovals: 1, requiredChecks: ['test'] },
     approvals,
+    canMerge: true,
   });
 }
 

@@ -136,7 +136,8 @@ function seed(store) {
       repo: repo.name,
       team: null,
       user: 'bob-reviewer',
-      permission: 'Write',
+      // REQ-6-4 / REQ-6-5: a non-owner collaborator with Maintain rights.
+      permission: 'Maintain',
     });
     store.state.accessGrants.push({
       org: orgName,
@@ -163,6 +164,31 @@ function seed(store) {
   // REQ-4-3-3 seed: a second long-lived branch so the default branch can be switched.
   if (docs && !(docs.branches || []).some((branch) => branch.name === 'release')) {
     store.addBranch(docs, 'release', 'alice-dev');
+  }
+
+  // REQ-6-2-2 / REQ-6-2-3 seed: release is ahead of main with no PR, so the comparison
+  // and PR-creation flow has a usable branch pair that is not already taken.
+  if (docs) {
+    const releaseBranch = (docs.branches || []).find((branch) => branch.name === 'release');
+    const mainBranch = (docs.branches || []).find((branch) => branch.name === 'main');
+    if (releaseBranch && mainBranch && releaseBranch.head === mainBranch.head) {
+      const releaseFiles = (docs.files || [])
+        .map((file) => ({ ...file }))
+        .concat([
+          {
+            path: 'docs/release-notes.md',
+            content: '# Release notes\n\nPrepared on the release branch.\n',
+          },
+        ]);
+      pushCommit(docs, {
+        message: 'Draft release notes',
+        author: 'alice-dev',
+        parents: mainBranch.head ? [mainBranch.head] : [],
+        changed: ['docs/release-notes.md'],
+        snapshot: releaseFiles,
+        branch: 'release',
+      });
+    }
   }
 
   // Build a single feature-search commit ahead of main that modifies src/search.ts

@@ -39,6 +39,7 @@ function mockWorkspace() {
     pull,
     protection: { branch: 'main', requiredApprovals: 1, requiredChecks: ['test'] },
     approvals: 0,
+    canMerge: true,
   });
   vi.mocked(api.getPullFiles).mockResolvedValue({
     baseBranch: 'main',
@@ -60,6 +61,17 @@ function mockWorkspace() {
       },
     ],
     stats: { changedFiles: 2, added: 3, removed: 1 },
+  });
+}
+
+function mockWorkspaceWithControls(canClose: boolean) {
+  mockWorkspace();
+  vi.mocked(api.getPull).mockResolvedValue({
+    pull,
+    protection: { branch: 'main', requiredApprovals: 1, requiredChecks: ['test'] },
+    approvals: 1,
+    canClose,
+    canMerge: true,
   });
 }
 
@@ -104,5 +116,31 @@ describe('pull request review workspace', () => {
 
     expect(await screen.findByText('Commit summary')).toBeInTheDocument();
     expect(screen.getByText('Refine search and add utilities')).toBeInTheDocument();
+  });
+
+  it('offers Create a merge commit as the only merge method with its conditions', async () => {
+    mockWorkspace();
+    renderWorkspace('/acme-demo/acme-docs?tab=pulls&pull=1');
+
+    const method = await screen.findByRole('combobox', { name: 'Merge method' });
+    expect(method).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Create a merge commit' })).toBeInTheDocument();
+    expect(screen.getByText('Required approval not satisfied (0/1)')).toBeInTheDocument();
+    expect(screen.getByText('Required status check test not satisfied')).toBeInTheDocument();
+  });
+
+  it('hides Close pull request from a viewer who is neither the author nor a maintainer', async () => {
+    mockWorkspaceWithControls(false);
+    renderWorkspace('/acme-demo/acme-docs?tab=pulls&pull=1');
+
+    await screen.findByRole('heading', { name: 'Improve onboarding' });
+    expect(screen.queryByRole('button', { name: 'Close pull request' })).not.toBeInTheDocument();
+  });
+
+  it('shows Close pull request for the author or a maintainer', async () => {
+    mockWorkspaceWithControls(true);
+    renderWorkspace('/acme-demo/acme-docs?tab=pulls&pull=1');
+
+    expect(await screen.findByRole('button', { name: 'Close pull request' })).toBeInTheDocument();
   });
 });

@@ -778,7 +778,11 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const title = String((req.body || {}).title || '').trim();
-  if (!title) return res.status(400).json({ error: 'Issue title is required.' });
+  // REQ-5-2-1: an empty (or whitespace-only) issue title uses the official message.
+  if (!title) return res.status(400).json({ error: 'Title is required' });
+  if (title.length > 256) {
+    return res.status(400).json({ error: 'Issue title must be 256 characters or fewer.' });
+  }
   if (!store.canWrite(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have write permission to create issues.' });
   }
@@ -811,6 +815,18 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
   const body = req.body || {};
+  // REQ-5-2-2: editing an issue title rejects a whitespace-only value.
+  if (Object.prototype.hasOwnProperty.call(body, 'title')) {
+    const title = String(body.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    if (title.length > 256) {
+      return res.status(400).json({ error: 'Issue title must be 256 characters or fewer.' });
+    }
+    issue.title = title;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'body')) {
+    issue.body = String(body.body || '');
+  }
   if (body.state) {
     const state = String(body.state).trim().toLowerCase();
     if (!['open', 'closed'].includes(state)) {
@@ -934,6 +950,13 @@ function isProtectedBranch(repo, branchName) {
   return Boolean(rule && rule.branch === branchName);
 }
 
+// REQ-6-6: closing/reopening is limited to the author, Maintain, Admin or organization Owner.
+function canManagePull(repo, username, pull) {
+  if (!username) return false;
+  if (pull && String(pull.author).toLowerCase() === String(username).toLowerCase()) return true;
+  return canMaintain(repo, username);
+}
+
 // REQ-6-1: Checks are attached to the current compare commit; a new commit resets them to pending.
 function normalizedChecks(pull, protection, headSha) {
   const names = new Set([
@@ -951,20 +974,38 @@ function normalizedChecks(pull, protection, headSha) {
     });
 }
 
-function approvalCount(pull, repo) {
-  const reviewers = new Set();
-  const headSha = store.branchHead(repo, pull.headBranch);
+// REQ-6-1: only each reviewer's latest decision on the current compare commit counts.
+function latestReviews(pull) {
+  const latest = new Map();
   for (const review of pull.reviews || []) {
-    if (
-      review.state === 'APPROVED' &&
-      review.author !== pull.author &&
-      review.headSha &&
-      review.headSha === headSha
-    ) {
-      reviewers.add(review.author);
+    const previous = latest.get(review.author);
+    if (!previous || String(review.createdAt || '') >= String(previous.createdAt || '')) {
+      latest.set(review.author, review);
     }
   }
+  return Array.from(latest.values());
+}
+
+function approvalCount(pull, repo) {
+  const headSha = store.branchHead(repo, pull.headBranch);
+  const reviewers = new Set();
+  for (const review of latestReviews(pull)) {
+    if (review.state !== 'APPROVED') continue;
+    if (review.author === pull.author) continue;
+    if (review.headSha && review.headSha !== headSha) continue;
+    reviewers.add(review.author);
+  }
   return reviewers.size;
+}
+
+// REQ-6-5: Maintain, Admin or organization Owner may merge.
+function canMaintain(repo, username) {
+  if (!username) return false;
+  if (store.canAdmin(repo, username)) return true;
+  const grant = store.bestGrantPermission(repo.owner, repo.name, username);
+  if (['Maintain', 'Admin'].includes(grant)) return true;
+  const member = store.membership(repo.owner, username);
+  return ['Maintain', 'Admin', 'Owner'].includes((member && member.role) || '');
 }
 
 app.get('/api/repos/:owner/:name/pulls', (req, res) => {
@@ -995,7 +1036,11 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
   const title = String((req.body || {}).title || '').trim();
   const baseBranch = String((req.body || {}).baseBranch || 'main').trim();
   const headBranch = String((req.body || {}).headBranch || '').trim();
-  if (!title) return res.status(400).json({ error: 'Pull request title is required.' });
+  // REQ-6-2-3: a whitespace-only title is rejected with the official message.
+  if (!title) return res.status(400).json({ error: 'Title is required' });
+  if (title.length > 256) {
+    return res.status(400).json({ error: 'Pull request title must be 256 characters or fewer.' });
+  }
   const branchNames = (repo.branches || []).map((branch) => branch.name);
   if (!branchNames.includes(baseBranch) || !branchNames.includes(headBranch)) {
     return res.status(400).json({ error: 'Base and head branches must exist.' });
@@ -1036,6 +1081,10 @@ app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
     protection,
     approvals: approvalCount(pull, repo),
     canAdmin: store.canAdmin(repo, user && user.username),
+    // REQ-6-6: only the author, Maintain, Admin or Owner may close or reopen.
+    canClose: canManagePull(repo, user && user.username, pull),
+    // REQ-6-5: only Maintain, Admin or organization Owner may merge.
+    canMerge: canMaintain(repo, user && user.username),
   });
 });
 
@@ -1050,7 +1099,7 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
     if (pull.state !== 'draft') {
       return res.status(400).json({ error: 'Only a draft pull request can be marked ready for review.' });
     }
-    if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+    if (!canManagePull(repo, req.user.username, pull)) {
       return res.status(403).json({ error: 'You cannot change this pull request.' });
     }
     pull.state = 'open';
@@ -1061,7 +1110,7 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
   if (!['open', 'closed'].includes(state)) {
     return res.status(400).json({ error: 'Pull request state must be open or closed.' });
   }
-  if (pull.author !== req.user.username && !store.canWrite(repo, req.user.username)) {
+  if (!canManagePull(repo, req.user.username, pull)) {
     return res.status(403).json({ error: 'You cannot change this pull request.' });
   }
   pull.state = state;
@@ -1286,13 +1335,22 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const pull = store.findPull(repo, req.params.number);
   if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
-  if (!store.canWrite(repo, req.user.username)) {
+  // REQ-6-5: only Maintain, Admin or organization Owner may merge.
+  if (!canMaintain(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have permission to merge.' });
   }
   if (pull.state !== 'open') return res.status(409).json({ error: 'Pull request is not open.' });
   const protection = protectionOf(repo, pull.baseBranch);
   const headSha = store.branchHead(repo, pull.headBranch);
   const approvals = approvalCount(pull, repo);
+  // REQ-6-3-4 / REQ-6-5: a current Request changes decision blocks merging.
+  const blockingChanges = latestReviews(pull).some(
+    (review) =>
+      review.state === 'CHANGES_REQUESTED' && (!review.headSha || review.headSha === headSha),
+  );
+  if (blockingChanges) {
+    return res.status(422).json({ error: 'Changes requested by a reviewer must be resolved.' });
+  }
   const staleApprovals = (pull.reviews || []).some(
     (review) =>
       review.state === 'APPROVED' &&
@@ -1319,9 +1377,16 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
   pull.state = 'merged';
   pull.mergedAt = new Date().toISOString();
   pull.mergedBy = req.user.username;
-  const base = repo.branches.find((branch) => branch.name === pull.baseBranch);
-  const head = repo.branches.find((branch) => branch.name === pull.headBranch);
-  if (base && head && head.head) base.head = head.head;
+  // REQ-6-5: the sole supported method is a merge commit with both heads as parents.
+  const mergeResult = store.mergeBranches(repo, {
+    baseBranch: pull.baseBranch,
+    headBranch: pull.headBranch,
+    author: req.user.username,
+  });
+  if (mergeResult) {
+    pull.mergeCommit = mergeResult.sha;
+    pull.mergeMethod = 'Create a merge commit';
+  }
   return res.json({ pull });
 });
 

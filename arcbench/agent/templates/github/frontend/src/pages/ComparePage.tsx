@@ -13,6 +13,7 @@ export default function ComparePage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [error, setError] = useState('');
+  const [titleError, setTitleError] = useState('');
   const [info, setInfo] = useState('');
   const [creating, setCreating] = useState(false);
 
@@ -51,6 +52,12 @@ export default function ComparePage() {
   async function createPull(event: React.FormEvent) {
     event.preventDefault();
     if (creationDisabled) return;
+    // REQ-6-2-3: a title containing only spaces is rejected without creating a PR.
+    if (!title.trim()) {
+      setTitleError('Title is required');
+      return;
+    }
+    setTitleError('');
     setCreating(true);
     setError('');
     try {
@@ -70,6 +77,11 @@ export default function ComparePage() {
 
   async function createDraftPull() {
     if (creationDisabled) return;
+    if (!title.trim()) {
+      setTitleError('Title is required');
+      return;
+    }
+    setTitleError('');
     setCreating(true);
     setError('');
     try {
@@ -182,8 +194,12 @@ export default function ComparePage() {
             id="compare-title"
             type="text"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              if (titleError) setTitleError('');
+            }}
           />
+          {titleError && <p className="error">{titleError}</p>}
         </div>
         <div className="field">
           <label htmlFor="compare-body">Description</label>

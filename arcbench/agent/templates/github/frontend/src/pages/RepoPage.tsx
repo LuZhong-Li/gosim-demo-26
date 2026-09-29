@@ -47,6 +47,7 @@ export default function RepoPage() {
   const [assigneeCandidates, setAssigneeCandidates] = useState<string[]>([]);
   const [labels, setLabels] = useState('');
   const [milestone, setMilestone] = useState('');
+  const [issueTitleError, setIssueTitleError] = useState('');
   const [selected, setSelected] = useState<Issue | null>(null);
   const [commentText, setCommentText] = useState('');
   const [error, setError] = useState('');
@@ -577,10 +578,16 @@ export default function RepoPage() {
             className="form-grid"
             onSubmit={(event) => {
               event.preventDefault();
+              // REQ-5-2-1: an empty title is rejected with the official message.
+              if (!title.trim()) {
+                setIssueTitleError('Title is required');
+                return;
+              }
+              setIssueTitleError('');
               run(
                 () =>
                   api.createIssue(owner, name, {
-                    title,
+                    title: title.trim(),
                     body,
                     assignees: assignee
                       .split(',')
@@ -607,8 +614,12 @@ export default function RepoPage() {
                 id="issue-title"
                 type="text"
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  if (issueTitleError) setIssueTitleError('');
+                }}
               />
+              {issueTitleError && <p className="error">{issueTitleError}</p>}
             </div>
             <div className="field">
               <label htmlFor="issue-body">Body (optional)</label>
@@ -696,7 +707,7 @@ export default function RepoPage() {
                 onChange={(event) => setMilestone(event.target.value)}
               />
             </div>
-            <button type="submit">Create issue</button>
+            <button type="submit">Submit new issue</button>
           </form>
         </>
       )}
