@@ -339,6 +339,17 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
               <button
                 type="button"
                 onClick={() =>
+                  run(
+                    () => api.addPullReview(owner, name, selected.pull.number, { state: 'COMMENTED', body: reviewBody }),
+                    'Comment submitted.',
+                  ).then(() => openPull(selected.pull.number))
+                }
+              >
+                Comment
+              </button>
+              <button
+                type="button"
+                onClick={() =>
                   run(() => api.addPullCheck(owner, name, selected.pull.number, 'test'), 'Check passed.')
                 }
               >

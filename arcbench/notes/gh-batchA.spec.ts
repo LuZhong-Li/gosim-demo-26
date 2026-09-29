@@ -417,3 +417,57 @@ test('REQ-2-3 grant repository access to a member and a team', async ({ page }) 
   await page.getByRole('button', { name: /grant access/i }).click();
   await expect(page.getByText(/secret · core · Read/)).toBeVisible();
 });
+
+test('REQ-6-3-4 submit a Comment review decision', async ({ page }) => {
+  const author = unique('ca');
+  const reviewer = unique('cr');
+  const org = unique('corg');
+
+  await register(page, reviewer);
+  await register(page, author);
+  await signIn(page, author);
+  await createOrgRepo(page, org, 'app');
+
+  await page.getByLabel('File path').fill('src/main.js');
+  await page.getByLabel('Commit message').fill('Add main');
+  await page.getByLabel('Content').fill('const a = 1;');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByLabel('New branch name').fill('feature');
+  await page.getByRole('button', { name: /^create branch$/i }).click();
+  const branchField = page.locator('#file-branch');
+  if ((await branchField.evaluate((el) => el.tagName)) === 'SELECT') {
+    await branchField.selectOption('feature');
+  } else {
+    await branchField.fill('feature');
+  }
+  await page.getByLabel('File path').fill('src/main.js');
+  await page.getByLabel('Commit message').fill('Extend main');
+  await page.getByLabel('Content').fill('const a = 1;\nconst b = 2;');
+  await page.getByRole('button', { name: /^commit file$/i }).click();
+  await expect(page.getByText('File created.')).toBeVisible();
+
+  await page.getByRole('button', { name: /^pull requests$/i }).click();
+  await page.getByLabel('Title').fill('Add feature');
+  await page.getByLabel('Head branch').fill('feature');
+  await page.getByRole('button', { name: /^create pull request$/i }).click();
+  await expect(page.getByText('Pull request created.')).toBeVisible();
+
+  await page.goto(`${base}orgs/${org}`);
+  await page.getByLabel('Member username').fill(reviewer);
+  await page.getByRole('button', { name: /add member/i }).click();
+  await expect(page.getByText('Member added.')).toBeVisible();
+
+  await page.getByRole('button', { name: /^sign out$/i }).click();
+  await page.getByRole('button', { name: /confirm sign out/i }).click();
+  await signIn(page, reviewer);
+
+  await page.goto(`${base}${org}/app`);
+  await page.getByRole('button', { name: /^pull requests$/i }).click();
+  await page.getByRole('button', { name: /#1 add feature/i }).click();
+  await page.getByLabel('Review body').fill('Just commenting');
+  await page.getByRole('button', { name: /^comment$/i }).click();
+  await expect(page.getByText(new RegExp(`${reviewer} · COMMENTED`))).toBeVisible();
+  await expect(page.getByText('Just commenting')).toBeVisible();
+});
