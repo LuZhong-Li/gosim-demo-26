@@ -3,6 +3,19 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { User } from '../api';
 import * as api from '../api';
 
+type FieldErrors = {
+  username?: string;
+  email?: string;
+  password?: string;
+  confirmPassword?: string;
+  terms?: string;
+};
+
+function fieldErrorsFrom(caught: unknown): FieldErrors | null {
+  const payload = (caught as { response?: { data?: { errors?: FieldErrors } } })?.response?.data;
+  return payload && payload.errors ? payload.errors : null;
+}
+
 export default function AuthPage({
   onAuth,
 }: {
@@ -18,8 +31,10 @@ export default function AuthPage({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [terms, setTerms] = useState(false);
   const [code, setCode] = useState('');
+  const [resetCode, setResetCode] = useState('');
   const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
@@ -27,9 +42,12 @@ export default function AuthPage({
   function switchMode(next: string) {
     setError('');
     setInfo('');
+    setFieldErrors({});
     setShowReset(false);
     setPassword('');
     setConfirmPassword('');
+    setCode('');
+    setResetCode('');
     setSearchParams({ mode: next });
   }
 
@@ -37,6 +55,7 @@ export default function AuthPage({
     event.preventDefault();
     setBusy(true);
     setError('');
+    setFieldErrors({});
     try {
       if (mode === 'signup') {
         await api.register({ username, email, password, confirmPassword, terms });
@@ -47,15 +66,18 @@ export default function AuthPage({
       } else if (mode === 'forgot') {
         if (!showReset) {
           const result = await api.forgotPassword(email);
+          setResetCode(result.code);
           setShowReset(true);
-          setInfo(`Your verification code is ${result.code}. Enter it with your new password.`);
+          setInfo('');
         } else {
-          await api.resetPassword({ email, code, password });
+          await api.resetPassword({ email, code, password, confirmPassword });
           setShowReset(false);
           setPassword('');
+          setConfirmPassword('');
           setCode('');
+          setResetCode('');
           setSearchParams({ mode: 'signin' });
-          setInfo('Password updated. Please sign in with your new password.');
+          setInfo('Password updated');
         }
       } else {
         const result = await api.login(email || username, password);
@@ -64,7 +86,12 @@ export default function AuthPage({
         navigate('/');
       }
     } catch (caught) {
-      setError(api.errorMessage(caught));
+      const fields = fieldErrorsFrom(caught);
+      if (fields) {
+        setFieldErrors(fields);
+      } else {
+        setError(api.errorMessage(caught));
+      }
     } finally {
       setBusy(false);
     }
@@ -72,6 +99,8 @@ export default function AuthPage({
 
   const heading =
     mode === 'signup' ? 'Create an account' : mode === 'forgot' ? 'Reset password' : 'Sign in';
+
+  const emailLabel = mode === 'signup' ? 'Email' : mode === 'forgot' ? 'Email' : 'Username or email';
 
   return (
     <section className="panel narrow">
@@ -99,7 +128,7 @@ export default function AuthPage({
             </a>
             {' · '}
             <a href="#forgot" onClick={() => switchMode('forgot')}>
-              Forgot password?
+              Forgot password
             </a>
           </>
         )}
@@ -114,6 +143,11 @@ export default function AuthPage({
           {info}
         </p>
       )}
+      {mode === 'forgot' && showReset && resetCode && (
+        <p className="muted" role="status">
+          Verification code: <span className="code">{resetCode}</span>
+        </p>
+      )}
       <form className="form-grid" onSubmit={handleSubmit}>
         {mode === 'signup' && (
           <div className="field">
@@ -125,24 +159,37 @@ export default function AuthPage({
               onChange={(event) => setUsername(event.target.value)}
               autoComplete="username"
             />
+            {fieldErrors.username && <p className="error">{fieldErrors.username}</p>}
           </div>
         )}
-        <div className="field">
-          <label htmlFor="gh-email">
-            {mode === 'signup' ? 'Email' : mode === 'forgot' ? 'Email address' : 'Username or email'}
-          </label>
-          <input
-            id="gh-email"
-            type="text"
-            inputMode="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            autoComplete="email"
-          />
-        </div>
+        {mode !== 'forgot' || !showReset ? (
+          <div className="field">
+            <label htmlFor="gh-email">{emailLabel}</label>
+            <input
+              id="gh-email"
+              type="text"
+              inputMode="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="email"
+            />
+            {fieldErrors.email && <p className="error">{fieldErrors.email}</p>}
+          </div>
+        ) : null}
+        {mode === 'forgot' && showReset && (
+          <div className="field">
+            <label htmlFor="gh-code">Verification code</label>
+            <input
+              id="gh-code"
+              type="text"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+            />
+          </div>
+        )}
         {mode !== 'forgot' && (
           <div className="field">
-            <label htmlFor="gh-password">{mode === 'signup' ? 'Password' : 'Password'}</label>
+            <label htmlFor="gh-password">Password</label>
             <input
               id="gh-password"
               type="password"
@@ -150,6 +197,7 @@ export default function AuthPage({
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
             />
+            {fieldErrors.password && <p className="error">{fieldErrors.password}</p>}
           </div>
         )}
         {mode === 'forgot' && showReset && (
@@ -165,12 +213,13 @@ export default function AuthPage({
               />
             </div>
             <div className="field">
-              <label htmlFor="gh-code">Verification code</label>
+              <label htmlFor="gh-confirm">Confirm password</label>
               <input
-                id="gh-code"
-                type="text"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
+                id="gh-confirm"
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                autoComplete="new-password"
               />
             </div>
           </>
@@ -185,6 +234,7 @@ export default function AuthPage({
               onChange={(event) => setConfirmPassword(event.target.value)}
               autoComplete="new-password"
             />
+            {fieldErrors.confirmPassword && <p className="error">{fieldErrors.confirmPassword}</p>}
           </div>
         )}
         {mode === 'signup' && (
@@ -194,16 +244,17 @@ export default function AuthPage({
               checked={terms}
               onChange={(event) => setTerms(event.target.checked)}
             />
-            I agree to the Terms of Service
+            Agree to the terms
           </label>
         )}
+        {mode === 'signup' && fieldErrors.terms && <p className="error">{fieldErrors.terms}</p>}
         <button type="submit" disabled={busy}>
           {mode === 'signup'
             ? 'Create account'
             : mode === 'forgot'
               ? showReset
                 ? 'Reset password'
-                : 'Send verification code'
+                : 'Send reset link'
               : 'Sign in'}
         </button>
       </form>

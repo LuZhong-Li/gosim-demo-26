@@ -26,6 +26,8 @@ export default function OrgPage() {
   const [grants, setGrants] = useState<api.AccessGrant[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [repoFilter, setRepoFilter] = useState('');
+  const [repoVisibilityFilter, setRepoVisibilityFilter] = useState('all');
 
   const refresh = useCallback(async () => {
     try {
@@ -45,6 +47,11 @@ export default function OrgPage() {
   }, [refresh]);
 
   const canManage = role === 'Owner' || role === 'Admin';
+  const filteredRepos = repos.filter((repo) => {
+    const matchesName = repo.name.toLowerCase().includes(repoFilter.trim().toLowerCase());
+    const matchesVisibility = repoVisibilityFilter === 'all' || repo.visibility === repoVisibilityFilter;
+    return matchesName && matchesVisibility;
+  });
 
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
@@ -75,15 +82,26 @@ export default function OrgPage() {
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
 
+      <nav className="tabs" aria-label="Organization navigation">
+        <a href="#repositories">Repositories</a>
+        <a href="#people">People</a>
+        <a href="#teams">Teams</a>
+      </nav>
       <h2>Repositories</h2>
-      {repos.length === 0 ? (
+      <input aria-label="Find a repository" type="search" value={repoFilter} placeholder="Find a repository" onChange={(event) => setRepoFilter(event.target.value)} />
+      <select aria-label="Visibility filter" value={repoVisibilityFilter} onChange={(event) => setRepoVisibilityFilter(event.target.value)}>
+        <option value="all">All</option>
+        <option value="public">Public</option>
+        <option value="private">Private</option>
+      </select>
+      {filteredRepos.length === 0 ? (
         <p>No repositories in this organization.</p>
       ) : (
         <ul className="repo-list">
-          {repos.map((repo) => (
+          {filteredRepos.map((repo) => (
             <li key={`${repo.owner}/${repo.name}`}>
               <Link to={`/${repo.owner}/${repo.name}`}>
-                {repo.owner}/{repo.name}
+                {repo.name}
               </Link>
               <span className="muted"> · {repo.visibility}</span>
             </li>

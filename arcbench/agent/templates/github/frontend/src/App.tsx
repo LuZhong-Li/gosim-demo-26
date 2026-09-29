@@ -10,7 +10,9 @@ import RepoPage from './pages/RepoPage';
 import SettingsPage from './pages/SettingsPage';
 
 function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+
   return (
     <header className="app-header">
       <Link to="/" className="brand">
@@ -18,37 +20,38 @@ function Header({ user, onLogout }: { user: User | null; onLogout: () => void })
       </Link>
       <nav>
         {user ? (
-          <>
-            <Link to="/orgs">Your organizations</Link>
-            <Link to="/settings">Settings</Link>
-            <span className="username">{user.username}</span>
-            {/* REQ-1-2: signing out affects only the current session */}
-            {confirmingSignOut ? (
-              <span className="inline-form">
-                <span className="muted">Sign out of this session only?</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setConfirmingSignOut(false);
-                    onLogout();
+          <div className="account-menu">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              Account menu
+            </button>
+            {menuOpen && (
+              <div className="account-menu-popover" role="menu">
+                <span className="username">{user.username}</span>
+                <Link to="/orgs" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  Your organizations
+                </Link>
+                <Link to="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  Settings
+                </Link>
+                <a
+                  href="#signout"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setMenuOpen(false);
+                    setConfirmingSignOut(true);
                   }}
                 >
-                  Confirm sign out
-                </button>
-                <button type="button" onClick={() => setConfirmingSignOut(false)}>
-                  Cancel
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => setConfirmingSignOut(true)}
-              >
-                Sign out
-              </button>
+                  Sign out
+                </a>
+              </div>
             )}
-          </>
+          </div>
         ) : (
           <>
             <Link to="/auth?mode=signin">Sign in</Link>
@@ -56,6 +59,26 @@ function Header({ user, onLogout }: { user: User | null; onLogout: () => void })
           </>
         )}
       </nav>
+
+      {confirmingSignOut && (
+        <div className="dialog-backdrop">
+          <div className="dialog" role="dialog" aria-modal="true" aria-label="Sign out">
+            <p>Sign out of this browser session only?</p>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmingSignOut(false);
+                onLogout();
+              }}
+            >
+              Confirm sign out
+            </button>
+            <button type="button" onClick={() => setConfirmingSignOut(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

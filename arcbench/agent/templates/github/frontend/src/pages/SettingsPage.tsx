@@ -24,7 +24,7 @@ export default function SettingsPage() {
           api
             .changePassword({ currentPassword, newPassword, confirmPassword })
             .then(() => {
-              setInfo('Password updated.');
+              setInfo('Password updated');
               setCurrentPassword('');
               setNewPassword('');
               setConfirmPassword('');

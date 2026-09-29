@@ -28,6 +28,9 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
   const [milestoneDraft, setMilestoneDraft] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [reviewState, setReviewState] = useState('APPROVED');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [mergeConfirm, setMergeConfirm] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -301,52 +304,83 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
           )}
           {selected.pull.state === 'open' && (
             <>
-              <form
-                className="inline-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  run(
-                    () => api.addPullReview(owner, name, selected.pull.number, { state: 'APPROVED', body: reviewBody }),
-                    'Review submitted.',
-                  ).then(() => openPull(selected.pull.number));
-                  setReviewBody('');
-                }}
-              >
-                <input
-                  aria-label="Review body"
-                  type="text"
-                  value={reviewBody}
-                  placeholder="Review comment (optional)"
-                  onChange={(event) => setReviewBody(event.target.value)}
-                />
-                <button type="submit">Approve</button>
-              </form>
               <button
                 type="button"
                 onClick={() =>
                   run(
-                    () =>
-                      api.addPullReview(owner, name, selected.pull.number, {
-                        state: 'CHANGES_REQUESTED',
-                        body: reviewBody,
-                      }),
-                    'Changes requested.',
+                    () => api.setPullState(owner, name, selected.pull.number, 'closed'),
+                    'Pull request closed.',
                   ).then(() => openPull(selected.pull.number))
                 }
               >
-                Request changes
+                Close pull request
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  run(
-                    () => api.addPullReview(owner, name, selected.pull.number, { state: 'COMMENTED', body: reviewBody }),
-                    'Comment submitted.',
-                  ).then(() => openPull(selected.pull.number))
-                }
-              >
-                Comment
-              </button>
+              {reviewOpen ? (
+                <form
+                  className="form-grid"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    run(
+                      () =>
+                        api.addPullReview(owner, name, selected.pull.number, {
+                          state: reviewState,
+                          body: reviewBody,
+                        }),
+                      'Review submitted.',
+                    ).then(() => openPull(selected.pull.number));
+                    setReviewOpen(false);
+                    setReviewBody('');
+                  }}
+                >
+                  <div className="field">
+                    <label htmlFor="review-summary">Summary</label>
+                    <textarea
+                      id="review-summary"
+                      rows={2}
+                      value={reviewBody}
+                      onChange={(event) => setReviewBody(event.target.value)}
+                    />
+                  </div>
+                  <fieldset>
+                    <legend>Review decision</legend>
+                    <label>
+                      <input
+                        type="radio"
+                        name="review-decision"
+                        value="COMMENTED"
+                        checked={reviewState === 'COMMENTED'}
+                        onChange={() => setReviewState('COMMENTED')}
+                      />
+                      Comment
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="review-decision"
+                        value="APPROVED"
+                        checked={reviewState === 'APPROVED'}
+                        onChange={() => setReviewState('APPROVED')}
+                      />
+                      Approve
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="review-decision"
+                        value="CHANGES_REQUESTED"
+                        checked={reviewState === 'CHANGES_REQUESTED'}
+                        onChange={() => setReviewState('CHANGES_REQUESTED')}
+                      />
+                      Request changes
+                    </label>
+                  </fieldset>
+                  <button type="submit">Submit review</button>
+                </form>
+              ) : (
+                <button type="button" onClick={() => setReviewOpen(true)}>
+                  Review changes
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() =>
@@ -355,15 +389,42 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
               >
                 Run required check (test)
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  run(() => api.mergePull(owner, name, selected.pull.number), 'Pull request merged.')
-                }
-              >
-                Merge pull request
-              </button>
+              {mergeConfirm ? (
+                <span className="inline-form">
+                  <span className="muted">Confirm merge?</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      run(() => api.mergePull(owner, name, selected.pull.number), 'Merged').then(() =>
+                        openPull(selected.pull.number),
+                      )
+                    }
+                  >
+                    Confirm merge
+                  </button>
+                  <button type="button" onClick={() => setMergeConfirm(false)}>
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button type="button" onClick={() => setMergeConfirm(true)}>
+                  Merge pull request
+                </button>
+              )}
             </>
+          )}
+          {selected.pull.state === 'closed' && (
+            <button
+              type="button"
+              onClick={() =>
+                run(
+                  () => api.setPullState(owner, name, selected.pull.number, 'open'),
+                  'Pull request reopened.',
+                ).then(() => openPull(selected.pull.number))
+              }
+            >
+              Reopen pull request
+            </button>
           )}
           <p>
             Branch protection on {selected.protection.branch}: {selected.protection.requiredApprovals}{' '}

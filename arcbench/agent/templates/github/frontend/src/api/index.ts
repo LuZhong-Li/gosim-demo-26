@@ -548,6 +548,7 @@ export async function resetPassword(input: {
   email: string;
   code: string;
   password: string;
+  confirmPassword: string;
 }): Promise<void> {
   await client.post('/auth/reset', input);
 }

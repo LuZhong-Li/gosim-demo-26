@@ -152,16 +152,17 @@ app.post('/api/auth/reset', (req, res) => {
   const email = String((req.body || {}).email || '').trim().toLowerCase();
   const code = String((req.body || {}).code || '').trim();
   const password = String((req.body || {}).password || '');
+  const confirmPassword = String((req.body || {}).confirmPassword || '');
   const user = store.findUserByEmail(email);
   if (!user) return res.status(404).json({ error: 'No account is associated with that email.' });
   if (code !== '123456') {
     return res.status(400).json({ error: 'Verification code is invalid' });
   }
   if (!isPasswordValid(password)) {
-    return res.status(400).json({
-      error:
-        'Password must be 12-128 characters without whitespace and include uppercase, lowercase, digit, and special character.',
-    });
+    return res.status(400).json({ error: 'Password requirements are not satisfied' });
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'Password confirmation does not match' });
   }
   user.password = password;
   return res.json({ ok: true, message: 'Password updated' });

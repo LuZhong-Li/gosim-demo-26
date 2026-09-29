@@ -5,6 +5,7 @@ import * as api from '../api';
 
 export default function OrgsPage() {
   const [orgs, setOrgs] = useState<Org[]>([]);
+  const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
@@ -30,6 +31,7 @@ export default function OrgsPage() {
       await api.createOrg({ name, displayName });
       setName('');
       setDisplayName('');
+      setShowForm(false);
       setInfo('Organization created.');
       await refresh();
     } catch (caught) {
@@ -55,28 +57,39 @@ export default function OrgsPage() {
           ))}
         </ul>
       )}
-      <h2>Create organization</h2>
-      <form className="form-grid" onSubmit={handleCreate}>
-        <div className="field">
-          <label htmlFor="org-name">Organization name</label>
-          <input
-            id="org-name"
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="org-display">Display name (optional)</label>
-          <input
-            id="org-display"
-            type="text"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </div>
-        <button type="submit">Create organization</button>
-      </form>
+
+      {!showForm ? (
+        <p>
+          <a href="#new-org" onClick={() => setShowForm(true)}>
+            New organization
+          </a>
+        </p>
+      ) : (
+        <>
+          <h2>Create organization</h2>
+          <form className="form-grid" onSubmit={handleCreate}>
+            <div className="field">
+              <label htmlFor="org-name">Organization name</label>
+              <input
+                id="org-name"
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="org-display">Display name</label>
+              <input
+                id="org-display"
+                type="text"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </div>
+            <button type="submit">Create organization</button>
+          </form>
+        </>
+      )}
     </section>
   );
 }
