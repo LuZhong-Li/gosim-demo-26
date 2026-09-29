@@ -1,0 +1,190 @@
+# Live extracted quoted strings from
+# https://arc-bench.com/competitions/hackathon/tasks/hackathon--github (signed-in, 2026-09-30)
+# One string per line; lines starting with # are comments.
+Access denied
+Account is already a member
+Account menu
+Account not found
+Activity
+Add
+Add a README file
+Add branch protection rule
+Add file
+Add member
+Add people or teams
+Add single comment
+Agree to terms is required
+Agree to the terms
+Approve
+Approved
+Assignee
+Assignees
+Branch <current branch name>
+Branch <new default branch name>
+Branches
+Cancel
+Change visibility
+Changed files
+Checks
+Close issue
+Close pull request
+Closed
+Closed issue
+Code
+Comment
+Comment is required
+Commit changes
+Commit message
+Commit message is required
+Commits
+Compare
+Compare changes
+Confirm
+Confirm merge
+Confirm password
+Confirm sign out
+Confirm visibility
+Conversation
+Copied
+Copy clone value
+Create
+Create a merge commit
+Create account
+Create an account
+Create branch: <name>
+Create draft pull request
+Create fork
+Create new file
+Create organization
+Create pull request
+Create repository
+Create team
+Current password
+Current password is incorrect
+Current password is required
+Cyclic team hierarchy is not allowed
+Danger Zone
+Default branch
+Description
+Display name
+Display name is required
+Draft
+Edit
+Edit issue description
+Edit issue title
+Email
+Email format is invalid
+File contents
+File name
+Files changed
+Find a repository
+Find branch
+Forgot password
+Fork
+General
+HTTPS
+Invalid branch
+Invalid credentials
+Invalid file path
+Issue description
+Issue title
+Issues
+Label
+Labels
+Manage access
+Member
+Member menu <username>
+Members
+Merge
+Merge pull request
+Milestone
+New issue
+New organization
+New password
+New pull request
+New repository
+New team
+No code results
+No matching branch
+No results
+None
+Open
+Organization name
+Organization name already exists
+Organization name format is invalid
+Owner
+Password
+Password and authentication
+Password confirmation does not match
+Password requirements are not satisfied
+Password updated
+People
+Private
+Public
+Pull requests
+Read
+Ready for review
+Remove
+Remove <username>
+Remove from organization
+Reopen issue
+Reopen pull request
+Repositories
+Repository created by Playwright
+Repository name
+Request changes
+Require 1 approval
+Require status check test
+Reset password
+Review changes
+Review required by branch protection
+Reviewers
+Role
+SSH
+Save
+Save changes
+Save issue description
+Save issue title
+Search
+Search assignees
+Search issues
+Send reset link
+Settings
+Sign in
+Sign out
+Sign up
+Start a review
+Submit new issue
+Submit review
+Team name
+Team name format is invalid
+Teams
+Title
+Title is required
+Update
+Update password
+Username
+Username already exists
+Username format is invalid
+Username or email
+Verification code
+Verification code is invalid
+Write
+Your organizations
+account
+at least 1 valid Approve from someone other than the PR author
+branch protection rule
+clone page entry
+code search
+commit history
+current branch
+diff
+fork
+merge code changes from the compare branch into the base branch
+organization name/repository name
+organization name/team name
+owner/fork name
+owner/repository name
+required check test is success
+reviewer request
+session

@@ -8,6 +8,7 @@ import HomePage from './pages/HomePage';
 import OrgPage from './pages/OrgPage';
 import OrgsPage from './pages/OrgsPage';
 import RepoPage from './pages/RepoPage';
+import RepoSettingsPage from './pages/RepoSettingsPage';
 import SettingsPage from './pages/SettingsPage';
 
 function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
@@ -129,6 +130,16 @@ function App() {
             <Route path="/orgs/:name" element={<OrgPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/:owner/:name/compare" element={<ComparePage />} />
+            {/* REQ-3-4 / REQ-4-3-3 / REQ-6-1 repository settings surface */}
+            <Route path="/:owner/:name/settings" element={<RepoSettingsPage section="general" />} />
+            <Route
+              path="/:owner/:name/settings/general"
+              element={<RepoSettingsPage section="general" />}
+            />
+            <Route
+              path="/:owner/:name/settings/branches"
+              element={<RepoSettingsPage section="branches" />}
+            />
             <Route path="/:owner/:name" element={<RepoPage />} />
           </Routes>
         </main>

@@ -1,0 +1,79 @@
+# Live extracted quoted strings from
+# https://arc-bench.com/competitions/hackathon/tasks/hackathon--sheet (signed-in, 2026-09-30)
+# One string per line; lines starting with # are comments.
+A workbook must contain at least one worksheet
+Add worksheet
+Allowed values
+Apply
+Ascending
+Before
+CSV file
+Clear filter
+Clear selection
+Columns
+Condition
+Confirm import
+Create
+Create filter
+Create pivot table
+Data
+Data has header row
+Data validation
+Delete
+Delete column
+Delete rule
+Delete row
+Delete worksheet
+Descending
+Dropdown
+Edit <cell coordinate>
+Export CSV
+Filter <header text>
+Formula bar
+Greater than
+Import CSV
+Insert 1 column left
+Insert 1 column right
+Insert 1 row above
+Insert 1 row below
+Invalid CSV file format. Import failed.
+Is empty
+Is not empty
+Last updated: <last updated value>
+Maximum
+Minimum
+New blank workbook
+New worksheet
+Number range
+Open dropdown for <cell coordinate>
+Order
+Paste
+Pivot field is no longer available. Select a new field.
+Pivot table editor
+Please delete or rebuild dependent pivot tables first
+Please enter a number from 0 to 100
+Redo
+Refresh pivot table
+Rename
+Rename workbook
+Rename worksheet
+Rows
+Rule type
+Save
+Sort
+Sort by
+Sort range
+Source range: <cell range>
+Summarize by
+Text contains
+Undo
+Value
+Value field requires numeric values
+Values
+Workbook name
+Workbook name cannot be empty
+Worksheet grid
+Worksheet name
+Worksheet name already exists
+Worksheet name cannot be empty
+Worksheet options for <worksheet name>

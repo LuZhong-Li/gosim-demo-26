@@ -11,6 +11,10 @@ export type Repo = {
   ownerType?: string;
   cloneUrl?: string;
   forkedFrom?: string | null;
+  /** REQ-3-4 / REQ-6-1: whether the signed-in user may manage repository settings. */
+  canAdmin?: boolean;
+  /** REQ-6-1: the persisted branch protection rule, if one exists. */
+  protection?: { branch: string; requiredApprovals: number; requiredChecks: string[] };
 };
 export type Issue = {
   number: number;
@@ -50,7 +54,7 @@ export type PullRequest = {
   headBranch: string;
   createdAt: string;
   reviews?: Review[];
-  checks?: { name: string; state: string }[];
+  checks?: { name: string; state: string; setBy?: string; setAt?: string; headSha?: string }[];
   reviewers?: ReviewerRequest[];
   mergedBy?: string;
   milestone?: string | null;
@@ -59,6 +63,7 @@ export type PullDetail = {
   pull: PullRequest;
   protection: { branch: string; requiredApprovals: number; requiredChecks: string[] };
   approvals: number;
+  canAdmin?: boolean;
 };
 export type DiffLine = { type: string; text: string };
 export type DiffFile = { path: string; status: string; lines: DiffLine[] };
@@ -514,10 +519,32 @@ export async function addPullCheck(
   number: number,
   checkName: string,
 ): Promise<void> {
+  await setPullCheck(owner, name, number, checkName, 'success');
+}
+
+// REQ-6-1: the Checks area offers an Admin a status combobox and a Save button.
+export async function setPullCheck(
+  owner: string,
+  name: string,
+  number: number,
+  checkName: string,
+  state: string,
+): Promise<void> {
   await client.post(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/checks`,
-    { name: checkName, state: 'success' },
+    { name: checkName, state },
   );
+}
+
+export async function getBranchProtection(
+  owner: string,
+  name: string,
+  branch: string,
+): Promise<{ branch: string; requiredApprovals: number; requiredChecks: string[] }> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches/${encodeURIComponent(branch)}/protection`,
+  );
+  return response.data.protection;
 }
 
 export async function setBranchProtection(
@@ -629,15 +656,22 @@ export async function toggleIssueReaction(
   return response.data.issue as Issue;
 }
 
+// REQ-3-4 / REQ-4-3-3: repository settings updates (visibility, default branch).
+export async function updateRepo(
+  owner: string,
+  name: string,
+  input: { visibility?: string; defaultBranch?: string },
+): Promise<Repo> {
+  const response = await client.patch(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, input);
+  return response.data.repo as Repo;
+}
+
 export async function setRepoVisibility(
   owner: string,
   name: string,
   visibility: string,
 ): Promise<Repo> {
-  const response = await client.patch(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
-    visibility,
-  });
-  return response.data.repo as Repo;
+  return updateRepo(owner, name, { visibility });
 }
 
 // REQ-1-3: change the current account password.

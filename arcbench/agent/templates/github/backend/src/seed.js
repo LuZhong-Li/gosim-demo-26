@@ -4,6 +4,8 @@
 //   organization  Acme Demo  (identifier acme-demo), repository  acme-docs
 //   member  bob-reviewer, team  frontend-team
 //   pull requests  Improve onboarding / Fix search, branches  main / feature-search
+//   personal private repository  secret-research  (owner  alice-dev )
+//   branch  release  on  acme-docs  (default-branch scenarios)
 //   reviewer  bob-reviewer, check  test
 //   known changed file  src/search.ts  (one added file + one modified file)
 // Every server start recreates these records so refresh/re-login keep state.
@@ -105,6 +107,24 @@ function seed(store) {
   const docs = store.findRepo(orgName, 'acme-docs');
   const privateRepo = store.findRepo(orgName, 'acme-private');
 
+  // ----- personal private repository (REQ-3-1 / REQ-3-3 / REQ-3-4 seed) -----
+  let secretResearch = store.findRepo('alice-dev', 'secret-research');
+  if (!secretResearch) {
+    secretResearch = {
+      owner: 'alice-dev',
+      ownerType: 'user',
+      name: 'secret-research',
+      visibility: 'private',
+      description: 'Private research notes (not readable by visitors).',
+      defaultBranch: 'main',
+      creator: 'alice-dev',
+      createdBy: 'alice-dev',
+      createdAt: new Date().toISOString(),
+    };
+    store.state.repos.push(secretResearch);
+    store.initializeRepoContent(secretResearch, 'alice-dev');
+  }
+
   // ----- access grants (repo-level roles) -----
   for (const repo of [docs, privateRepo]) {
     if (!repo) continue;
@@ -138,6 +158,11 @@ function seed(store) {
 
   if (docs && !(docs.branches || []).some((branch) => branch.name === 'feature-search')) {
     store.addBranch(docs, 'feature-search', 'alice-dev');
+  }
+
+  // REQ-4-3-3 seed: a second long-lived branch so the default branch can be switched.
+  if (docs && !(docs.branches || []).some((branch) => branch.name === 'release')) {
+    store.addBranch(docs, 'release', 'alice-dev');
   }
 
   // Build a single feature-search commit ahead of main that modifies src/search.ts
@@ -207,7 +232,8 @@ function seed(store) {
       milestone: null,
       createdAt: new Date().toISOString(),
       reviews: [],
-      checks: [{ name: 'test', state: 'success' }],
+      // REQ-6-1: this protected-branch PR starts with test pending.
+      checks: [{ name: 'test', state: 'pending' }],
       reviewers: [{ username: 'bob-reviewer' }],
       reviewComments: [],
     });
@@ -233,7 +259,15 @@ function seed(store) {
           createdAt: new Date().toISOString(),
         },
       ],
-      checks: [{ name: 'test', state: 'success' }],
+      checks: [
+        {
+          name: 'test',
+          state: 'success',
+          headSha: featureHead,
+          setBy: 'alice-dev',
+          setAt: new Date().toISOString(),
+        },
+      ],
       reviewers: [],
       reviewComments: [],
     });

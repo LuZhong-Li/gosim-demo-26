@@ -139,26 +139,14 @@ export default function RepoPage() {
         {repo.owner}/{repo.name}
       </h1>
       <p className="muted">
-        {repo.description || 'No description'} · {repo.visibility} · default branch:{' '}
+        {repo.description || 'No description'} ·{' '}
+        {/* REQ-3-3 / REQ-3-4: the overview shows a Public/Private marker. */}
+        {repo.visibility === 'private' ? 'Private' : 'Public'} · default branch:{' '}
         {repo.defaultBranch}
       </p>
       <div className="repo-actions">
-        <button
-          type="button"
-          onClick={() =>
-            run(
-              () =>
-                api.setRepoVisibility(
-                  owner,
-                  name,
-                  repo.visibility === 'public' ? 'private' : 'public',
-                ),
-              'Visibility updated.',
-            )
-          }
-        >
-          Make {repo.visibility === 'public' ? 'private' : 'public'}
-        </button>
+        {/* REQ-3-4 / REQ-4-3-3 / REQ-6-1: repository settings live behind this link. */}
+        <Link to={`/${owner}/${name}/settings`}>Settings</Link>
         {/* REQ-3-2-2 Fork a Repository into Another Namespace */}
         <button
           type="button"

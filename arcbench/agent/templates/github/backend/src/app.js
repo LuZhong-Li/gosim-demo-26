@@ -594,6 +594,10 @@ app.get('/api/repos/:owner/:name', (req, res) => {
       description: repo.description,
       defaultBranch: repo.defaultBranch,
       ownerType: repo.ownerType,
+      // REQ-3-4 / REQ-6-1: the UI hides admin-only controls for non-admins.
+      canAdmin: store.canAdmin(repo, user && user.username),
+      // REQ-6-1: Settings → Branches shows the persisted rule for this repository.
+      protection: protectionOf(repo, repo.defaultBranch),
     },
   });
 });
@@ -620,8 +624,11 @@ app.get('/api/repos/:owner/:name/search', (req, res) => {
 app.get('/api/repos/:owner/:name/tree', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  // REQ-4-3-3: opening the repository without a branch shows the saved default branch.
   const branch =
-    req.query.branch || (repo.branches && repo.branches[0] ? repo.branches[0].name : 'main');
+    req.query.branch ||
+    repo.defaultBranch ||
+    (repo.branches && repo.branches[0] ? repo.branches[0].name : 'main');
   res.json({
     branch,
     defaultBranch: repo.defaultBranch,
@@ -666,6 +673,10 @@ app.post('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   if (!(repo.branches || []).some((branch) => branch.name === branchName)) {
     return res.status(400).json({ error: 'Branch not found.' });
   }
+  // REQ-6-1: a branch protection rule blocks direct writes to that branch.
+  if (isProtectedBranch(repo, branchName) && !store.canAdmin(repo, req.user.username)) {
+    return res.status(403).json({ error: 'Branch is protected. Commit through a pull request.' });
+  }
   store.addFile(repo, filePath, content, req.user.username, message, branchName);
   return res.status(201).json({ path: filePath, message });
 });
@@ -684,6 +695,10 @@ app.delete('/api/repos/:owner/:name/contents', requireUser, (req, res) => {
   if (!existing) return res.status(404).json({ error: 'File not found.' });
   if (!(repo.branches || []).some((branch) => branch.name === branchName)) {
     return res.status(400).json({ error: 'Branch not found.' });
+  }
+  // REQ-6-1: a branch protection rule blocks direct writes to that branch.
+  if (isProtectedBranch(repo, branchName) && !store.canAdmin(repo, req.user.username)) {
+    return res.status(403).json({ error: 'Branch is protected. Commit through a pull request.' });
   }
   const message = String(req.query.message || '').trim() || `Delete ${filePath}`;
   if (message.length < 1 || message.length > 72) {
@@ -871,15 +886,33 @@ app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, r
 app.patch('/api/repos/:owner/:name', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
-  const canAdmin = store.canAdmin(repo, req.user.username);
-  if (!canAdmin) {
-    return res.status(403).json({ error: 'Only a repository admin can change visibility.' });
+  if (!store.canAdmin(repo, req.user.username)) {
+    return res.status(403).json({
+      error: 'Only a repository admin can change visibility or the default branch.',
+    });
   }
-  const visibility = String((req.body || {}).visibility || '').trim().toLowerCase();
+  const body = req.body || {};
+  const visibility = String(body.visibility || '').trim().toLowerCase();
   if (visibility && !['public', 'private'].includes(visibility)) {
     return res.status(400).json({ error: 'Visibility must be public or private.' });
   }
-  if (visibility) repo.visibility = visibility;
+  // REQ-4-3-3: the new default branch must be an existing branch of this repository.
+  const defaultBranch = String(body.defaultBranch || '').trim();
+  if (defaultBranch && !(repo.branches || []).some((branch) => branch.name === defaultBranch)) {
+    return res.status(400).json({ error: 'Branch not found.' });
+  }
+  const timestamp = new Date().toISOString();
+  if (visibility && visibility !== repo.visibility) {
+    // REQ-3-4: visibility changes are persisted with the operator and time.
+    repo.visibility = visibility;
+    repo.visibilityUpdatedBy = req.user.username;
+    repo.visibilityUpdatedAt = timestamp;
+  }
+  if (defaultBranch && defaultBranch !== repo.defaultBranch) {
+    repo.defaultBranch = defaultBranch;
+    repo.defaultBranchUpdatedBy = req.user.username;
+    repo.defaultBranchUpdatedAt = timestamp;
+  }
   return res.json({ repo });
 });
 
@@ -893,6 +926,29 @@ function protectionOf(repo, branchName) {
       requiredChecks: [],
     }
   );
+}
+
+// REQ-6-1: an explicitly saved rule (not the empty fallback) protects its exact branch.
+function isProtectedBranch(repo, branchName) {
+  const rule = store.state.protections[store.repoKey(repo.owner, repo.name)];
+  return Boolean(rule && rule.branch === branchName);
+}
+
+// REQ-6-1: Checks are attached to the current compare commit; a new commit resets them to pending.
+function normalizedChecks(pull, protection, headSha) {
+  const names = new Set([
+    ...((protection && protection.requiredChecks) || []),
+    ...((pull.checks || []).map((check) => check.name)),
+  ]);
+  return Array.from(names)
+    .filter(Boolean)
+    .map((name) => {
+      const stored = (pull.checks || []).find(
+        (check) => check.name === name && (!check.headSha || check.headSha === headSha),
+      );
+      if (stored) return { state: 'pending', ...stored };
+      return { name, state: 'pending' };
+    });
 }
 
 function approvalCount(pull, repo) {
@@ -972,11 +1028,14 @@ app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const pull = store.findPull(repo, req.params.number);
   if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
+  const user = store.userByToken(authToken(req));
   const protection = protectionOf(repo, pull.baseBranch);
+  const headSha = store.branchHead(repo, pull.headBranch);
   res.json({
-    pull,
+    pull: { ...pull, checks: normalizedChecks(pull, protection, headSha) },
     protection,
     approvals: approvalCount(pull, repo),
+    canAdmin: store.canAdmin(repo, user && user.username),
   });
 });
 
@@ -1154,13 +1213,24 @@ app.post('/api/repos/:owner/:name/pulls/:number/checks', requireUser, (req, res)
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const pull = store.findPull(repo, req.params.number);
   if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
-  const name = String((req.body || {}).name || '').trim();
-  const state = String((req.body || {}).state || 'success').trim().toLowerCase();
-  if (!name) return res.status(400).json({ error: 'Check name is required.' });
+  // REQ-6-1: only a repository Admin may update the check status from the Checks area.
+  if (!store.canAdmin(repo, req.user.username)) {
+    return res.status(403).json({ error: 'Only a repository admin can update check status.' });
+  }
+  const name = String((req.body || {}).name || 'test').trim() || 'test';
+  const state = String((req.body || {}).state || 'pending').trim().toLowerCase();
+  if (!['pending', 'success', 'failure'].includes(state)) {
+    return res.status(400).json({ error: 'Check status must be pending, success, or failure.' });
+  }
+  const headSha = store.branchHead(repo, pull.headBranch);
   pull.checks = pull.checks || [];
   const existing = pull.checks.find((check) => check.name === name);
-  if (existing) existing.state = state;
-  else pull.checks.push({ name, state });
+  const record = existing || { name };
+  record.state = state;
+  record.headSha = headSha;
+  record.setBy = req.user.username;
+  record.setAt = new Date().toISOString();
+  if (!existing) pull.checks.push(record);
   return res.json({ checks: pull.checks });
 });
 
@@ -1179,10 +1249,16 @@ app.put('/api/repos/:owner/:name/branches/:branch/protection', requireUser, (req
   const requiredChecks = Array.isArray((req.body || {}).requiredChecks)
     ? (req.body || {}).requiredChecks.map((check) => String(check)).filter(Boolean)
     : [];
+  // REQ-6-1: the rule is bound to one exact branch name (no wildcard semantics).
+  const pattern =
+    String((req.body || {}).branch || req.params.branch || repo.defaultBranch).trim() ||
+    repo.defaultBranch;
   store.state.protections[store.repoKey(repo.owner, repo.name)] = {
-    branch: String(req.params.branch || repo.defaultBranch),
+    branch: pattern,
     requiredApprovals,
     requiredChecks,
+    updatedBy: req.user.username,
+    updatedAt: new Date().toISOString(),
   };
   return res.json({ protection: store.state.protections[store.repoKey(repo.owner, repo.name)] });
 });
@@ -1215,7 +1291,7 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
       error: `This branch requires ${protection.requiredApprovals} approval(s).`,
     });
   }
-  const checks = pull.checks || [];
+  const checks = normalizedChecks(pull, protection, headSha);
   const failed = protection.requiredChecks.filter(
     (name) => !checks.some((check) => check.name === name && check.state === 'success'),
   );

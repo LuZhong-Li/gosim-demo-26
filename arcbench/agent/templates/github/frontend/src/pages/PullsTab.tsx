@@ -37,6 +37,8 @@ export default function PullsTab({
   const [reviewState, setReviewState] = useState('APPROVED');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [mergeConfirm, setMergeConfirm] = useState(false);
+  const [canAdmin, setCanAdmin] = useState(false);
+  const [checkDraft, setCheckDraft] = useState('pending');
 
   const refresh = useCallback(async () => {
     try {
@@ -71,6 +73,10 @@ export default function PullsTab({
       const detail = await api.getPull(owner, name, number);
       setReviewers(detail.pull.reviewers || []);
       setMilestoneDraft(detail.pull.milestone || '');
+      setCanAdmin(Boolean(detail.canAdmin));
+      setCheckDraft(
+        (detail.pull.checks || []).find((check) => check.name === 'test')?.state || 'pending',
+      );
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -150,12 +156,51 @@ export default function PullsTab({
             />
             <button type="submit">Save milestone</button>
           </form>
-          <p className="muted">
-            Checks:{' '}
-            {(selected.pull.checks || []).length
-              ? selected.pull.checks?.map((check) => `${check.name}: ${check.state}`).join(', ')
-              : 'none'}
-          </p>
+          {/* REQ-6-1: the Checks area is on the page on arrival and is driven by the compare commit. */}
+          <h4>Checks</h4>
+          {(selected.pull.checks || []).length === 0 ? (
+            <p className="muted">No checks yet.</p>
+          ) : (
+            <ul className="repo-list">
+              {(selected.pull.checks || []).map((check) => (
+                <li key={check.name}>
+                  {`${check.name}: ${check.state}`}
+                  {check.setBy && <span className="muted">{` · ${check.setBy}`}</span>}
+                  {check.setAt && (
+                    <span className="muted">{` · ${new Date(check.setAt).toLocaleString()}`}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {canAdmin && (
+            <div className="inline-form">
+              <label htmlFor="test-status">test status</label>
+              <select
+                id="test-status"
+                aria-label="test status"
+                value={checkDraft}
+                onChange={(event) => setCheckDraft(event.target.value)}
+              >
+                <option value="pending">pending</option>
+                <option value="success">success</option>
+                <option value="failure">failure</option>
+              </select>
+              <button
+                type="button"
+                onClick={() =>
+                  run(
+                    () => api.setPullCheck(owner, name, selected.pull.number, 'test', checkDraft),
+                    'Check status saved.',
+                  ).then(() => {
+                    if (selected) void openPull(selected.pull.number);
+                  })
+                }
+              >
+                Save
+              </button>
+            </div>
+          )}
           <h4>Reviews</h4>
           {(selected.pull.reviews || []).length === 0 ? (
             <p className="muted">No reviews yet.</p>
@@ -453,14 +498,6 @@ export default function PullsTab({
                   Review changes
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() =>
-                  run(() => api.addPullCheck(owner, name, selected.pull.number, 'test'), 'Check passed.')
-                }
-              >
-                Run required check (test)
-              </button>
               {mergeBlocked ? (
                 <div className="merge-status">
                   <button type="button" disabled>
