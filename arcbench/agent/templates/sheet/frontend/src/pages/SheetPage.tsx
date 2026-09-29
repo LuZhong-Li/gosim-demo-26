@@ -571,61 +571,17 @@ export default function SheetPage() {
   return (
     <section className="panel wide">
       <div className="toolbar">
-        <h1>{workbook.name}</h1>
-        <button type="button" onClick={openRenameWorkbook}>
-          Rename workbook
-        </button>
-      </div>
-      <p className="muted">
-        Last updated: {new Date(workbook.updatedAt || workbook.createdAt).toLocaleString()} ·{' '}
-        <Link to="/">← All workbooks</Link>
-      </p>
-      {error && <p className="error">{error}</p>}
-      {info && <p className="success">{info}</p>}
-
-      <div className="toolbar">
-        <span className="cell-badge">{selected}</span>
-        <input
-          aria-label="Formula bar"
-          className="formula-bar"
-          value={formulaValue}
-          onChange={(event) => {
-            formulaRef.current = event.target.value;
-            setFormulaValue(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              commitCell(formulaRef.current, selected);
-            }
-          }}
-        />
-        <button type="button" onClick={() => commitCell(formulaRef.current, selected)}>
-          Save cell
-        </button>
-        <button type="button" onClick={() => copySelection('copy')}>
-          Copy
-        </button>
-        <button type="button" onClick={() => copySelection('cut')}>
-          Cut
-        </button>
-        <button type="button" disabled={!clipboard} onClick={pasteSelection}>
-          Paste
-        </button>
-        <button type="button" onClick={handleUndo}>
-          Undo
-        </button>
-        <button type="button" onClick={handleRedo}>
-          Redo
-        </button>
-      </div>
-
-      <div className="toolbar">
         <button
           type="button"
           onClick={() => { pushHistory(); void run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'insert'), 'Row inserted.'); }}
         >
-          Insert row
+          Insert 1 row above
+        </button>
+        <button
+          type="button"
+          onClick={() => { pushHistory(); void run(() => api.insertRows(id, sheet.name, selectedParsed.row + 1, 1, 'insert'), 'Row inserted.'); }}
+        >
+          Insert 1 row below
         </button>
         <button
           type="button"
@@ -637,7 +593,13 @@ export default function SheetPage() {
           type="button"
           onClick={() => { pushHistory(); void run(() => api.insertColumns(id, sheet.name, selectedParsed.col, 1, 'insert'), 'Column inserted.'); }}
         >
-          Insert column
+          Insert 1 column left
+        </button>
+        <button
+          type="button"
+          onClick={() => { pushHistory(); void run(() => api.insertColumns(id, sheet.name, selectedParsed.col + 1, 1, 'insert'), 'Column inserted.'); }}
+        >
+          Insert 1 column right
         </button>
         <button
           type="button"
@@ -649,19 +611,18 @@ export default function SheetPage() {
           type="button"
           onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'asc'), 'Sorted ascending.'); }}
         >
-          Sort column ↑
+          Sort ascending
         </button>
         <button
           type="button"
           onClick={() => { pushHistory(); void run(() => api.sortSheet(id, sheet.name, colLetter(selectedParsed.col), 'desc'), 'Sorted descending.'); }}
         >
-          Sort column ↓
+          Sort descending
         </button>
         <a className="button-link" href={api.exportUrl(id, sheet.name)}>
           Export CSV
         </a>
       </div>
-
       <div className="grid-wrap">
         <table className="sheet-grid" role="grid" aria-multiselectable="true">
           <thead>
@@ -683,7 +644,7 @@ export default function SheetPage() {
                   const isSelected = selection.includes(ref);
                   const cellProps = {
                     role: 'gridcell' as const,
-                    'aria-label': `Cell ${ref}`,
+                    'aria-label': ref,
                     'aria-selected': isSelected,
                     className: isSelected ? 'selected' : '',
                     onMouseDown: (event: React.MouseEvent) => startDrag(ref, event.shiftKey),
@@ -906,7 +867,7 @@ export default function SheetPage() {
         </button>
       </div>
 
-      <h2>Validation</h2>
+      <h2>Data validation</h2>
       <div className="toolbar">
         <input
           aria-label="List validation values"
@@ -916,7 +877,7 @@ export default function SheetPage() {
           onChange={(event) => setListValues(event.target.value)}
         />
         <button type="button" onClick={applyListValidation}>
-          Apply list validation
+          Apply
         </button>
         <input
           aria-label="Validation minimum"
@@ -931,7 +892,7 @@ export default function SheetPage() {
           onChange={(event) => setNumberMax(event.target.value)}
         />
         <button type="button" onClick={applyNumberValidation}>
-          Apply number validation
+          Apply
         </button>
       </div>
 
@@ -945,10 +906,12 @@ export default function SheetPage() {
           onChange={(event) => setFilterColumn(event.target.value.toUpperCase())}
         />
         <select aria-label="Filter operator" value={filterOp} onChange={(event) => setFilterOp(event.target.value)}>
-          <option value="contains">contains</option>
-          <option value="eq">equals</option>
-          <option value="gt">greater than</option>
-          <option value="lt">less than</option>
+          <option value="contains">Text contains</option>
+          <option value="eq">Equals</option>
+          <option value="gt">Greater than</option>
+          <option value="lt">Less than</option>
+          <option value="empty">Is empty</option>
+          <option value="notempty">Is not empty</option>
         </select>
         <input
           aria-label="Filter value"
@@ -957,7 +920,7 @@ export default function SheetPage() {
           onChange={(event) => setFilterValue(event.target.value)}
         />
         <button type="button" onClick={() => setAppliedFilter({ column: filterColumn || 'A', op: filterOp, value: filterValue })}>
-          Apply filter
+          Apply
         </button>
         <button type="button" onClick={() => setAppliedFilter(null)}>
           Clear filter
