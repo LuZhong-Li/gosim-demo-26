@@ -54,6 +54,11 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       .catch(() => undefined);
   }, [owner, name]);
 
+  useEffect(() => {
+    setCompare(null);
+    setCompareError('');
+  }, [baseBranch, headBranch]);
+
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
@@ -89,6 +94,22 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
       setCompareError(api.errorMessage(caught));
     }
   }
+
+  const sameBranchSelection = Boolean(baseBranch && headBranch && baseBranch === headBranch);
+  const missingApprovals = selected
+    ? Math.max(0, selected.protection.requiredApprovals - selected.approvals)
+    : 0;
+  const missingChecks = selected
+    ? selected.protection.requiredChecks.filter(
+        (checkName) =>
+          !(selected.pull.checks || []).some(
+            (check) => check.name === checkName && check.state === 'success',
+          ),
+      )
+    : [];
+  const mergeBlocked = missingApprovals > 0 || missingChecks.length > 0;
+  const creationDisabled =
+    sameBranchSelection || !compare || compare.same || !compare.hasDifference;
 
   return (
     <>
@@ -443,7 +464,17 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
               >
                 Run required check (test)
               </button>
-              {mergeConfirm ? (
+              {mergeBlocked ? (
+                <div className="merge-status">
+                  <button type="button" disabled>
+                    Merge pull request
+                  </button>
+                  {missingApprovals > 0 && <p>Review required by branch protection</p>}
+                  {missingChecks.length > 0 && (
+                    <p>{`Required status check ${missingChecks.join(', ')} has not passed`}</p>
+                  )}
+                </div>
+              ) : mergeConfirm ? (
                 <span className="inline-form">
                   <span className="muted">Confirm merge?</span>
                   <button
@@ -551,7 +582,15 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
             Compare changes
           </button>
           {compareError && <p className="error">{compareError}</p>}
-          {compare && (
+          {sameBranchSelection && (
+            <div className="issue-detail">
+              <h4>
+                {baseBranch} → {headBranch}
+              </h4>
+              <p className="muted">No changes</p>
+            </div>
+          )}
+          {!sameBranchSelection && compare && (
             <div className="issue-detail">
               <h4>
                 {compare.base} → {compare.head}
@@ -594,12 +633,12 @@ export default function PullsTab({ owner, name }: { owner: string; name: string 
               onChange={(event) => setBody(event.target.value)}
             />
           </div>
-          <button type="submit" disabled={!!compare && !compare.hasDifference}>
+          <button type="submit" disabled={creationDisabled}>
             Create pull request
           </button>
           <button
             type="button"
-            disabled={!!compare && !compare.hasDifference}
+            disabled={creationDisabled}
             onClick={() => {
               run(
                 () =>

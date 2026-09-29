@@ -1,0 +1,68 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import * as api from '../src/api';
+import PullsTab from '../src/pages/PullsTab';
+
+vi.mock('../src/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/api')>()),
+  compareBranches: vi.fn(),
+  getPull: vi.fn(),
+  getPullComments: vi.fn(),
+  getTree: vi.fn(),
+  listPulls: vi.fn(),
+}));
+
+const pull = {
+  number: 2,
+  title: 'Fix search',
+  body: 'Search fixes',
+  author: 'alice-dev',
+  state: 'open',
+  baseBranch: 'main',
+  headBranch: 'feature-search',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  reviews: [],
+  checks: [],
+  reviewers: [],
+  milestone: null,
+};
+
+function mockPullsApi(approvals: number) {
+  vi.mocked(api.listPulls).mockResolvedValue([pull]);
+  vi.mocked(api.getTree).mockResolvedValue({
+    branches: ['main', 'feature-search'],
+    files: [],
+  });
+  vi.mocked(api.getPullComments).mockResolvedValue([]);
+  vi.mocked(api.getPull).mockResolvedValue({
+    pull,
+    protection: { branch: 'main', requiredApprovals: 1, requiredChecks: ['test'] },
+    approvals,
+  });
+}
+
+describe('PullsTab merge and comparison states', () => {
+  it('disables merge and explains branch protection when approval is missing', async () => {
+    mockPullsApi(0);
+    const user = userEvent.setup();
+    render(<PullsTab owner="acme-demo" name="acme-docs" />);
+
+    await user.click(await screen.findByRole('button', { name: /#2 Fix search/ }));
+
+    expect(await screen.findByText('Review required by branch protection')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Merge pull request' })).toBeDisabled();
+  });
+
+  it('shows No changes immediately and disables creation when both branches match', async () => {
+    mockPullsApi(1);
+    const user = userEvent.setup();
+    render(<PullsTab owner="acme-demo" name="acme-docs" />);
+
+    await user.click(await screen.findByRole('link', { name: 'New pull request' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'compare' }), 'main');
+
+    await waitFor(() => expect(screen.getByText('No changes')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Create pull request' })).toBeDisabled();
+  });
+});
