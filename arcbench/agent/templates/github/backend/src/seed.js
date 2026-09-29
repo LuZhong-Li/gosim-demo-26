@@ -1,183 +1,283 @@
-// Seed data for the GitHub-style task (see requirement `data:` section).
-// Requirement tests assume these objects already exist, so every server start
-// recreates them: verified accounts with distinct roles, a public organization
-// with public + private repositories, code/branch/commit history, labels,
-// milestones, issues and pull requests.
+// Seed data for the GitHub-style task (official TASK-011 seed, arc-bench.com).
+// The evaluation supplies predefined objects and asserts their exact names:
+//   account  alice-dev  (alice.dev@example.test / Valid-password-123!)
+//   organization  Acme Demo  (identifier acme-demo), repository  acme-docs
+//   member  bob-reviewer, team  frontend-team
+//   pull requests  Improve onboarding / Fix search, branches  main / feature-search
+//   reviewer  bob-reviewer, check  test
+//   known changed file  src/search.ts  (one added file + one modified file)
+// Every server start recreates these records so refresh/re-login keep state.
 
 const PASSWORD = 'Valid-password-123!';
 
+function sha(prefix) {
+  return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pushCommit(repo, { message, author, parents, changed, snapshot, branch }) {
+  const commit = {
+    sha: sha('c'),
+    message,
+    author,
+    parents,
+    timestamp: new Date().toISOString(),
+    changed,
+    snapshot: snapshot.map((file) => ({ ...file })),
+  };
+  repo.commits = repo.commits || [];
+  repo.commits.unshift(commit);
+  if (branch) {
+    const target = repo.branches.find((item) => item.name === branch);
+    if (target) target.head = commit.sha;
+  }
+  return commit;
+}
+
 function seed(store) {
-  const users = ['alice', 'bob', 'carol', 'dave'];
-  for (const username of users) {
-    if (store.findUserByUsername(username)) continue;
+  // ----- accounts -----
+  const accounts = [
+    { username: 'alice-dev', email: 'alice.dev@example.test', role: 'Owner' },
+    { username: 'bob-reviewer', email: 'bob.reviewer@example.test', role: 'Member' },
+    { username: 'carol-reader', email: 'carol.reader@example.test', role: 'Read' },
+  ];
+  for (const account of accounts) {
+    if (store.findUserByUsername(account.username)) continue;
     store.createUser({
-      username,
-      email: `${username}@example.test`,
+      username: account.username,
+      email: account.email,
       password: PASSWORD,
     });
   }
 
-  const org = store.findOrg('acme') || { name: 'acme', displayName: 'Acme Org' };
-  if (!store.findOrg('acme')) store.state.orgs.push(org);
-
-  // roles: Owner / Member / Triage / Read / Admin
+  // ----- organization -----
+  const orgName = 'acme-demo';
+  if (!store.findOrg(orgName)) {
+    store.state.orgs.push({
+      name: orgName,
+      displayName: 'Acme Demo',
+      creator: 'alice-dev',
+      createdAt: new Date().toISOString(),
+    });
+  }
   const membershipRoles = [
-    ['alice', 'Owner'],
-    ['bob', 'Member'],
-    ['carol', 'Member'],
-    ['dave', 'Member'],
+    ['alice-dev', 'Owner'],
+    ['bob-reviewer', 'Member'],
+    ['carol-reader', 'Member'],
   ];
   for (const [username, role] of membershipRoles) {
-    const existing = store.membership('acme', username);
+    const existing = store.membership(orgName, username);
     if (existing) existing.role = role;
-    else store.state.memberships.push({ org: 'acme', username, role });
+    else store.state.memberships.push({ org: orgName, username, role });
   }
 
-  if (!store.findTeam('acme', 'core')) {
-    store.addTeam('acme', { name: 'core', description: 'Core maintainers', members: ['bob'], parent: null });
-  }
-  if (!store.findTeam('acme', 'inner')) {
-    store.addTeam('acme', { name: 'inner', description: 'Nested team', members: [], parent: 'core' });
+  // ----- team -----
+  if (!store.findTeam(orgName, 'frontend-team')) {
+    store.addTeam(orgName, {
+      name: 'frontend-team',
+      description: 'Frontend engineering team',
+      members: ['bob-reviewer'],
+      parent: null,
+    });
   }
 
+  // ----- repositories -----
   const repos = [
-    { name: 'public-repo', visibility: 'public', ownerType: 'organization' },
-    { name: 'private-repo', visibility: 'private', ownerType: 'organization' },
-    { name: 'forkable-repo', visibility: 'public', ownerType: 'organization' },
+    { name: 'acme-docs', visibility: 'public' },
+    { name: 'acme-private', visibility: 'private' },
   ];
   for (const spec of repos) {
-    if (store.findRepo('acme', spec.name)) continue;
+    if (store.findRepo(orgName, spec.name)) continue;
     const repo = {
-      owner: 'acme',
-      ownerType: spec.ownerType,
+      owner: orgName,
+      ownerType: 'organization',
       name: spec.name,
       visibility: spec.visibility,
       description: `${spec.name} seed repository`,
       defaultBranch: 'main',
-      createdBy: 'alice',
+      creator: 'alice-dev',
+      createdBy: 'alice-dev',
       createdAt: new Date().toISOString(),
     };
     store.state.repos.push(repo);
-    store.initializeRepoContent(repo, 'alice');
-    store.addFile(repo, 'src/app.js', 'export const app = 1;\n', 'alice', 'Add application entry', 'main');
-    store.addFile(repo, 'docs/guide.md', '# Guide\n', 'alice', 'Add documentation', 'main');
+    store.initializeRepoContent(repo, 'alice-dev');
   }
 
-  const privateRepo = store.findRepo('acme', 'private-repo');
-  if (privateRepo && !(privateRepo.branches || []).some((branch) => branch.name === 'feature/login')) {
-    store.addBranch(privateRepo, 'feature/login', 'alice');
-    store.addFile(
-      privateRepo,
-      'src/login.js',
-      'export const login = () => true;\n',
-      'alice',
-      'Add login flow',
-      'feature/login',
-    );
-  }
+  const docs = store.findRepo(orgName, 'acme-docs');
+  const privateRepo = store.findRepo(orgName, 'acme-private');
 
-  // direct + team grants so permission tests have seeded subjects
-  if (privateRepo) {
+  // ----- access grants (repo-level roles) -----
+  for (const repo of [docs, privateRepo]) {
+    if (!repo) continue;
     store.state.accessGrants = store.state.accessGrants.filter(
-      (grant) => !(grant.org === 'acme' && grant.repo === 'private-repo'),
+      (grant) => !(grant.org === orgName && grant.repo === repo.name),
     );
-    store.state.accessGrants.push({ org: 'acme', repo: 'private-repo', team: null, user: 'carol', permission: 'Write' });
-    store.state.accessGrants.push({ org: 'acme', repo: 'private-repo', team: 'core', permission: 'Triage' });
+    store.state.accessGrants.push({
+      org: orgName,
+      repo: repo.name,
+      team: null,
+      user: 'bob-reviewer',
+      permission: 'Write',
+    });
+    store.state.accessGrants.push({
+      org: orgName,
+      repo: repo.name,
+      team: null,
+      user: 'carol-reader',
+      permission: 'Read',
+    });
   }
 
-  if (privateRepo && store.listIssues('acme', 'private-repo').length === 0) {
-    const number = store.nextIssueNumber('acme', 'private-repo');
-    store.state.issues.push({
-      key: 'acme/private-repo',
-      owner: 'acme',
-      repo: 'private-repo',
-      number,
-      title: 'Login button does not respond',
-      body: 'Seed issue used by issue tests.',
-      author: 'alice',
+  // ----- acme-docs code history: main + feature-search -----
+  const SEARCH_BASE = 'export function search(items, query) {\n  return items;\n}\n';
+  const SEARCH_HEAD = 'export function search(items, query) {\n  const q = query.toLowerCase();\n  return items.filter((item) => item.includes(q));\n}\n';
+  const SEARCH_UTILS = 'export const normalize = (value) => String(value).toLowerCase();\n';
+
+  if (docs && !store.findFile(docs, 'src/search.ts')) {
+    store.addFile(docs, 'src/search.ts', SEARCH_BASE, 'alice-dev', 'Add search module', 'main');
+  }
+
+  if (docs && !(docs.branches || []).some((branch) => branch.name === 'feature-search')) {
+    store.addBranch(docs, 'feature-search', 'alice-dev');
+  }
+
+  // Build a single feature-search commit ahead of main that modifies src/search.ts
+  // and adds src/search-utils.ts (one added file + one modified file).
+  if (docs) {
+    const featureBranch = (docs.branches || []).find((branch) => branch.name === 'feature-search');
+    const mainBranch = (docs.branches || []).find((branch) => branch.name === 'main');
+    const mainHead = mainBranch ? mainBranch.head : null;
+    const headFiles = (docs.files || [])
+      .map((file) =>
+        file.path === 'src/search.ts' ? { ...file, content: SEARCH_HEAD } : file,
+      )
+      .concat([{ path: 'src/search-utils.ts', content: SEARCH_UTILS }]);
+    if (featureBranch && featureBranch.head === mainHead) {
+      pushCommit(docs, {
+        message: 'Refine search and add utilities',
+        author: 'alice-dev',
+        parents: mainHead ? [mainHead] : [],
+        changed: ['src/search.ts', 'src/search-utils.ts'],
+        snapshot: headFiles,
+        branch: 'feature-search',
+      });
+    }
+  }
+
+  // ----- draft-feature branch (for the ready-for-review draft PR) -----
+  if (docs && !(docs.branches || []).some((branch) => branch.name === 'draft-feature')) {
+    store.addBranch(docs, 'draft-feature', 'alice-dev');
+    const draftBranch = (docs.branches || []).find((branch) => branch.name === 'draft-feature');
+    const mainBranch = (docs.branches || []).find((branch) => branch.name === 'main');
+    if (draftBranch && mainBranch) {
+      pushCommit(docs, {
+        message: 'Draft onboarding changes',
+        author: 'alice-dev',
+        parents: [mainBranch.head],
+        changed: ['README.md'],
+        snapshot: (docs.files || []).map((file) => ({ ...file })),
+        branch: 'draft-feature',
+      });
+    }
+  }
+
+  // ----- branch protection on main -----
+  if (docs) {
+    store.state.protections[store.repoKey(docs.owner, docs.name)] = {
+      branch: 'main',
+      requiredApprovals: 1,
+      requiredChecks: ['test'],
+    };
+  }
+
+  // ----- pull requests -----
+  if (docs && (docs.pulls || []).length === 0) {
+    docs.pulls = [];
+    docs.pullCounter = 0;
+    const featureHead = store.branchHead(docs, 'feature-search');
+
+    docs.pulls.push({
+      number: store.nextPullNumber(docs),
+      title: 'Improve onboarding',
+      body: 'Improve the onboarding flow for new contributors.',
+      author: 'alice-dev',
       state: 'open',
-      assignees: ['bob'],
-      labels: ['bug', 'documentation'],
+      baseBranch: 'main',
+      headBranch: 'feature-search',
+      headSha: featureHead,
+      milestone: null,
+      createdAt: new Date().toISOString(),
+      reviews: [],
+      checks: [{ name: 'test', state: 'success' }],
+      reviewers: [{ username: 'bob-reviewer' }],
+      reviewComments: [],
+    });
+
+    docs.pulls.push({
+      number: store.nextPullNumber(docs),
+      title: 'Fix search',
+      body: 'Fix case-insensitive search matching.',
+      author: 'alice-dev',
+      state: 'open',
+      baseBranch: 'main',
+      headBranch: 'feature-search',
+      headSha: featureHead,
+      milestone: null,
+      createdAt: new Date().toISOString(),
+      reviews: [
+        {
+          id: 'seed-review-approve',
+          author: 'bob-reviewer',
+          state: 'APPROVED',
+          body: 'Looks good.',
+          headSha: featureHead,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      checks: [{ name: 'test', state: 'success' }],
+      reviewers: [],
+      reviewComments: [],
+    });
+
+    const draftHead = store.branchHead(docs, 'draft-feature');
+    docs.pulls.push({
+      number: store.nextPullNumber(docs),
+      title: 'Draft onboarding update',
+      body: 'Work in progress.',
+      author: 'alice-dev',
+      state: 'draft',
+      baseBranch: 'main',
+      headBranch: 'draft-feature',
+      headSha: draftHead,
+      milestone: null,
+      createdAt: new Date().toISOString(),
+      reviews: [],
+      checks: [],
+      reviewers: [],
+      reviewComments: [],
+    });
+  }
+
+  // ----- seed issue (for issue tests) -----
+  if (docs && store.listIssues(orgName, 'acme-docs').length === 0) {
+    const number = store.nextIssueNumber(orgName, 'acme-docs');
+    store.state.issues.push({
+      key: `${orgName}/acme-docs`,
+      owner: orgName,
+      repo: 'acme-docs',
+      number,
+      title: 'Search results are case-sensitive',
+      body: 'Seed issue used by issue tests.',
+      author: 'alice-dev',
+      state: 'open',
+      assignees: ['bob-reviewer'],
+      labels: ['bug'],
       milestone: 'v1.0',
       comments: [
-        { id: 'seed-comment-1', author: 'bob', body: 'Reproduced on main.', createdAt: new Date().toISOString() },
+        { id: 'seed-issue-comment', author: 'bob-reviewer', body: 'Confirmed.', createdAt: new Date().toISOString() },
       ],
       reactions: [],
       createdAt: new Date().toISOString(),
     });
-    const closed = store.nextIssueNumber('acme', 'private-repo');
-    store.state.issues.push({
-      key: 'acme/private-repo',
-      owner: 'acme',
-      repo: 'private-repo',
-      number: closed,
-      title: 'Closed seed issue',
-      body: 'Seed issue for status filters.',
-      author: 'alice',
-      state: 'closed',
-      assignees: [],
-      labels: [],
-      milestone: null,
-      comments: [],
-      reactions: [],
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  if (privateRepo && (privateRepo.pulls || []).length === 0) {
-    const openPull = {
-      number: store.nextPullNumber(privateRepo),
-      title: 'Add login flow',
-      body: 'Seed pull request for review tests.',
-      author: 'alice',
-      state: 'open',
-      baseBranch: 'main',
-      headBranch: 'feature/login',
-      headSha: store.branchHead(privateRepo, 'feature/login'),
-      createdAt: new Date().toISOString(),
-      reviews: [],
-      checks: [],
-      reviewers: [],
-      reviewComments: [],
-    };
-    privateRepo.pulls = [openPull];
-    const draftPull = {
-      number: store.nextPullNumber(privateRepo),
-      title: 'Draft work in progress',
-      body: 'Seed draft pull request.',
-      author: 'alice',
-      state: 'draft',
-      baseBranch: 'main',
-      headBranch: 'feature/login',
-      headSha: store.branchHead(privateRepo, 'feature/login'),
-      createdAt: new Date().toISOString(),
-      reviews: [],
-      checks: [],
-      reviewers: [],
-      reviewComments: [],
-    };
-    privateRepo.pulls.push(draftPull);
-  }
-
-  if (!store.findRepo('alice', 'demo')) {
-    const personal = {
-      owner: 'alice',
-      ownerType: 'user',
-      name: 'demo',
-      visibility: 'public',
-      description: 'Personal seed repository',
-      defaultBranch: 'main',
-      createdBy: 'alice',
-      createdAt: new Date().toISOString(),
-    };
-    store.state.repos.push(personal);
-    store.initializeRepoContent(personal, 'alice');
-    store.addFile(personal, 'README.md', '# Demo\n', 'alice', 'Start demo', 'main');
-  }
-
-  const forkable = store.findRepo('acme', 'forkable-repo');
-  if (forkable && !store.findRepo('bob', 'forkable-repo')) {
-    store.forkRepo(forkable, 'bob', 'user', 'public', 'bob');
   }
 }
 

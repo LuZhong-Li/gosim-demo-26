@@ -424,3 +424,30 @@ module.exports = {
   usedBounds,
 };
 
+
+function seed() {
+  if (state.workbooks.some((workbook) => workbook.name === 'Q3 Sales')) return;
+
+  const workbook = createWorkbook('Q3 Sales');
+  const sheet1 = workbook.worksheets[0];
+  const table = [
+    ['Region', 'Sales', 'Status'],
+    ['East', 1200, 'Open'],
+    ['North', 800, 'Closed'],
+    ['South', 700, 'Open'],
+  ];
+  table.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      sheet1.cells[refOf(colIndex + 1, rowIndex + 1)] = { value };
+    });
+  });
+
+  const sheet2 = { name: 'Sheet2', cells: {}, validations: {}, selection: null };
+  sheet2.cells['A1'] = { value: 'East' };
+  sheet2.cells['B1'] = { value: 1200 };
+  sheet2.cells['A2'] = { value: 'North' };
+  sheet2.cells['B2'] = { value: 800 };
+  workbook.worksheets.push(sheet2);
+}
+
+seed();

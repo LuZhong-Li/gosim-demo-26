@@ -38,29 +38,29 @@ function isPasswordValid(value) {
 }
 
 function validateRegistration(body) {
-  const errors = [];
+  const errors = {};
   const username = String(body.username || '').trim();
   const email = String(body.email || '').trim();
   if (!isUsernameValid(username)) {
-    errors.push('Username must be 1-39 lowercase letters, digits, or single hyphens and must not begin or end with a hyphen.');
+    errors.username = 'Username format is invalid';
   }
   if (!isEmailValid(email)) {
-    errors.push('Please enter a valid email address.');
+    errors.email = 'Email format is invalid';
   }
   if (!isPasswordValid(body.password)) {
-    errors.push('Password must be 12-128 characters without whitespace and include uppercase, lowercase, digit, and special character.');
+    errors.password = 'Password requirements are not satisfied';
   }
   if (String(body.password || '') !== String(body.confirmPassword || '')) {
-    errors.push("Passwords don't match.");
+    errors.confirmPassword = 'Password confirmation does not match';
   }
   if (body.terms !== true) {
-    errors.push('You must accept the terms of service.');
+    errors.terms = 'Agree to terms is required';
   }
   if (store.findUserByUsername(username)) {
-    errors.push('That username is already taken.');
+    errors.username = 'Username already exists';
   }
   if (store.findUserByEmail(email)) {
-    errors.push('An account with that email already exists.');
+    errors.email = 'An account with that email already exists';
   }
   return errors;
 }
@@ -91,7 +91,7 @@ app.get('/api/health', (req, res) => res.json({ code: 200, message: 'GitHub Read
 app.post('/api/auth/register', (req, res) => {
   const body = req.body || {};
   const errors = validateRegistration(body);
-  if (errors.length) return res.status(400).json({ error: errors[0] });
+  if (Object.keys(errors).length) return res.status(400).json({ errors });
   const username = String(body.username).trim().toLowerCase();
   const user = store.createUser({
     username,
@@ -104,7 +104,7 @@ app.post('/api/auth/register', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const identifier = String((req.body || {}).identifier || '').trim();
   const user = store.findUserByIdentifier(identifier);
-  const generic = { error: 'Invalid username or password.' };
+  const generic = { error: 'Invalid credentials' };
   if (!user || user.password !== String((req.body || {}).password || '')) {
     return res.status(401).json(generic);
   }
@@ -126,7 +126,7 @@ app.post('/api/auth/password', requireUser, (req, res) => {
   const newPassword = String(body.newPassword || '');
   const confirmPassword = String(body.confirmPassword || '');
   if (currentPassword !== String(req.user.password || '')) {
-    return res.status(400).json({ error: 'Current password is incorrect.' });
+    return res.status(400).json({ error: 'Current password is incorrect' });
   }
   if (!isPasswordValid(newPassword)) {
     return res.status(400).json({
@@ -135,18 +135,16 @@ app.post('/api/auth/password', requireUser, (req, res) => {
     });
   }
   if (newPassword !== confirmPassword) {
-    return res.status(400).json({ error: "New passwords don't match." });
+    return res.status(400).json({ error: 'Password confirmation does not match' });
   }
   req.user.password = newPassword;
-  return res.json({ ok: true });
+  return res.json({ ok: true, message: 'Password updated' });
 });
 
 app.post('/api/auth/forgot', (req, res) => {
-  const email = String((req.body || {}).email || '').trim().toLowerCase();
-  if (!store.findUserByEmail(email)) {
-    return res.status(404).json({ error: 'No account is associated with that email.' });
-  }
-  // The local product directly displays the fixed verification code.
+  // The local product directly displays the fixed verification code and does not
+  // reveal whether an account exists: both known and unknown emails enter the
+  // same next step.
   return res.json({ code: '123456' });
 });
 
@@ -157,7 +155,7 @@ app.post('/api/auth/reset', (req, res) => {
   const user = store.findUserByEmail(email);
   if (!user) return res.status(404).json({ error: 'No account is associated with that email.' });
   if (code !== '123456') {
-    return res.status(400).json({ error: 'The verification code is incorrect.' });
+    return res.status(400).json({ error: 'Verification code is invalid' });
   }
   if (!isPasswordValid(password)) {
     return res.status(400).json({
@@ -166,7 +164,7 @@ app.post('/api/auth/reset', (req, res) => {
     });
   }
   user.password = password;
-  return res.json({ ok: true });
+  return res.json({ ok: true, message: 'Password updated' });
 });
 
 // ---------- orgs ----------
@@ -182,12 +180,15 @@ app.get('/api/orgs', requireUser, (req, res) => {
 
 app.post('/api/orgs', requireUser, (req, res) => {
   const name = String((req.body || {}).name || '').trim().toLowerCase();
-  const displayName = String((req.body || {}).displayName || name).trim();
+  const displayName = String((req.body || {}).displayName || '').trim();
+  if (!displayName) {
+    return res.status(400).json({ error: 'Display name is required' });
+  }
   if (!/^[a-z0-9-]{1,39}$/.test(name)) {
-    return res.status(400).json({ error: 'Organization name must be 1-39 lowercase letters, digits, or hyphens.' });
+    return res.status(400).json({ error: 'Organization name format is invalid' });
   }
   if (store.findOrg(name)) {
-    return res.status(409).json({ error: 'An organization with that name already exists.' });
+    return res.status(409).json({ error: 'Organization name already exists' });
   }
   store.state.orgs.push({
     name,
