@@ -27,6 +27,7 @@ export default function PullsTab({
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [inlineTarget, setInlineTarget] = useState<{ path: string; line: number } | null>(null);
   const [reviewerDraft, setReviewerDraft] = useState('');
+  const [reviewerPickerOpen, setReviewerPickerOpen] = useState(false);
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
   const [requiredApprovals, setRequiredApprovals] = useState(1);
   const [requiredChecks, setRequiredChecks] = useState('test');
@@ -174,6 +175,40 @@ export default function PullsTab({
           {/* REQ-6-3-2: changed files and aggregate diff */}
           {/* REQ-6-4: requested reviewers */}
           <h4>Reviewers</h4>
+          <button type="button" onClick={() => setReviewerPickerOpen(true)}>
+            Reviewers
+          </button>
+          {reviewerPickerOpen && (
+            <div role="dialog" aria-label="Reviewers" className="inline-form">
+              <label>
+                Search
+                <input
+                  aria-label="Search"
+                  type="text"
+                  value={reviewerDraft}
+                  onChange={(event) => setReviewerDraft(event.target.value)}
+                />
+              </label>
+              {reviewerDraft.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const username = reviewerDraft.trim();
+                    api
+                      .requestPullReviewer(owner, name, selected.pull.number, username)
+                      .then((list) => {
+                        setReviewers(list);
+                        setReviewerDraft('');
+                        setReviewerPickerOpen(false);
+                      })
+                      .catch((caught) => setError(api.errorMessage(caught)));
+                  }}
+                >
+                  {reviewerDraft.trim()}
+                </button>
+              )}
+            </div>
+          )}
           {reviewers.length === 0 ? (
             <p className="muted">No reviewers requested.</p>
           ) : (
@@ -191,35 +226,12 @@ export default function PullsTab({
                         .catch((caught) => setError(api.errorMessage(caught)))
                     }
                   >
-                    Remove reviewer
+                    {`Remove ${reviewer.username}`}
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <form
-            className="inline-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!reviewerDraft.trim()) return;
-              api
-                .requestPullReviewer(owner, name, selected.pull.number, reviewerDraft.trim())
-                .then((list) => {
-                  setReviewers(list);
-                  setReviewerDraft('');
-                })
-                .catch((caught) => setError(api.errorMessage(caught)));
-            }}
-          >
-            <input
-              aria-label="Reviewer username"
-              type="text"
-              value={reviewerDraft}
-              placeholder="reviewer username"
-              onChange={(event) => setReviewerDraft(event.target.value)}
-            />
-            <button type="submit">Request reviewer</button>
-          </form>
           <button
             type="button"
             onClick={() => {
