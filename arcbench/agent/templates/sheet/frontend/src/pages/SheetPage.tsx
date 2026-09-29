@@ -113,6 +113,10 @@ export default function SheetPage() {
   const [importText, setImportText] = useState('');
   const [newSheetName, setNewSheetName] = useState('');
   const [renameValue, setRenameValue] = useState('');
+  const [openWorksheetMenu, setOpenWorksheetMenu] = useState<string | null>(null);
+  const [renameSheetTarget, setRenameSheetTarget] = useState<string | null>(null);
+  const [renameSheetError, setRenameSheetError] = useState('');
+  const [deleteSheetTarget, setDeleteSheetTarget] = useState<string | null>(null);
   const [renameWorkbookOpen, setRenameWorkbookOpen] = useState(false);
   const [renameWorkbookValue, setRenameWorkbookValue] = useState('');
   const [renameWorkbookError, setRenameWorkbookError] = useState('');
@@ -525,6 +529,70 @@ export default function SheetPage() {
     }
   }
 
+  async function addWorksheet() {
+    setError('');
+    try {
+      const created = await api.addWorksheet(id, newSheetName.trim());
+      setNewSheetName('');
+      setActive(created.name);
+      await load();
+      await api.setActiveSheet(id, created.name);
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  function openRenameWorksheet(name: string) {
+    setOpenWorksheetMenu(null);
+    setRenameSheetTarget(name);
+    setRenameValue(name);
+    setRenameSheetError('');
+  }
+
+  async function saveWorksheetName() {
+    if (!renameSheetTarget) return;
+    const name = renameValue.trim();
+    if (!name) {
+      setRenameSheetError('Worksheet name cannot be empty');
+      return;
+    }
+    if (workbook?.sheets.some((item) => item.name === name && item.name !== renameSheetTarget)) {
+      setRenameSheetError('Worksheet name already exists');
+      return;
+    }
+    setRenameSheetError('');
+    try {
+      await api.renameWorksheet(id, renameSheetTarget, name);
+      setRenameSheetTarget(null);
+      await load();
+    } catch (caught) {
+      setRenameSheetError(api.errorMessage(caught));
+    }
+  }
+
+  function requestDeleteWorksheet(name: string) {
+    setOpenWorksheetMenu(null);
+    if ((workbook?.sheets.length || 0) <= 1) {
+      setError('A workbook must contain at least one worksheet');
+      return;
+    }
+    setError('');
+    setDeleteSheetTarget(name);
+  }
+
+  async function confirmDeleteWorksheet() {
+    if (!deleteSheetTarget) return;
+    setError('');
+    try {
+      await api.deleteWorksheet(id, deleteSheetTarget);
+      setDeleteSheetTarget(null);
+      await load();
+    } catch (caught) {
+      setDeleteSheetTarget(null);
+      setError(api.errorMessage(caught));
+    }
+  }
+
 
   function enqueueUndoRedo(task: () => Promise<void>) {
     const next = undoRedoQueueRef.current.then(task).catch(() => undefined);
@@ -932,19 +1000,51 @@ export default function SheetPage() {
         </table>
       </div>
 
-      <div className="toolbar">
+      <div className="toolbar" role="tablist" aria-label="Worksheets">
         {workbook.sheets.map((item) => (
-          <button
-            key={item.name}
-            type="button"
-            className={item.name === active ? 'active' : ''}
-            onClick={() => {
-              setActive(item.name);
-              void api.setActiveSheet(id, item.name);
-            }}
-          >
-            {item.name}
-          </button>
+          <div key={item.name} className="worksheet-tab-item">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={item.name === active}
+              className={item.name === active ? 'active' : ''}
+              onClick={() => {
+                setActive(item.name);
+                void api.setActiveSheet(id, item.name);
+              }}
+            >
+              {item.name}
+            </button>
+            <button
+              type="button"
+              aria-label={`Worksheet options for ${item.name}`}
+              aria-haspopup="menu"
+              aria-expanded={openWorksheetMenu === item.name}
+              onClick={() =>
+                setOpenWorksheetMenu((current) => (current === item.name ? null : item.name))
+              }
+            >
+              Options
+            </button>
+            {openWorksheetMenu === item.name && (
+              <div className="menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => openRenameWorksheet(item.name)}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => requestDeleteWorksheet(item.name)}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
         ))}
       </div>
       <div className="toolbar">
@@ -955,37 +1055,49 @@ export default function SheetPage() {
           placeholder="New worksheet"
           onChange={(event) => setNewSheetName(event.target.value)}
         />
-        <button
-          type="button"
-          onClick={() =>
-            run(
-              () => api.addWorksheet(id, newSheetName || `Sheet${workbook.sheets.length + 1}`),
-              'Worksheet added.',
-            ).then(load)
-          }
-        >
+        <button type="button" onClick={() => void addWorksheet()}>
           Add worksheet
         </button>
-        <input
-          aria-label="Rename worksheet"
-          type="text"
-          value={renameValue}
-          placeholder={`Rename ${active}`}
-          onChange={(event) => setRenameValue(event.target.value)}
-        />
-        <button
-          type="button"
-          onClick={() => run(() => api.renameWorksheet(id, active, renameValue), 'Worksheet renamed.').then(load)}
-        >
-          Rename worksheet
-        </button>
-        <button
-          type="button"
-          onClick={() => run(() => api.deleteWorksheet(id, active), 'Worksheet deleted.').then(load)}
-        >
-          Delete worksheet
-        </button>
       </div>
+
+      {renameSheetTarget && (
+        <div role="dialog" aria-label="Rename worksheet" className="panel">
+          <h3>Rename worksheet</h3>
+          {renameSheetError && <p className="error">{renameSheetError}</p>}
+          <div className="field">
+            <label htmlFor="worksheet-name">Worksheet name</label>
+            <input
+              id="worksheet-name"
+              type="text"
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+            />
+          </div>
+          <div className="toolbar">
+            <button type="button" onClick={() => void saveWorksheetName()}>
+              Save
+            </button>
+            <button type="button" onClick={() => setRenameSheetTarget(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {deleteSheetTarget && (
+        <div role="dialog" aria-label="Delete worksheet" className="panel">
+          <h3>Delete worksheet</h3>
+          <p>{`Delete ${deleteSheetTarget}? This cannot be undone.`}</p>
+          <div className="toolbar">
+            <button type="button" onClick={() => void confirmDeleteWorksheet()}>
+              Delete worksheet
+            </button>
+            <button type="button" onClick={() => setDeleteSheetTarget(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <h2>Data validation</h2>
       <div className="toolbar">
@@ -1342,9 +1454,6 @@ export default function SheetPage() {
     </section>
   );
 }
-
-
-
 
 
 

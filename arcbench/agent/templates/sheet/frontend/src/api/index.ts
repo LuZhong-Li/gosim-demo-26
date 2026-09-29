@@ -87,8 +87,9 @@ export async function setActiveSheet(id: string, sheet: string): Promise<void> {
   await client.put(`/workbooks/${encodeURIComponent(id)}/active-sheet`, { sheet });
 }
 
-export async function addWorksheet(id: string, name: string): Promise<void> {
-  await client.post(`/workbooks/${encodeURIComponent(id)}/worksheets`, { name });
+export async function addWorksheet(id: string, name: string): Promise<Worksheet> {
+  const response = await client.post(`/workbooks/${encodeURIComponent(id)}/worksheets`, { name });
+  return response.data.sheet as Worksheet;
 }
 
 export async function renameWorksheet(id: string, sheet: string, name: string): Promise<void> {

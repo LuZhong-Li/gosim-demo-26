@@ -67,7 +67,7 @@ describe('Sheet history and persistence', () => {
     renderSheet('wb-filter');
 
     const user = userEvent.setup();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sheet1' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Sheet1' })).toBeInTheDocument());
     await openDataTool('Create filter');
     const dialog = screen.getByRole('dialog', { name: 'Create filter' });
     await user.type(within(dialog).getByLabelText('Filter column'), 'A');
@@ -127,7 +127,7 @@ describe('Sheet history and persistence', () => {
     renderSheet('wb-validation');
 
     const user = userEvent.setup();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sheet1' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Sheet1' })).toBeInTheDocument());
     await openDataTool('Data validation');
     const dialog = screen.getByRole('dialog', { name: 'Data validation' });
     await user.type(within(dialog).getByLabelText('Allowed values'), 'Open,Closed');

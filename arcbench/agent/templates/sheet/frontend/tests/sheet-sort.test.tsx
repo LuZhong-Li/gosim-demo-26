@@ -57,7 +57,7 @@ describe('Sheet sort range', () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sheet1' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Sheet1' })).toBeInTheDocument());
     fireEvent.mouseDown(screen.getByRole('gridcell', { name: 'A1' }));
     fireEvent.mouseEnter(screen.getByRole('gridcell', { name: 'C4' }));
     fireEvent.mouseUp(screen.getByRole('gridcell', { name: 'C4' }));

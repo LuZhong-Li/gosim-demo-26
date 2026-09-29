@@ -106,15 +106,23 @@ app.put('/api/workbooks/:id/active-sheet', (req, res) => {
 
 // ---------- worksheets ----------
 
+function nextSheetName(workbook) {
+  const used = new Set(workbook.worksheets.map((sheet) => sheet.name));
+  let index = 1;
+  while (used.has(`Sheet${index}`)) index += 1;
+  return `Sheet${index}`;
+}
+
 app.post('/api/workbooks/:id/worksheets', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;
-  const name = String((req.body || {}).name || '').trim() || `Sheet${workbook.worksheets.length + 1}`;
+  const name = String((req.body || {}).name || '').trim() || nextSheetName(workbook);
   if (store.findSheet(workbook, name)) {
-    return res.status(409).json({ error: 'A worksheet with that name already exists.' });
+    return res.status(409).json({ error: 'Worksheet name already exists' });
   }
   const sheet = { name, cells: {}, validations: {} };
   workbook.worksheets.push(sheet);
+  workbook.lastActiveSheet = name;
   touch(workbook);
   res.status(201).json({ sheet: sheetPayload(sheet) });
 });
@@ -125,9 +133,10 @@ app.patch('/api/workbooks/:id/worksheets/:sheet', (req, res) => {
   const sheet = store.findSheet(workbook, req.params.sheet);
   if (!sheet) return res.status(404).json({ error: 'Worksheet not found.' });
   const name = String((req.body || {}).name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Worksheet name is required.' });
-  if (store.findSheet(workbook, name)) {
-    return res.status(409).json({ error: 'A worksheet with that name already exists.' });
+  if (!name) return res.status(400).json({ error: 'Worksheet name cannot be empty' });
+  const duplicate = store.findSheet(workbook, name);
+  if (duplicate && duplicate !== sheet) {
+    return res.status(409).json({ error: 'Worksheet name already exists' });
   }
   sheet.name = name;
   touch(workbook);
@@ -138,11 +147,22 @@ app.delete('/api/workbooks/:id/worksheets/:sheet', (req, res) => {
   const workbook = requireWorkbook(req, res);
   if (!workbook) return;
   if (workbook.worksheets.length <= 1) {
-    return res.status(400).json({ error: 'A workbook needs at least one worksheet.' });
+    return res.status(400).json({ error: 'A workbook must contain at least one worksheet' });
   }
   const exists = store.findSheet(workbook, req.params.sheet);
   if (!exists) return res.status(404).json({ error: 'Worksheet not found.' });
+  const dependentPivot = workbook.worksheets.some(
+    (sheet) => sheet.name !== exists.name && sheet.pivot && sheet.pivot.source === exists.name,
+  );
+  if (dependentPivot) {
+    return res
+      .status(409)
+      .json({ error: 'Please delete or rebuild dependent pivot tables first' });
+  }
   workbook.worksheets = workbook.worksheets.filter((sheet) => sheet.name !== req.params.sheet);
+  if (workbook.lastActiveSheet === req.params.sheet) {
+    workbook.lastActiveSheet = workbook.worksheets[0]?.name || '';
+  }
   touch(workbook);
   res.json({ ok: true });
 });
