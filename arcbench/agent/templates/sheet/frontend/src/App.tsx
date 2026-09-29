@@ -1,5 +1,5 @@
 import { Link, Route, Routes } from 'react-router-dom';
-import HomePage from './pages/HomePage';
+import HomePage, { NewWorkbookPage } from './pages/HomePage';
 import SheetPage from './pages/SheetPage';
 
 function App() {
@@ -16,6 +16,7 @@ function App() {
       <main className="page wide">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/workbooks/new" element={<NewWorkbookPage />} />
           <Route path="/workbooks/:id" element={<SheetPage />} />
         </Routes>
       </main>

@@ -386,7 +386,7 @@ function parseCsv(text) {
 
 function importCsvWorkbook(name, text) {
   const rows = parseCsv(text);
-  if (!rows) return { error: 'Invalid CSV file format; import failed' };
+  if (!rows) return { error: 'Invalid CSV file format. Import failed.' };
   const cells = {};
   rows.forEach((row, rowIndex) => {
     row.forEach((value, colIndex) => {

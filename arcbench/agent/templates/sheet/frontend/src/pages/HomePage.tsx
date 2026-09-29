@@ -58,7 +58,7 @@ export default function HomePage() {
       setCsvReady(null);
       navigate(`/workbooks/${workbook.id}`);
     } catch (caught) {
-      setCsvError(api.errorMessage(caught, 'Invalid CSV file format; import failed'));
+      setCsvError(api.errorMessage(caught, 'Invalid CSV file format. Import failed.'));
     }
   }
 
@@ -66,6 +66,11 @@ export default function HomePage() {
     <section className="panel">
       <h1>Workbooks</h1>
       {error && <p className="error">{error}</p>}
+      <div className="toolbar">
+        <button type="button" onClick={() => navigate('/workbooks/new')}>
+          New blank workbook
+        </button>
+      </div>
       {workbooks.length === 0 ? (
         <p>No workbooks yet. Create one below.</p>
       ) : (
@@ -116,6 +121,42 @@ export default function HomePage() {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+export function NewWorkbookPage() {
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
+    setError('');
+    try {
+      const workbook = await api.createWorkbook(name.trim() || 'Untitled workbook');
+      navigate(`/workbooks/${workbook.id}`);
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  return (
+    <section className="panel">
+      <h1>New blank workbook</h1>
+      {error && <p className="error">{error}</p>}
+      <form className="form-grid" onSubmit={handleCreate}>
+        <div className="field">
+          <label htmlFor="new-workbook-name">Workbook name</label>
+          <input
+            id="new-workbook-name"
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </div>
+        <button type="submit">Create</button>
+      </form>
     </section>
   );
 }
