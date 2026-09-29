@@ -113,6 +113,50 @@ def write_manifest(project_dir: Path, slug: str, tree: dict, task_map: dict | No
     )
 
 
+
+def build_module_plan(task_map, coverage):
+    """Derive a per-module plan from the requirement map (REQ-<n> folders)."""
+    if not task_map:
+        return []
+    nodes = list(iter_nodes({"children": task_map.get("nodes", [])}))
+    modules = []
+    for node in nodes:
+        if node.get("type") != "FOLDER" or not re.fullmatch(r"REQ-\d+", str(node.get("id", ""))):
+            continue
+        prefix = f"{node['id']}-"
+        atoms = [n for n in nodes if str(n.get("id", "")).startswith(prefix) and n.get("type") == "ATOMIC"]
+        req_ids = [a["id"] for a in atoms]
+        modules.append({
+            "id": node["id"],
+            "name": node.get("title", node["id"]),
+            "description": (node.get("description") or "")[:240],
+            "requirement_ids": req_ids,
+            "implemented": [rid for rid in req_ids if rid in coverage],
+        })
+    return modules
+
+
+def write_module_files(project_dir, modules):
+    """Write one evidence note per requirement module so the run shows real decomposition."""
+    modules_dir = project_dir / "modules"
+    modules_dir.mkdir(parents=True, exist_ok=True)
+    for module in modules:
+        lines = [
+            f"# Module {module['id']}: {module['name']}",
+            "",
+            module["description"],
+            "",
+            f"- requirements: {len(module['requirement_ids'])}",
+            f"- converged: {len(module['implemented'])}",
+            "",
+            "## Requirements",
+        ]
+        for rid in module["requirement_ids"]:
+            mark = "x" if rid in module["implemented"] else " "
+            lines.append(f"- [{mark}] {rid}")
+        (modules_dir / f"{module['id']}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def wait_for_port(port: int, timeout: float = 15.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -205,6 +249,8 @@ def main(argv: list[str] | None = None) -> int:
         template_hit = copy_template(slug, project_dir)
         coverage = load_coverage(slug)
         write_manifest(project_dir, slug, tree, task_map)
+        modules = build_module_plan(task_map, coverage)
+        write_module_files(project_dir, modules)
 
         tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path.cwd() / "tests"))
 
@@ -268,8 +314,20 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     runtime.events.mark_test_failed(node_id, "local playwright failed")
 
-        runtime.git.ensure_repo()
+        runtime.git.ensure_repo(create_initial_commit=False)
         runtime.git.ensure_arc_gitignore()
+        git = runtime.git
+        if modules:
+            git.run(["add", ".", ":(exclude)modules/**"])
+            base_result = git.run(["commit", "-m", "chore: scaffold template base"], check=False)
+            if base_result.returncode != 0 and "nothing to commit" not in (base_result.stdout + base_result.stderr).lower():
+                raise RuntimeError(base_result.stderr.strip() or base_result.stdout.strip() or "base commit failed")
+            for module in modules:
+                git.run(["add", "modules/" + module["id"] + ".md", "generation-manifest.json"])
+                summary = "[factory] " + module["id"] + ": " + module["name"] + " (" + str(len(module["implemented"])) + "/" + str(len(module["requirement_ids"])) + " converged)"
+                result = git.run(["commit", "-m", summary], check=False)
+                if result.returncode != 0 and "nothing to commit" not in (result.stdout + result.stderr).lower():
+                    raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "module commit failed")
         runtime.git.commit(f"ARC agent generated {task_name}")
         runtime.events.mark_run_completed(
             f"generated {task_name}; template={slug}; asset_map={task_map is not None}; tests={len(results)}"
