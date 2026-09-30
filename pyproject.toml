@@ -32,3 +32,8 @@ py-modules = ["constants", "config", "errors"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# arcbench holds the competition workspace, including vendored upstream
+# repositories whose tests require their own dependencies.
+norecursedirs = ["arcbench", ".venv*", "demo/output"]
