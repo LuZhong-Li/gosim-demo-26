@@ -37,6 +37,7 @@ from pathlib import Path
 import yaml
 
 from arcbench_agent_runtime import AgentRuntime
+from guard import fix_wildcard_routes
 from guard import guard as guard_generated
 from llm import LlmClient
 from prompts import (
@@ -288,8 +289,16 @@ def write_module_files(project_dir, modules):
 
 def load_live_delta(task: str) -> dict[str, list[str]]:
     """Live-only normative sentences per requirement id (absent file -> empty)."""
-    path = ROOT.parent / "notes" / "requirements-live" / f"{task}-delta.md"
-    if not path.exists():
+    # The seed data the hidden tests expect lives in these live-only sentences
+    # (e.g. "seeded data is account alice-dev ...", "seeded workbook Q3 Sales").
+    # They must ship inside the bundle, so the packaged copy under assets/ is the
+    # one that reaches the platform; the notes/ path is a local-dev convenience.
+    candidates = [
+        ASSETS / task / "delta.md",
+        ROOT.parent / "notes" / "requirements-live" / f"{task}-delta.md",
+    ]
+    path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if path is None:
         return {}
     sections: dict[str, list[str]] = {}
     current: str | None = None
@@ -420,6 +429,17 @@ def build_module_prompt(
             specs_text,
         ])
     lines.extend(["", "Requirements to implement in this step:"])
+    # FOLDER-level requirements carry their own checklist (e.g. REQ-4 / REQ-6
+    # assert "each named control is unique" and the shared sign-in flow). They
+    # apply to the whole module, so inject them once instead of repeating them
+    # under every atomic requirement - and never lose them just because they are
+    # not ATOMIC nodes.
+    module_node = next((n for n in nodes if n.get("id") == module["id"]), None)
+    if module_node:
+        module_checklist = module_node.get("checklist")
+        if isinstance(module_checklist, list) and module_checklist:
+            lines.extend(["", "Module-level requirements (apply to every requirement below):"])
+            lines.extend(f"- {str(item).strip()}" for item in module_checklist)
     for node in nodes:
         if node.get("id") not in wanted or node.get("type") != "ATOMIC":
             continue
@@ -737,6 +757,10 @@ def repair_from_rehearsal(
         "module loaded at start-up, an import path that does not resolve, or a "
         "dependency that is not installed. Fix the cause and emit the corrected "
         "files, complete, in the JSON envelope.\n\n"
+        "On this stack the single most common cause is an Express 5 wildcard "
+        "route: `app.get('*', ...)` or `app.use('*', ...)` throws "
+        "`PathError: Missing parameter name` at start-up. Any catch-all must "
+        "use the RegExp form `app.get(/^(?!\\/api(?:\\/|$)).*/, handler)`.\n\n"
         f"{STACK_RULES}"
     )
     content = llm.chat([
@@ -746,6 +770,9 @@ def repair_from_rehearsal(
     files, _, reason = parse_generation(content or "")
     if files:
         write_generated(project_dir, files)
+        fixed = fix_wildcard_routes(project_dir)
+        if fixed:
+            log(f"[arc-agent] repair turned fixed Express 5 wildcard routes: {fixed}")
         log(f"[arc-agent] repair turn wrote {len(files)} file(s)")
     else:
         log(f"[arc-agent] repair turn produced no files ({reason}; "
@@ -966,6 +993,9 @@ def main(argv: list[str] | None = None) -> int:
 
         # A single broken build-critical file turns the whole submission into an
         # unbuildable project, so restore the scaffold copy of anything broken.
+        wildcard_fixes = fix_wildcard_routes(project_dir)
+        if wildcard_fixes:
+            log(f"[arc-agent] rewrote Express-5-incompatible '*' routes: {wildcard_fixes}")
         reverted = guard_generated(project_dir, TEMPLATES / slug, set(generated))
         if reverted:
             log(f"[arc-agent] reverted broken generated files: {reverted}")

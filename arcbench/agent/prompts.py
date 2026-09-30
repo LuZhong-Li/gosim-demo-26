@@ -90,6 +90,10 @@ replace it:
   them instead of writing your own fetch layer.
 - ``backend/`` is Express and MUST listen on ``process.env.PORT || 3000``.
   ``backend/src/app.js`` exports the app; mount your routers there.
+- Express here is version 5: a bare ``'*'`` route path THROWS at startup
+  (``PathError: Missing parameter name``). For a catch-all use the RegExp form
+  already in ``app.js`` (``app.get(/^(?!\\/api(?:\\/|$)).*/, handler)``) — never
+  ``app.get('*', ...)``.
 - Persist through ``backend/src/store.js`` (a JSON file loaded at start-up and
   rewritten on every successful mutation). Do not add a native database.
 - Do not add npm dependencies. Everything needed is already installed; a new

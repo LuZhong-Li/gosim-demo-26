@@ -13,6 +13,7 @@ immediately instead of only after the hidden suite runs.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 SOURCE_SUFFIXES = {".js", ".jsx", ".ts", ".tsx", ".html", ".css"}
@@ -110,11 +111,17 @@ def report(project_dir: Path, nodes: list[dict], limit: int = 25) -> dict:
 
 def main(project_dir: Path, nodes: list[dict]) -> None:
     result = report(project_dir, nodes)
-    print(
+    summary = (
         f"[selfcheck] exact-name coverage: {result['checked'] - len(result['missing'])}/"
         f"{result['checked']} present "
-        f"({len(result['missing'])} missing)",
-        flush=True,
+        f"({len(result['missing'])} missing)"
     )
+    # Mirror to stderr as well: the platform truncates long stdout captures, so
+    # the coverage line would otherwise be lost exactly when it matters most
+    # (a large batch of missing names).
+    print(summary, flush=True)
+    print(summary, file=sys.stderr, flush=True)
     for name in result["missing_shown"]:
-        print(f"[selfcheck] missing name: {name}", flush=True)
+        line = f"[selfcheck] missing name: {name}"
+        print(line, flush=True)
+        print(line, file=sys.stderr, flush=True)
