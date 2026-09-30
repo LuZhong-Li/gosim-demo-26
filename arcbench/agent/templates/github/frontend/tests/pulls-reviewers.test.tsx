@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   getPullFiles: vi.fn(),
   listPulls: vi.fn(),
   listPullCommits: vi.fn(),
+  listRepoMembers: vi.fn(),
   removePullReviewer: vi.fn(),
   requestPullReviewer: vi.fn(),
 }));
@@ -42,6 +43,8 @@ describe('Pull request reviewer picker', () => {
     });
     vi.mocked(api.requestPullReviewer).mockResolvedValue([{ username: 'bob-reviewer' }]);
     vi.mocked(api.removePullReviewer).mockResolvedValue([]);
+    // REQ-6-4: candidates are the repository collaborators, minus the author.
+    vi.mocked(api.listRepoMembers).mockResolvedValue(['alice-dev', 'bob-reviewer']);
     vi.mocked(api.getPullFiles).mockResolvedValue({
       baseBranch: 'main',
       headBranch: 'feature-search',
@@ -66,7 +69,14 @@ describe('Pull request reviewer picker', () => {
 
     const search = screen.getByRole('textbox', { name: 'Search' });
     await user.type(search, 'bob-reviewer');
-    await user.click(screen.getByRole('button', { name: 'bob-reviewer' }));
+    // The author is never offered as a reviewer candidate.
+    expect(
+      within(screen.getByRole('listbox', { name: 'Reviewers' })).queryByRole('option', {
+        name: 'alice-dev',
+      }),
+    ).not.toBeInTheDocument();
+    // The candidate is exposed as an option, and selecting it saves immediately.
+    await user.click(await screen.findByRole('option', { name: 'bob-reviewer' }));
 
     await waitFor(() =>
       expect(api.requestPullReviewer).toHaveBeenCalledWith('acme-demo', 'acme-docs', 5, 'bob-reviewer'),

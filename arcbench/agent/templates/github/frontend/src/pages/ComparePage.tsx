@@ -164,6 +164,10 @@ export default function ComparePage() {
             <p className="muted">No changes</p>
           ) : (
             <>
+              {/* REQ-6-2-2: the comparison reports a Commit summary. */}
+              <p className="muted">
+                {`Commit summary: ${compare.commits.length} commit(s) on ${compare.head} relative to ${compare.base}`}
+              </p>
               <p className="muted">
                 {compare.commits.length} commit(s) · {compare.stats.changedFiles} file(s) changed · +
                 {compare.stats.added} / -{compare.stats.removed}

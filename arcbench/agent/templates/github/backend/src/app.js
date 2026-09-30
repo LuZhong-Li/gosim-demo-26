@@ -14,6 +14,15 @@ function isUsernameValid(value) {
     String(value || '').trim().length <= 39;
 }
 
+// REQ-2-1-2: an organization identifier uses the same lowercase format as a
+// username, but the spec allows a single character as well.
+function isOrgNameValid(value) {
+  const name = String(value || '').trim();
+  if (!name || name.length > 39) return false;
+  if (!/^[a-z0-9-]+$/.test(name)) return false;
+  return !name.startsWith('-') && !name.endsWith('-') && !name.includes('--');
+}
+
 function isEmailValid(value) {
   const email = String(value || '').trim();
   if (email.length > 254) return false;
@@ -213,14 +222,18 @@ app.get('/api/orgs', requireUser, (req, res) => {
 app.post('/api/orgs', requireUser, (req, res) => {
   const name = String((req.body || {}).name || '').trim().toLowerCase();
   const displayName = String((req.body || {}).displayName || '').trim();
-  if (!displayName) {
-    return res.status(400).json({ error: 'Display name is required' });
-  }
-  if (!/^[a-z0-9-]{1,39}$/.test(name)) {
+  // REQ-2-1-2: a taken identifier reports "already exists" even when the display
+  // name is also missing, and the malformed identifier is reported before it.
+  // REQ-2-1-2: same 1-39 character lowercase format as a username, so a leading
+  // or trailing hyphen is rejected too.
+  if (!isOrgNameValid(name)) {
     return res.status(400).json({ error: 'Organization name format is invalid' });
   }
   if (store.findOrg(name)) {
     return res.status(409).json({ error: 'Organization name already exists' });
+  }
+  if (!displayName) {
+    return res.status(400).json({ error: 'Display name is required' });
   }
   store.state.orgs.push({
     name,

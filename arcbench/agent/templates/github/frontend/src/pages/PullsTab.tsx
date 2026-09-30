@@ -32,6 +32,8 @@ export default function PullsTab({
   const [reviewerDraft, setReviewerDraft] = useState('');
   const [reviewerPickerOpen, setReviewerPickerOpen] = useState(false);
   const [reviewers, setReviewers] = useState<ReviewerRequest[]>([]);
+  // REQ-6-4: eligible reviewers come from the repository collaborators.
+  const [eligibleReviewers, setEligibleReviewers] = useState<string[]>([]);
   const [milestones, setMilestones] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -70,6 +72,14 @@ export default function PullsTab({
       .listMilestones(owner, name)
       .then(setMilestones)
       .catch(() => setMilestones([]));
+  }, [owner, name]);
+
+  useEffect(() => {
+    // REQ-6-4: the reviewer picker offers repository collaborators.
+    void api
+      .listRepoMembers(owner, name)
+      .then(setEligibleReviewers)
+      .catch(() => setEligibleReviewers([]));
   }, [owner, name]);
 
   async function run(action: () => Promise<unknown>, successMessage: string) {
@@ -137,6 +147,25 @@ export default function PullsTab({
   const canMerge = Boolean(selected?.canMerge);
   // REQ-6-5: the pull request reports the paths that conflict between branches.
   const conflicts = selected?.conflicts || [];
+  // REQ-6-4: candidates are the repository collaborators that are not the author.
+  const reviewerCandidates = eligibleReviewers.filter(
+    (username) =>
+      username !== selected?.pull.author &&
+      username.toLowerCase().includes(reviewerDraft.trim().toLowerCase()),
+  );
+
+  function requestReviewer(username: string) {
+    if (!selected) return;
+    api
+      .requestPullReviewer(owner, name, selected.pull.number, username)
+      .then((list) => {
+        setReviewers(list);
+        setReviewerDraft('');
+        setReviewerPickerOpen(false);
+      })
+      .catch((caught) => setError(api.errorMessage(caught)));
+  }
+
   const changesRequested = (selected?.pull.reviews || []).some(
     (review) => review.state === 'CHANGES_REQUESTED',
   );
@@ -445,24 +474,22 @@ export default function PullsTab({
                   onChange={(event) => setReviewerDraft(event.target.value)}
                 />
               </label>
-              {reviewerDraft.trim() && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const username = reviewerDraft.trim();
-                    api
-                      .requestPullReviewer(owner, name, selected.pull.number, username)
-                      .then((list) => {
-                        setReviewers(list);
-                        setReviewerDraft('');
-                        setReviewerPickerOpen(false);
-                      })
-                      .catch((caught) => setError(api.errorMessage(caught)));
-                  }}
-                >
-                  {reviewerDraft.trim()}
-                </button>
-              )}
+              {/* REQ-6-4: typing immediately reveals an option whose accessible
+                  name is the reviewer; selecting it saves with no Save step. */}
+              <ul role="listbox" aria-label="Reviewers">
+                {reviewerCandidates.map((username) => (
+                  <li key={username}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                      onClick={() => requestReviewer(username)}
+                    >
+                      {username}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           {reviewers.length === 0 ? (
