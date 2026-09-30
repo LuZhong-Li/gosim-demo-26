@@ -49,6 +49,9 @@ def log(msg: str) -> None:
 
 NPM_INSTALL = ["npm", "install", "--no-audit", "--no-fund", "--no-package-lock"]
 
+#: Express route registrations we can turn into a smoke request.
+API_ROUTE_RE = re.compile(r"""\.(get|use|all)\(\s*['"]([^'"]+)['"]""")
+
 
 def _npm() -> str | None:
     found = shutil.which("npm")
@@ -268,6 +271,9 @@ def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -
                                 "the built frontend is not being served from frontend/dist")
                     log(f"[rehearsal] backend bound smoke port {smoke_port} "
                         f"(GET / -> {status or 'no answer'}); shutting it down")
+                    api_error = probe_api(smoke_port, output_dir, timeout=15.0)
+                    if api_error:
+                        return api_error
                     return None
             out = log_file.read_text(encoding="utf-8", errors="replace")
             return f"backend did not bind port {smoke_port} within 45s:\n{out[-1500:]}"
@@ -436,6 +442,67 @@ def probe_home(port: int, timeout: float = 10.0) -> int:
         except Exception:  # noqa: BLE001 - not up yet
             time.sleep(0.5)
     return 0
+
+
+def candidate_api_paths(project_dir: Path, limit: int = 8) -> list[str]:
+    """Plausible GET endpoints, read out of the generated Express routers."""
+    paths: list[str] = ["/api/health"]
+    backend = project_dir / "backend"
+    if not backend.is_dir():
+        return paths
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for _method, route in API_ROUTE_RE.findall(text):
+            route = route.strip()
+            if not route.startswith("/api"):
+                continue
+            # "/api/workbooks/:id" -> "/api/workbooks"; wildcards dropped.
+            route = route.split(":")[0].split("*")[0].rstrip("/") or "/"
+            if route not in paths:
+                paths.append(route)
+        if len(paths) >= limit:
+            break
+    return paths[:limit]
+
+
+def probe_api(port: int, project_dir: Path, timeout: float = 15.0) -> str | None:
+    """GET every plausible API entry point and fail on any 5xx.
+
+    A backend can bind its port and serve the HTML shell while every request it
+    handles still throws - r37's Sheet run did exactly that, with
+    ``TypeError: getState is not a function`` from a router the model wrote in a
+    different turn than the store it calls. The rehearsal's ``GET /`` check sees
+    only the static shell, so without this the failure is invisible until the
+    graded suite runs.
+    """
+    import urllib.error
+    import urllib.request
+
+    problems: list[str] = []
+    for route in candidate_api_paths(project_dir):
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}{route}", timeout=timeout
+            ) as response:
+                status = int(response.status)
+                body = response.read(300)
+        except urllib.error.HTTPError as exc:
+            status = int(exc.code)
+            body = exc.read(300)
+        except Exception as exc:  # noqa: BLE001 - a dead route is worth reporting
+            problems.append(f"GET {route} -> {type(exc).__name__}: {exc}")
+            continue
+        if status >= 500:
+            text = body.decode("utf-8", errors="replace").strip()[:200]
+            problems.append(f"GET {route} -> {status}: {text!r}")
+    if not problems:
+        return None
+    return "backend answers 5xx on its own API:\n" + "\n".join(problems[:4])
 
 
 def collect_aria_snapshot(page) -> str:
