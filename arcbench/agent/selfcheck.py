@@ -27,7 +27,33 @@ NOT_A_UI_NAME = re.compile(
     r"|^[a-z0-9][a-z0-9/-]*$"
     # Relation phrases such as "owner/repository name" or "pull request (PR)".
     r"|/|\((PR|optional)\)"
+    # Leftovers from a stringified structure never name a control.
+    r"|[{}()\[\]:]|'\w+':|^\W"
 )
+
+
+def _scenario_text(value: object) -> str:
+    """Flatten a scenario, which is a list of {name, steps:[{keyword, content}]}.
+
+    Stringifying that structure puts Python dict syntax into the quoted text, and
+    those fragments were being reported - and prompted back to the model - as if
+    they were accessible names.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        parts = [
+            value[key]
+            for key in ("name", "title", "content", "text", "description")
+            if isinstance(value.get(key), str)
+        ]
+        for key in ("steps", "scenarios", "children"):
+            if value.get(key) is not None:
+                parts.append(_scenario_text(value[key]))
+        return " ".join(parts)
+    if isinstance(value, (list, tuple)):
+        return " ".join(_scenario_text(item) for item in value)
+    return ""
 
 
 def quoted_names(nodes: list[dict]) -> list[str]:
@@ -39,7 +65,7 @@ def quoted_names(nodes: list[dict]) -> list[str]:
                 str(node.get("title") or ""),
                 str(node.get("description") or ""),
                 str(node.get("seed_hint") or ""),
-                " ".join(str(s) for s in (node.get("scenarios") or [])),
+                _scenario_text(node.get("scenarios")),
             ]
         )
         for match in re.finditer(r"[“\"]([^”\"\n]{3,60})[”\"]", text):

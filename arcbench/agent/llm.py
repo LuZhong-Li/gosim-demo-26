@@ -87,6 +87,9 @@ class LlmClient:
         self.max_tokens = int(os.environ.get("ARC_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
         self.reasoning_effort = os.environ.get("ARC_LLM_REASONING_EFFORT")
         self.usage = LlmUsage()
+        #: Diagnostics for the caller: why did the last reply fail to be usable?
+        self.last_finish_reason: str | None = None
+        self.last_error = ""
 
     @property
     def available(self) -> bool:
@@ -168,6 +171,7 @@ class LlmClient:
                 else:
                     choice = choices[0]
                     finish_reason = choice.get("finish_reason")
+                    self.last_finish_reason = finish_reason
                     self.usage.add(payload, finish_reason)
                     message = choice.get("message") or {}
                     content = message.get("content")
@@ -200,4 +204,5 @@ class LlmClient:
             time.sleep(min(2 ** attempt, 20))
 
         self.usage.errors.append(last_error or "unknown failure")
+        self.last_error = last_error or "unknown failure"
         return None

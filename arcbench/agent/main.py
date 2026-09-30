@@ -45,8 +45,10 @@ from prompts import (
     REPAIR_SYSTEM,
     STACK_RULES,
     UI_CONTRACT,
+    UNUSABLE_REPLY_NUDGE,
 )
 from selfcheck import main as run_selfcheck
+from selfcheck import quoted_names as exact_names
 from verify import (
     free_port,
     locate_acceptance_tests,
@@ -321,6 +323,17 @@ def port_clause(web_port: int, extra_ports: list[int]) -> str:
     )
 
 
+def module_names(module: dict, nodes: list[dict]) -> list[str]:
+    """The exact accessible names one module's requirements pin down."""
+    wanted = set(module.get("requirement_ids") or [])
+    selected = [
+        node
+        for node in nodes
+        if node.get("id") in wanted and node.get("type") == "ATOMIC"
+    ]
+    return exact_names(selected)
+
+
 def build_module_prompt(
     tree: dict,
     module: dict,
@@ -330,6 +343,7 @@ def build_module_prompt(
     guidance: str = "",
     specs_text: str = "",
     ports: str = "",
+    names: list[str] | None = None,
 ) -> str:
     """One module's requirement text, plus everything that decides the score."""
     wanted = set(module["requirement_ids"])
@@ -345,6 +359,18 @@ def build_module_prompt(
     ]
     if ports:
         lines.extend(["", ports])
+    if names:
+        # The tests locate controls by these exact strings. Listing them turns
+        # "read the requirement carefully" into a mechanical checklist, and the
+        # generation-time self-check counts them afterwards.
+        lines.extend([
+            "",
+            f"EXACT ACCESSIBLE NAMES for module {module['id']} - every string below",
+            "must appear verbatim as the visible label, link text, button text,",
+            "heading or option label of a control in the files you emit. A name",
+            "that never appears in the source cannot be found by the test:",
+        ])
+        lines.extend(f'- "{name}"' for name in names[:80])
     if guidance:
         lines.extend([
             "",
@@ -394,41 +420,184 @@ def build_module_prompt(
 
 # --------------------------------------------------------------- parsing
 
-def parse_generation(content: str) -> tuple[dict[str, str], list[str]]:
-    """Accept the JSON envelope, or the first JSON object found in the reply."""
+#: Directories every generated path must land in. A model that emits an
+#: absolute path such as /workspace/template/frontend/src/App.jsx is describing
+#: the right file; rejecting it loses the whole module.
+KNOWN_ROOTS = ("frontend/", "backend/")
+
+#: Keys a model may use instead of "content" for a file body.
+BODY_KEYS = ("content", "body", "source", "text", "code", "file_content")
+
+#: Path key spellings seen in the wild.
+PATH_KEYS = ("path", "file", "filename", "filepath", "name")
+
+
+def normalize_generated_path(raw: object) -> str | None:
+    """Return a project-relative path, or None when the path is unusable."""
+    path = str(raw or "").replace("\\", "/").strip().strip('"').strip("'")
+    if not path:
+        return None
+    # "/workspace/template/frontend/src/x.js" -> "frontend/src/x.js"
+    for root in KNOWN_ROOTS:
+        marker = "/" + root
+        index = path.find(marker)
+        if index != -1:
+            path = path[index + 1 :]
+            break
+    path = path.lstrip("/")
+    if not path or path.endswith("/") or ".." in path.split("/"):
+        return None
+    if any(part in ("", ".") for part in path.split("/")):
+        return None
+    return path
+
+
+def _entry_body(entry: dict) -> str | None:
+    for key in BODY_KEYS:
+        value = entry.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _entry_path(entry: dict) -> object | None:
+    for key in PATH_KEYS:
+        value = entry.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def collect_files(payload: object) -> dict[str, str]:
+    """Accept every envelope shape a model realistically produces."""
+    files: dict[str, str] = {}
+    if isinstance(payload, list):
+        entries: object = payload
+    elif isinstance(payload, dict):
+        raw = payload.get("files")
+        if raw is None:
+            raw = payload.get("changes") or payload.get("output")
+        if raw is None and _entry_path(payload) is not None:
+            raw = [payload]
+        entries = raw if raw is not None else []
+    else:
+        return files
+
+    if isinstance(entries, dict):
+        # {"files": {"frontend/src/a.js": "body"}}
+        items: list = list(entries.items())
+    elif isinstance(entries, list):
+        items = entries
+    else:
+        items = []
+
+    for entry in items:
+        if isinstance(entry, tuple) and len(entry) == 2:
+            path, body = entry
+        elif isinstance(entry, dict):
+            path = _entry_path(entry)
+            body = _entry_body(entry)
+        else:
+            continue
+        relative = normalize_generated_path(path)
+        if not relative or not isinstance(body, str) or not body.strip():
+            continue
+        files[relative] = body
+    return files
+
+
+def salvage_files(text: str) -> dict[str, str]:
+    """Last resort for a reply whose JSON never closes.
+
+    Scans for ``"path": "...", "content": "..."`` pairs and decodes each body as
+    a JSON string literal, so a reply that is truncated at the very end still
+    yields every complete file it already contained.
+    """
+    pattern = re.compile(
+        r'"path"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"(?:content|body|source|text|code)"\s*:\s*"'
+    )
+    files: dict[str, str] = {}
+    position = 0
+    while True:
+        match = pattern.search(text, position)
+        if not match:
+            break
+        try:
+            raw_path = json.loads('"' + match.group(1) + '"')
+        except Exception:  # noqa: BLE001 - a broken path is not fatal here
+            raw_path = match.group(1)
+        body_chars: list[str] = []
+        index = match.end()
+        while index < len(text):
+            char = text[index]
+            if char == "\\":
+                body_chars.append(text[index : index + 2])
+                index += 2
+                continue
+            if char == '"':
+                break
+            body_chars.append(char)
+            index += 1
+        try:
+            body = json.loads('"' + "".join(body_chars) + '"')
+        except Exception:  # noqa: BLE001 - keep scanning past the bad body
+            body = "".join(body_chars)
+        relative = normalize_generated_path(raw_path)
+        if relative and isinstance(body, str) and body.strip():
+            files[relative] = body
+        position = index + 1
+    return files
+
+
+def parse_generation(content: str) -> tuple[dict[str, str], list[str], str]:
+    """Return (files, covered, reason) where reason is empty on success.
+
+    The reason is what gets logged when a module produces nothing, so a failure
+    is diagnosable from the run's stdout instead of being a silent zero.
+    """
     text = (content or "").strip()
+    if not text:
+        return {}, [], "the model returned an empty reply"
     if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-    try:
-        payload = json.loads(text)
-    except Exception:  # noqa: BLE001 - fall back to the first {...} span
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+
+    payload: object = None
+    if text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except Exception:  # noqa: BLE001 - handled below
+            payload = None
+    if payload is None and text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except Exception:  # noqa: BLE001
+            payload = None
+    if payload is None:
         start, end = text.find("{"), text.rfind("}")
         if start == -1 or end <= start:
-            return {}, []
+            return {}, [], f"no JSON object in the reply (first 120: {text[:120]!r})"
         try:
             payload = json.loads(text[start : end + 1])
-        except Exception:  # noqa: BLE001
-            return {}, []
+        except Exception as exc:  # noqa: BLE001 - salvage below
+            salvaged = salvage_files(text)
+            if salvaged:
+                return salvaged, [], ""
+            return {}, [], f"unparsable JSON object: {type(exc).__name__}: {exc}"
 
-    raw_files = payload.get("files")
-    if raw_files is None and isinstance(payload.get("path"), str):
-        raw_files = [payload]
-    files: dict[str, str] = {}
-    for entry in raw_files or []:
-        if not isinstance(entry, dict):
-            continue
-        path = str(entry.get("path") or "").replace("\\", "/").strip()
-        body = entry.get("content")
-        # Never let a generated path escape the project directory.
-        if not path or path.startswith("/") or ".." in path.split("/"):
-            continue
-        if not isinstance(body, str):
-            continue
-        files[path] = body
-    covered = [str(item) for item in (payload.get("covered") or []) if isinstance(item, str)]
-    return files, covered
+    files = collect_files(payload)
+    if not files:
+        salvaged = salvage_files(text)
+        if salvaged:
+            return salvaged, [], ""
+    covered: list[str] = []
+    if isinstance(payload, dict):
+        covered = [str(item) for item in (payload.get("covered") or []) if isinstance(item, str)]
+    if not files:
+        shape = type(payload).__name__
+        keys = sorted(payload.keys())[:8] if isinstance(payload, dict) else []
+        return {}, covered, f"no usable file entries (payload={shape}, keys={keys})"
+    return files, covered, ""
 
 
 def write_generated(project_dir: Path, files: dict[str, str]) -> None:
@@ -471,21 +640,39 @@ def generate_task_modules(
             log(f"[arc-agent] time budget exhausted before {module['id']}; "
                 "closing the run with what has been generated")
             break
-        content = llm.chat([
+        user_prompt = build_module_prompt(
+            tree, module, nodes, delta,
+            guidance=guidance, specs_text=specs_text, ports=ports,
+            names=module_names(module, nodes),
+        )
+        messages = [
             {"role": "system", "content": GENERATION_SYSTEM},
-            {
-                "role": "user",
-                "content": build_module_prompt(
-                    tree, module, nodes, delta,
-                    guidance=guidance, specs_text=specs_text, ports=ports,
-                ),
-            },
-        ])
-        module_files, module_covered = parse_generation(content or "")
+            {"role": "user", "content": user_prompt},
+        ]
+        content = llm.chat(messages)
+        module_files, module_covered, reason = parse_generation(content or "")
         if not module_files:
-            log(f"[arc-agent] {module['id']}: model returned no usable files "
-                f"(tokens={llm.usage.total_tokens})")
-            continue
+            # A module that produces nothing is a hole in the deliverable, so
+            # say exactly why and give the model one focused second chance
+            # before giving up on it (the reference adapter nudges the same
+            # session instead of burning the rest of the run).
+            log(f"[arc-agent] {module['id']}: unusable reply ({reason}); "
+                f"finish={llm.last_finish_reason} chars={len(content or '')} "
+                f"tail={(content or '')[-200:]!r}")
+            messages.extend([
+                {"role": "assistant", "content": (content or "")[:4000]},
+                {"role": "user", "content": UNUSABLE_REPLY_NUDGE},
+            ])
+            content = llm.chat(messages)
+            module_files, module_covered, reason = parse_generation(content or "")
+            if module_files:
+                log(f"[arc-agent] {module['id']}: recovered on retry "
+                    f"({len(module_files)} file(s))")
+            else:
+                log(f"[arc-agent] {module['id']}: still unusable ({reason}); "
+                    f"finish={llm.last_finish_reason} chars={len(content or '')} "
+                    f"tail={(content or '')[-200:]!r}")
+                continue
         write_generated(project_dir, module_files)
         files.update(module_files)
         covered.extend(module_covered)
@@ -524,12 +711,13 @@ def repair_from_rehearsal(
         {"role": "system", "content": REPAIR_SYSTEM},
         {"role": "user", "content": prompt},
     ])
-    files, _ = parse_generation(content or "")
+    files, _, reason = parse_generation(content or "")
     if files:
         write_generated(project_dir, files)
         log(f"[arc-agent] repair turn wrote {len(files)} file(s)")
     else:
-        log("[arc-agent] repair turn produced no files")
+        log(f"[arc-agent] repair turn produced no files ({reason}; "
+            f"finish={llm.last_finish_reason})")
     return files
 
 

@@ -41,22 +41,31 @@ BROKEN_FILES = {
     "covered": ["REQ-1-1-1"],
 }
 
+# ARC_STUB_PROSE_FIRST=1 makes every *first* call per module answer with prose
+# instead of the JSON envelope, so the agent's unusable-reply retry can be
+# exercised end to end.
+PROSE = "Sure! Here is my plan: I will create the frontend and backend files.\n"
+
+_calls = {"n": 0}
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - http.server naming
         length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(length)
+        _calls["n"] += 1
+        if os.environ.get("ARC_STUB_PROSE_FIRST") == "1" and _calls["n"] % 2 == 1:
+            content = PROSE
+        else:
+            content = json.dumps(
+                BROKEN_FILES if os.environ.get("ARC_STUB_BROKEN") == "1" else FILES
+            )
         payload = {
             "id": "stub-1",
             "choices": [
                 {
                     "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": json.dumps(
-                            BROKEN_FILES if os.environ.get("ARC_STUB_BROKEN") == "1" else FILES
-                        ),
-                    },
+                    "message": {"role": "assistant", "content": content},
                     "finish_reason": "stop",
                 }
             ],

@@ -117,3 +117,22 @@ REPAIR_SYSTEM = (
     "containing ONLY the files you are changing, each complete. Fix the reported "
     "cause; do not rewrite working code around it."
 )
+
+#: Sent when a reply could not be turned into files at all. The previous reply is
+#: echoed back so the model can see what went wrong with its own output.
+UNUSABLE_REPLY_NUDGE = (
+    "Your previous reply could not be used: it was not a single valid JSON "
+    "object of the required shape, or it contained no file entries, or its paths "
+    "were not project-relative. Reply again with ONLY the JSON envelope, no "
+    "prose, no markdown fence, shaped:\n"
+    '{"files":[{"path":"frontend/src/pages/Example.tsx","content":"...full file body..."}],'
+    '"covered":["REQ-..."]}\n'
+    "Rules for the reply:\n"
+    "- One JSON object, nothing before or after it.\n"
+    "- Every path is relative to the project root and starts with `frontend/` or "
+    "`backend/` (never an absolute path).\n"
+    "- Every `content` is the COMPLETE file body as a JSON string, with newlines "
+    "escaped as \\n; never truncate a file, never use placeholders such as "
+    '"..." or "rest of the code".\n'
+    "- Keep the module's scope: the files needed for THIS module's requirements."
+)
