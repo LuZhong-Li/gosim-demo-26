@@ -11,6 +11,7 @@ export default function OrgPage() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
+  const [memberMenu, setMemberMenu] = useState<string | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [repoName, setRepoName] = useState('');
   const [visibility, setVisibility] = useState('private');
@@ -120,16 +121,34 @@ export default function OrgPage() {
           {members.map((member) => (
             <li key={member.username}>
               {member.username} <span className="muted">· {member.role}</span>
-              {/* REQ-2-2-4 Remove a Member from an Organization */}
+              {/* REQ-2-2-4: only an Owner sees the member menu and its remove action. */}
               {role === 'Owner' && pendingRemoval !== member.username && (
                 <button
                   type="button"
                   className="link-button"
-                  onClick={() => setPendingRemoval(member.username)}
+                  onClick={() =>
+                    setMemberMenu(memberMenu === member.username ? null : member.username)
+                  }
                 >
-                  Remove from organization
+                  {`Member menu ${member.username}`}
                 </button>
               )}
+              {role === 'Owner' &&
+                memberMenu === member.username &&
+                pendingRemoval !== member.username && (
+                  <div role="menu" aria-label={`Member menu ${member.username}`}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setPendingRemoval(member.username);
+                        setMemberMenu(null);
+                      }}
+                    >
+                      Remove from organization
+                    </button>
+                  </div>
+                )}
               {pendingRemoval === member.username && (
                 <span className="inline-form">
                   <button
