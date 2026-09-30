@@ -41,7 +41,9 @@ except Exception:
 ROOT = Path(__file__).resolve().parent
 TEMPLATES = ROOT / "templates"
 ASSETS = ROOT / "assets"
-WEB_FALLBACK_TEMPLATE = "web-react-express"  # official frontend/ + backend/ layout
+# The only shipped template is the stack-only scaffold: the rules forbid shipping
+# task-specific implementations, so the model writes them at generation time.
+WEB_FALLBACK_TEMPLATE = "scaffold"
 
 
 def load_requirements(path: Path) -> dict:
@@ -223,6 +225,11 @@ def build_generation_prompt(tree: dict, modules: list[dict]) -> str:
 
 
 def parse_generated_files(content: str) -> dict[str, str]:
+    files, _covered = parse_generation(content)
+    return files
+
+
+def parse_generation(content: str) -> tuple[dict[str, str], list[str]]:
     """Accept the JSON envelope, or the first JSON object found in the reply."""
     text = (content or "").strip()
     if text.startswith("```"):
@@ -234,11 +241,11 @@ def parse_generated_files(content: str) -> dict[str, str]:
     except Exception:
         start, end = text.find("{"), text.rfind("}")
         if start == -1 or end <= start:
-            return {}
+            return {}, []
         try:
             payload = json.loads(text[start : end + 1])
         except Exception:
-            return {}
+            return {}, []
 
     raw_files = payload.get("files")
     if raw_files is None and isinstance(payload.get("path"), str):
@@ -253,32 +260,34 @@ def parse_generated_files(content: str) -> dict[str, str]:
         if not isinstance(body, str):
             continue
         files[path] = body
-    return files
+    covered = [str(item) for item in (payload.get("covered") or []) if isinstance(item, str)]
+    return files, covered
 
 
 def generate_task_modules(
     project_dir: Path, tree: dict, modules: list[dict], llm: LlmClient
-) -> dict[str, str]:
+) -> tuple[dict[str, str], list[str]]:
     """Ask the model for the task-specific source and write it into the project."""
     if not llm.available:
         print("[arc-agent] no model configured; skipping model generation", flush=True)
-        return {}
+        return {}, []
     content = llm.chat(
         [
             {"role": "system", "content": GENERATION_SYSTEM},
             {"role": "user", "content": build_generation_prompt(tree, modules)},
         ]
     )
-    files = parse_generated_files(content or "")
+    files, covered = parse_generation(content or "")
     for relative, body in files.items():
         target = project_dir / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
     print(
-        f"[arc-agent] model generation: files={len(files)} tokens={llm.usage.total_tokens}",
+        f"[arc-agent] model generation: files={len(files)} covered={len(covered)} "
+        f"tokens={llm.usage.total_tokens}",
         flush=True,
     )
-    return files
+    return files, covered
 
 
 def write_generation_report(project_dir: Path, llm: LlmClient, files: dict[str, str]) -> None:
@@ -371,24 +380,37 @@ def main(argv: list[str] | None = None) -> int:
         task_name = tree.get("name") or "Application"
         runtime.traceability.init_db(reset=False)
 
-        slug = task_slug(task_name)
-        if not (TEMPLATES / slug).is_dir():
-            print(f"[arc-agent] no template for task slug '{slug}'; using {WEB_FALLBACK_TEMPLATE}")
-            slug = WEB_FALLBACK_TEMPLATE
-        task_map = load_task_map(slug)
+        # The requirement map is keyed by task; the template is always the
+        # stack-only scaffold, because shipping task-specific source is forbidden.
+        asset_slug = task_slug(task_name)
+        task_map = load_task_map(asset_slug)
+        slug = (
+            asset_slug
+            if (TEMPLATES / asset_slug).is_dir()
+            else WEB_FALLBACK_TEMPLATE
+        )
+        print(f"[arc-agent] task={asset_slug} template={slug}", flush=True)
+        if task_map and asset_slug != slug:
+            print(
+                f"[arc-agent] requirement map loaded from assets/{asset_slug}",
+                flush=True,
+            )
         project_dir = Path(output_dir or runtime.paths.project_dir)
         template_hit = copy_template(slug, project_dir)
         coverage = load_coverage(slug)
         write_manifest(project_dir, slug, tree, task_map)
         modules = build_module_plan(task_map, coverage)
-        write_module_files(project_dir, modules)
 
         # The rules require the agent to actually call a model, and forbid
         # shipping task-specific implementations inside the template. The model
         # writes the task-specific source on top of the generic scaffold.
         llm = LlmClient()
-        generated = generate_task_modules(project_dir, tree, modules, llm)
+        generated, covered = generate_task_modules(project_dir, tree, modules, llm)
+        coverage = coverage | set(covered)
         write_generation_report(project_dir, llm, generated)
+        # Module notes reflect what the model reported as implemented.
+        modules = build_module_plan(task_map, coverage)
+        write_module_files(project_dir, modules)
 
         tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path.cwd() / "tests"))
 

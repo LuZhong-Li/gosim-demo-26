@@ -1,0 +1,39 @@
+schema_version: "1.0"
+id: scaffold
+name: Generic Web Scaffold (React + Express)
+type: web_app
+version: 1.0.0
+description: >
+  Stack-only scaffold. It carries the build, routing and persistence plumbing a
+  generated application needs, and deliberately contains no task-specific pages,
+  routes or business logic: those are produced by the model at generation time.
+stack:
+  frontend:
+    framework: Vite
+    library: React
+    language: JavaScript
+    styling: CSS
+  backend:
+    framework: Express
+    language: JavaScript
+    database: JSON file
+  tests:
+    frontend: Vitest
+    backend: Vitest
+copy:
+  exclude:
+    - template.yaml
+    - frontend/node_modules
+    - frontend/dist
+    - backend/node_modules
+    - backend/.data
+preview:
+  html: frontend/dist/index.html
+  assets: frontend/dist/assets
+agent_guidance:
+  ui_root: frontend/src
+  api_root: backend/src/app.js
+  function_root: backend/src
+  db_root: backend/src
+  frontend_test_root: frontend/src
+  backend_test_root: backend/src
