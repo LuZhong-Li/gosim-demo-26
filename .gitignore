@@ -246,6 +246,11 @@ demo/output/web-workbook.xlsx
 /arcbench/upstream/
 /arcbench/data/
 /arcbench/runs/
+# Local reference copies of the retired task templates. The submission package is
+# built from arcbench/agent only, and shipping task-specific implementations in
+# the repo invites the same "pre-implemented task code" reading the rules warn
+# about. Kept on disk for reference; the pre-generic-template tag preserves them.
+/arcbench/reference/
 /arcbench/**/node_modules/
 /arcbench/**/docker-output/
 /arcbench/**/playwright-report/
