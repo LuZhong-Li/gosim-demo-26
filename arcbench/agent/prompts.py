@@ -214,6 +214,12 @@ replace it:
 - ``frontend/`` is Vite + React, built to ``frontend/dist`` and served by the
   backend. ``frontend/src/main.tsx`` mounts ``App.tsx``; add pages under
   ``frontend/src/pages/`` and route them in ``App.tsx``.
+- There is EXACTLY ONE App shell: ``frontend/src/App.tsx``. EDIT it - never add
+  an ``App.jsx`` (Vite resolves ``.jsx`` before ``.tsx``, so a second file
+  silently shadows your routes). One concept = one file: if a page, router or
+  store for something already exists in the file list above, extend that file
+  instead of creating another ``HomePage``/``SignInPage``/``RepoPage`` next to
+  it. Prefer ``.tsx`` for any new file.
 - ``frontend/src/api/index.ts`` already exports ``client`` (axios, baseURL
   ``/api``), ``tokenStore`` (localStorage) and ``errorMessage(caught)``. Reuse
   them instead of writing your own fetch layer.

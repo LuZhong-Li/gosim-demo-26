@@ -40,6 +40,7 @@ from arcbench_agent_runtime import AgentRuntime
 from guard import fix_build_scripts
 from guard import fix_wildcard_routes
 from guard import guard as guard_generated
+from guard import drop_shadow_entry_files
 from llm import LlmClient
 from prompts import (
     AUTH_CONTRACT,
@@ -421,6 +422,7 @@ def build_module_prompt(
     specs_text: str = "",
     ports: str = "",
     names: list[str] | None = None,
+    existing_files: list[str] | None = None,
 ) -> str:
     """One module's requirement text, plus everything that decides the score."""
     wanted = set(module["requirement_ids"])
@@ -474,6 +476,20 @@ def build_module_prompt(
             "",
             specs_text,
         ])
+    if existing_files:
+        # Every module is a separate call, so without this the model starts from
+        # an empty picture and creates a SECOND Home / Login / Repo page next to
+        # the one an earlier module already wrote (r41 shipped Home.tsx AND
+        # HomePage.tsx, LoginPage/SignIn/SignInPage, two Apps, ...). Showing the
+        # files that already exist turns "create the page" into "extend the page".
+        lines.extend([
+            "",
+            "FILES ALREADY WRITTEN by earlier modules of this same project -",
+            "REUSE and EXTEND them. Do NOT create a second file for a page,",
+            "router, store or App shell that already exists; edit the existing",
+            "one instead. One concept = one file:",
+        ])
+        lines.extend(f"- {path}" for path in existing_files[:120])
     lines.extend(["", "Requirements to implement in this step:"])
     # FOLDER-level requirements carry their own checklist (e.g. REQ-4 / REQ-6
     # assert "each named control is unique" and the shared sign-in flow). They
@@ -756,6 +772,7 @@ def generate_task_modules(
             tree, module, nodes, delta,
             guidance=guidance, specs_text=specs_text, ports=ports,
             names=module_names(module, nodes),
+            existing_files=sorted(files),
         )
         messages = [
             {"role": "system", "content": GENERATION_SYSTEM},
@@ -1101,6 +1118,9 @@ def main(argv: list[str] | None = None) -> int:
         wildcard_fixes = fix_wildcard_routes(project_dir)
         if wildcard_fixes:
             log(f"[arc-agent] rewrote Express-5-incompatible '*' routes: {wildcard_fixes}")
+        shadow_drops = drop_shadow_entry_files(project_dir)
+        if shadow_drops:
+            log(f"[arc-agent] removed shadowed App/entry files: {shadow_drops}")
         reverted = guard_generated(project_dir, TEMPLATES / slug, set(generated))
         if reverted:
             log(f"[arc-agent] reverted broken generated files: {reverted}")

@@ -155,6 +155,36 @@ def fix_wildcard_routes(project_dir: Path) -> list[str]:
     return fixes
 
 
+def drop_shadow_entry_files(project_dir: Path) -> list[str]:
+    """Keep exactly one ``App`` shell and one ``main`` entry in frontend/src.
+
+    Vite resolves ``./App`` to ``App.jsx`` BEFORE ``App.tsx``, so a stray
+    ``App.jsx`` silently shadows the scaffold's ``App.tsx`` - and when several
+    modules each wrote their own App/router, one of the routing tables wins at
+    random. r41 shipped ``App.jsx`` and ``App.tsx`` side by side. Keep the
+    larger one (the model's, which carries the task routes) and remove the rest.
+    """
+    fixes: list[str] = []
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return fixes
+    for stem in ("App", "main"):
+        present = [src / f"{stem}{ext}" for ext in (".jsx", ".tsx", ".js", ".ts")]
+        present = [path for path in present if path.exists()]
+        if len(present) < 2:
+            continue
+        keep = max(present, key=lambda path: path.stat().st_size)
+        for path in present:
+            if path == keep:
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            fixes.append(f"{path.name}: shadowed by {keep.name}, removed")
+    return fixes
+
+
 def _load_package(path: Path) -> dict | None:
     """Parse a package.json, returning ``None`` when it is unusable."""
     try:
