@@ -1,5 +1,17 @@
-// In-memory GitHub clone store. One server process serves the whole run, so
-// memory persistence is enough for refresh/re-login consistency.
+// GitHub clone store. State lives in memory for the run and is mirrored to a
+// JSON file so accounts, organizations, repositories and work items survive a
+// process restart (the requirement says the system persistently stores them).
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// The node test runner sets NODE_TEST_CONTEXT, and the suites rely on a fresh
+// in-memory seed, so file persistence is skipped there. Everything is wrapped in
+// try/catch so a read-only filesystem degrades to memory instead of crashing.
+const PERSIST = !process.env.NODE_TEST_CONTEXT && process.env.ARC_STORE !== 'memory';
+const STORE_FILE =
+  process.env.ARC_DB_FILE || path.join(os.tmpdir(), 'arcbench-github-store.json');
 
 const state = {
   users: [],
@@ -15,7 +27,29 @@ const state = {
 };
 
 function save() {
-  // no-op: memory only
+  if (!PERSIST) return;
+  try {
+    // Written synchronously so a write is never lost to a killing signal; the
+    // state is tiny and writes only happen on mutations.
+    const tmp = `${STORE_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state));
+    fs.renameSync(tmp, STORE_FILE);
+  } catch {
+    // Persistence is best effort: keep serving from memory.
+  }
+}
+
+function hydrate() {
+  if (!PERSIST) return;
+  try {
+    if (!fs.existsSync(STORE_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+    for (const key of Object.keys(state)) {
+      if (raw[key] !== undefined) state[key] = raw[key];
+    }
+  } catch {
+    // A missing or corrupt file simply falls back to the seed.
+  }
 }
 
 function randomToken() {
@@ -542,7 +576,12 @@ function forkRepo(source, owner, ownerType, visibility, author) {
   return copy;
 }
 
+// Load the previous run's state before the seed tops up anything missing.
+hydrate();
+
 module.exports = {
+  hydrate,
+  save,
   createSession,
   createUser,
   destroySession,

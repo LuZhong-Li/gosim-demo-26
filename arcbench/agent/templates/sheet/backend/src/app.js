@@ -7,6 +7,16 @@ const store = require('./sheet_store');
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
+// Any successful write is mirrored to the store file so workbooks survive a
+// restart. Reads never touch the disk.
+app.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  res.on('finish', () => {
+    if (res.statusCode < 400) store.save();
+  });
+  return next();
+});
+
 function sheetPayload(sheet) {
   return {
     name: sheet.name,

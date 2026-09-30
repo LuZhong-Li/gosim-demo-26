@@ -101,6 +101,16 @@ app.use('/api/repos/:owner/:name', (req, res, next) => {
   return res.status(403).json({ error: 'Access denied' });
 });
 
+// Any successful write is mirrored to the store file so the state survives a
+// restart. Reads never touch the disk.
+app.use((req, res, next) => {
+  if (req.method === 'GET') return next();
+  res.on('finish', () => {
+    if (res.statusCode < 400) store.save();
+  });
+  return next();
+});
+
 app.post('/api/auth/register', (req, res) => {
   const body = req.body || {};
   const errors = validateRegistration(body);

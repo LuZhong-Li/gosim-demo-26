@@ -1,6 +1,42 @@
-// In-memory spreadsheet store with a small formula engine.
+// Spreadsheet store with a small formula engine. State lives in memory for the
+// run and is mirrored to a JSON file so workbooks, worksheets, cells, formulas,
+// filters, validation rules and pivots survive a process restart.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+// The node test runner sets NODE_TEST_CONTEXT, and the suites rely on a fresh
+// in-memory seed, so file persistence is skipped there.
+const PERSIST = !process.env.NODE_TEST_CONTEXT && process.env.ARC_STORE !== 'memory';
+const STORE_FILE =
+  process.env.ARC_DB_FILE || path.join(os.tmpdir(), 'arcbench-sheet-store.json');
 
 const state = { workbooks: [] };
+
+function save() {
+  if (!PERSIST) return;
+  try {
+    // Written synchronously so a write is never lost to a killing signal; the
+    // state is tiny and writes only happen on mutations.
+    const tmp = `${STORE_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state));
+    fs.renameSync(tmp, STORE_FILE);
+  } catch {
+    // Persistence is best effort: keep serving from memory.
+  }
+}
+
+function hydrate() {
+  if (!PERSIST) return;
+  try {
+    if (!fs.existsSync(STORE_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+    if (Array.isArray(raw.workbooks)) state.workbooks = raw.workbooks;
+  } catch {
+    // A missing or corrupt file simply falls back to the seed.
+  }
+}
 
 function newId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -420,6 +456,7 @@ module.exports = {
   rangeRefs,
   recompute,
   refOf,
+  save,
   state,
   usedBounds,
 };
@@ -479,4 +516,6 @@ function seed() {
   }
 }
 
+// Load the previous run's workbooks before the seed tops up anything missing.
+hydrate();
 seed();
