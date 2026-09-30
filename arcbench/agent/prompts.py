@@ -121,12 +121,12 @@ replace it:
   verify the store methods your code needs. A router calling ``store.getState()``
   when the store only defines ``get()``/``set()`` makes every request 500 and
   the whole run scores zero.
-- ``store.state`` starts as an empty object. Initialise a collection before you
-  read or write into it: ``store.state.x = store.state.x || {}`` (or ``[]``).
-  Reading ``store.state.x.y`` when ``store.state.x`` is missing throws
+- Get a collection through ``store.collection('users', [])`` (for a list) or
+  ``store.collection('settings')`` (for a record): it auto-initialises and never
+  returns null. Never read ``store.state.x.y`` directly without first ensuring
+  ``store.state.x`` exists — a direct read of a missing key throws
   ``TypeError: Cannot read properties of undefined/null`` at module load and
-  crashes the backend before a single test runs — initialise every collection
-  the moment the file that owns it is loaded.
+  crashes the backend before a single test runs.
 - The store must be complete when ``backend/src/store.js`` finishes loading.
   Calling a store method the file never defines — ``store.getData()`` when the
   store exports only ``state``/``save``/``hydrate`` — throws at require time and
