@@ -102,3 +102,98 @@ test('REQ-6-4 reviewer picker reveals an option as the administrator types', asy
     page.getByRole('listbox', { name: 'Reviewers' }).getByRole('option', { name: 'bob-reviewer' }),
   ).toBeVisible();
 });
+
+test('REQ-1-1-1 registration inventory and the itemised errors at once', async ({ page }) => {
+  await page.goto('/auth?mode=signup');
+
+  // The form contains exactly one of each required control.
+  await expect(page.getByRole('textbox', { name: 'Username', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: 'Email', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: 'Password', exact: true })).toHaveCount(1);
+  await expect(page.getByRole('textbox', { name: 'Confirm password', exact: true })).toHaveCount(1);
+  const terms = page.getByRole('checkbox', { name: 'Agree to the terms' });
+  await expect(terms).toHaveCount(1);
+  await expect(terms).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Create account' })).toBeEnabled();
+
+  // Several invalid fields together must produce every message at once.
+  await page.getByLabel('Username', { exact: true }).fill('-bad-name');
+  await page.getByLabel('Email', { exact: true }).fill('not-an-email');
+  await page.getByLabel('Password', { exact: true }).fill('short');
+  await page.getByLabel('Confirm password', { exact: true }).fill('different');
+  await page.getByRole('button', { name: 'Create account' }).click();
+
+  await expect(page.getByText('Username format is invalid')).toBeVisible();
+  await expect(page.getByText('Email format is invalid')).toBeVisible();
+  await expect(page.getByText('Password requirements are not satisfied')).toBeVisible();
+  await expect(page.getByText('Agree to terms is required')).toBeVisible();
+  // Non-sensitive input is retained.
+  await expect(page.getByLabel('Username', { exact: true })).toHaveValue('-bad-name');
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('not-an-email');
+});
+
+test('REQ-1-1-1 a duplicate username is reported and both values are kept', async ({ page }) => {
+  await page.goto('/auth?mode=signup');
+  await page.getByLabel('Username', { exact: true }).fill('alice-dev');
+  await page.getByLabel('Email', { exact: true }).fill(`unused-${Date.now()}@example.test`);
+  await page.getByLabel('Password', { exact: true }).fill('Valid-password-123!');
+  await page.getByLabel('Confirm password', { exact: true }).fill('Valid-password-123!');
+  await page.getByRole('checkbox', { name: 'Agree to the terms' }).check();
+  await page.getByRole('button', { name: 'Create account' }).click();
+
+  await expect(page.getByText('Username already exists')).toBeVisible();
+  await expect(page.getByLabel('Username', { exact: true })).toHaveValue('alice-dev');
+});
+
+test('REQ-1-1-3 recovery shows the fixed code and updates the password', async ({ page }) => {
+  const suffix = Date.now().toString(36);
+  const username = `pw-user-${suffix}`;
+  const email = `${username}@example.test`;
+  const original = 'Valid-password-123!';
+  const replacement = 'Replacement-password-456!';
+
+  // A fresh account so the reset does not disturb the seeded credentials.
+  await page.goto('/auth?mode=signup');
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(original);
+  await page.getByLabel('Confirm password', { exact: true }).fill(original);
+  await page.getByRole('checkbox', { name: 'Agree to the terms' }).check();
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+
+  await page.goto('/auth?mode=forgot');
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByRole('button', { name: 'Send reset link' }).click();
+
+  // The fixed code is a distinct visible value, not embedded in a sentence.
+  await expect(page.getByText('123456', { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel('Verification code', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('New password', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Confirm password', { exact: true })).toBeVisible();
+
+  // A wrong code explains the reason and changes nothing.
+  await page.getByLabel('Verification code', { exact: true }).fill('000000');
+  await page.getByLabel('New password', { exact: true }).fill(replacement);
+  await page.getByLabel('Confirm password', { exact: true }).fill(replacement);
+  await page.getByRole('button', { name: 'Reset password' }).click();
+  await expect(page.getByText('Verification code is invalid')).toBeVisible();
+
+  // The correct code updates the password.
+  await page.getByLabel('Verification code', { exact: true }).fill('123456');
+  await page.getByLabel('New password', { exact: true }).fill(replacement);
+  await page.getByLabel('Confirm password', { exact: true }).fill(replacement);
+  await page.getByRole('button', { name: 'Reset password' }).click();
+  await expect(page.getByText('Password updated')).toBeVisible();
+
+  // The new password works and the old one no longer does.
+  await page.goto('/auth?mode=signin');
+  await page.getByLabel('Username or email').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(original);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText('Invalid credentials')).toBeVisible();
+
+  await page.getByLabel('Password', { exact: true }).fill(replacement);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
+});
