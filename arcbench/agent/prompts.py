@@ -61,6 +61,26 @@ Violating a clause here scores zero on the requirements that touch it, silently.
 """.strip()
 
 
+SEED_CONTRACT = """
+Seed data contract — the hidden tests run against PRE-SEEDED accounts and
+workbooks. A test that cannot find its seed fails before it can click anything,
+so provisioning the seed is as important as the UI itself.
+
+- Write the seeded accounts, organizations, repositories, workbooks, worksheets
+  and cells into the store's initial state at start-up, using the EXACT values
+  the GIVEN clauses quote. The seed values listed in this prompt are DATA, not
+  prose: put them verbatim into the backend seed (the JSON the store loads), not
+  into a comment, README or console.log.
+- Seeded accounts must be sign-in ready (username + verified email + password)
+  and must survive a page reload; do not make the tester register or import
+  them first.
+- Seed values that are only TYPED into a field (passwords, verification codes)
+  go in the seed store, not rendered on the page.
+- Do not regenerate or randomise the seed on boot; the same values must come
+  back after every reload, and a rejected write must leave the seed unchanged.
+""".strip()
+
+
 PERFORMANCE_CONTRACT = """
 Performance contract — one test that exceeds its 10-second budget fails, and a
 test that waits on a hung resource fails with it:
@@ -96,6 +116,11 @@ replace it:
   ``app.get('*', ...)``.
 - Persist through ``backend/src/store.js`` (a JSON file loaded at start-up and
   rewritten on every successful mutation). Do not add a native database.
+- ``backend/src/store.js`` is the ONE shared data layer every module uses.
+  Before a router or page calls a store method, make sure it exists — emit or
+  verify the store methods your code needs. A router calling ``store.getState()``
+  when the store only defines ``get()``/``set()`` makes every request 500 and
+  the whole run scores zero.
 - Do not add npm dependencies. Everything needed is already installed; a new
   dependency is a real risk of a failed install at grading time.
 - Emit complete files, never fragments or diffs: the project must build and run

@@ -37,6 +37,7 @@ from pathlib import Path
 import yaml
 
 from arcbench_agent_runtime import AgentRuntime
+from guard import fix_build_scripts
 from guard import fix_wildcard_routes
 from guard import guard as guard_generated
 from llm import LlmClient
@@ -44,11 +45,13 @@ from prompts import (
     GENERATION_SYSTEM,
     PERFORMANCE_CONTRACT,
     REPAIR_SYSTEM,
+    SEED_CONTRACT,
     STACK_RULES,
     UI_CONTRACT,
     UNUSABLE_REPLY_NUDGE,
 )
 from selfcheck import main as run_selfcheck
+from selfcheck import report as selfcheck_report
 from selfcheck import quoted_names as exact_names
 from verify import (
     free_port,
@@ -371,6 +374,12 @@ def _scenario_text(scenario) -> str:
     return json.dumps(scenario, ensure_ascii=False)
 
 
+def _is_seed_sentence(sentence: str) -> bool:
+    """True when a live-delta sentence names seed data the tests depend on."""
+    low = sentence.lower()
+    return any(marker in low for marker in ("seed", "seeded", "fixture", "pre-seed"))
+
+
 def build_module_prompt(
     tree: dict,
     module: dict,
@@ -391,6 +400,8 @@ def build_module_prompt(
         STACK_RULES,
         "",
         UI_CONTRACT,
+        "",
+        SEED_CONTRACT,
         "",
         PERFORMANCE_CONTRACT,
     ]
@@ -459,9 +470,14 @@ def build_module_prompt(
         for index, scenario in enumerate(node.get("scenarios") or [], 1):
             lines.append(f"Scenario {index}: {_scenario_text(scenario)}")
     additions = [sentence for rid in wanted for sentence in delta.get(rid, [])]
-    if additions:
+    seed_additions = [sentence for sentence in additions if _is_seed_sentence(sentence)]
+    if seed_additions:
+        lines.extend(["", "SEED DATA (provision verbatim at backend start-up, before any test runs):"])
+        lines.extend(f"- {sentence}" for sentence in seed_additions)
+    clarifications = [sentence for sentence in additions if not _is_seed_sentence(sentence)]
+    if clarifications:
         lines.extend(["", "Late clarifications from the current task page (authoritative):"])
-        lines.extend(f"- {sentence}" for sentence in additions)
+        lines.extend(f"- {sentence}" for sentence in clarifications)
     lines.extend([
         "",
         f"Emit the files that implement module {module['id']} and list the",
@@ -780,6 +796,45 @@ def repair_from_rehearsal(
     return files
 
 
+def repair_missing_names(
+    project_dir: Path,
+    llm: LlmClient,
+    missing: list[str],
+    deadline: float,
+) -> dict[str, str]:
+    """One repair turn that adds the exact accessible names still missing.
+
+    The self-check lists requirement-quoted names that never appear in the
+    generated source; a name the source never mentions cannot be found by the
+    Playwright suite, so this hands that list back and lets the model add the
+    missing controls instead of leaving a hole that silently scores zero.
+    """
+    if not llm.available or not missing or time.time() > deadline:
+        return {}
+    prompt = (
+        "The generated application is missing the following EXACT accessible "
+        "names, which the automated Playwright suite locates with "
+        "getByLabel / getByRole / getByText in strict mode:\n\n"
+        + "\n".join(f'- "{name}"' for name in missing[:80])
+        + "\n\nAdd the buttons, links, labels, headings or option values that "
+        "expose each missing name as visible text on the correct page, and emit "
+        "the corrected files, complete, in the JSON envelope. Do not rewrite "
+        "working code around them; only add what is missing."
+    )
+    content = llm.chat([
+        {"role": "system", "content": REPAIR_SYSTEM},
+        {"role": "user", "content": prompt},
+    ])
+    files, _, reason = parse_generation(content or "")
+    if files:
+        write_generated(project_dir, files)
+        log(f"[arc-agent] missing-name patch wrote {len(files)} file(s)")
+    else:
+        log(f"[arc-agent] missing-name patch produced no files ({reason}; "
+            f"finish={llm.last_finish_reason})")
+    return files
+
+
 # --------------------------------------------------------------- reporting
 
 def write_generation_report(project_dir: Path, llm: LlmClient, files: dict[str, str]) -> None:
@@ -862,6 +917,9 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
         repaired = repair_from_rehearsal(project_dir, llm, error, deadline)
         if repaired:
             guard_generated(project_dir, TEMPLATES / slug, set(repaired))
+            build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
+            if build_fixes:
+                log(f"[rehearsal] normalised build plumbing after repair: {build_fixes}")
     return "rehearsal failed"
 
 
@@ -1001,6 +1059,9 @@ def main(argv: list[str] | None = None) -> int:
             log(f"[arc-agent] reverted broken generated files: {reverted}")
             broken = {entry.split(":", 1)[0] for entry in reverted}
             generated = {path: body for path, body in generated.items() if path not in broken}
+        build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
+        if build_fixes:
+            log(f"[arc-agent] normalised build plumbing: {build_fixes}")
         coverage = coverage | set(covered)
         modules = build_module_plan(task_map, coverage)
         write_module_files(project_dir, modules)
@@ -1009,6 +1070,12 @@ def main(argv: list[str] | None = None) -> int:
         # source never mentions cannot be found by the tests either.
         try:
             run_selfcheck(project_dir, nodes_payload)
+            missing_names = selfcheck_report(project_dir, nodes_payload).get("missing") or []
+            if missing_names and time.time() < deadline:
+                patched = repair_missing_names(project_dir, llm, missing_names, deadline)
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    fix_build_scripts(project_dir, TEMPLATES / slug)
         except Exception as exc:  # noqa: BLE001 - never fail the run for this
             log(f"[selfcheck] skipped: {exc}")
 

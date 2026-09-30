@@ -35,6 +35,36 @@ PROTECTED = (
     "backend/src/app.js",
 )
 
+#: The grader runs exactly ``npm install`` + ``npm run build`` in ``frontend/``
+#: and ``npm install`` + ``npm start`` in ``backend/``. Models routinely "help"
+#: by adding a type-check step (``tsc && vite build`` - the stock Vite template
+#: default) even though the scaffold ships no ``tsconfig.json``; ``tsc`` then
+#: prints its help text and exits non-zero, and the evaluation aborts before a
+#: single Playwright test runs. That is exactly what happened to r38 Sheet:
+#:   [frontend-npm-build.stdout] > tsc && vite build
+#:   [frontend-npm-build.stdout] tsc: The TypeScript Compiler - Version 5.9.3
+#:   Run Status ... Command '['npm', 'run', 'build']' returned non-zero exit status 1
+#: These scripts are therefore forced back to something the grader can run.
+REQUIRED_SCRIPTS = {
+    "frontend": {"dev": "vite", "build": "vite build", "preview": "vite preview"},
+    "backend": {"start": "node src/index.js", "dev": "node src/index.js"},
+}
+
+#: Nothing task-specific belongs in these files and a bad copy silently breaks
+#: the build, so the generated version is always replaced by the scaffold copy.
+ALWAYS_RESTORE = (
+    "frontend/vite.config.js",
+    "frontend/index.html",
+)
+
+#: Files whose *existence* matters (index.html loads main.tsx). Restored only
+#: when generation deleted them.
+MUST_EXIST = (
+    "frontend/src/main.tsx",
+    "frontend/src/App.tsx",
+    "frontend/src/index.css",
+)
+
 
 def _node_check(path: Path) -> tuple[bool, str]:
     """Syntax-check a CommonJS/ESM JavaScript file when node is available."""
@@ -122,4 +152,107 @@ def fix_wildcard_routes(project_dir: Path) -> list[str]:
         except OSError:
             continue
         fixes.append(f"{path.relative_to(project_dir)} ({count} route(s))")
+    return fixes
+
+
+def _load_package(path: Path) -> dict | None:
+    """Parse a package.json, returning ``None`` when it is unusable."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:  # noqa: BLE001 - any parse failure means "restore it"
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def fix_build_scripts(project_dir: Path, scaffold_dir: Path) -> list[str]:
+    """Make the two ``npm run`` commands the grader uses survive generation.
+
+    Three independent hazards, all seen in real submissions:
+
+    * the model adds ``tsc`` to ``frontend`` ``build`` (no tsconfig.json ships,
+      so ``tsc`` prints help and exits 1 -> zero tests execute);
+    * the model rewrites/deletes ``vite.config.js`` or ``index.html``;
+    * the model drops a dependency the scaffold's own files still import.
+
+    The model's task-specific source is never touched here - only the build
+    plumbing it has no reason to own.
+    """
+    fixes: list[str] = []
+
+    for relative in ALWAYS_RESTORE:
+        source = scaffold_dir / relative
+        if not source.exists():
+            continue
+        target = project_dir / relative
+        wanted = source.read_text(encoding="utf-8")
+        current = target.read_text(encoding="utf-8", errors="replace") if target.exists() else None
+        if current == wanted:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        fixes.append(f"{relative}: restored scaffold copy")
+
+    for relative in MUST_EXIST:
+        target = project_dir / relative
+        source = scaffold_dir / relative
+        if target.exists() or not source.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        fixes.append(f"{relative}: restored missing file")
+
+    for section, required in REQUIRED_SCRIPTS.items():
+        relative = f"{section}/package.json"
+        target = project_dir / relative
+        source = scaffold_dir / relative
+        if not target.exists():
+            if source.exists():
+                shutil.copyfile(source, target)
+                fixes.append(f"{relative}: restored missing package.json")
+            continue
+
+        data = _load_package(target)
+        if data is None:
+            if source.exists():
+                shutil.copyfile(source, target)
+                fixes.append(f"{relative}: unreadable, restored scaffold copy")
+            continue
+
+        changed = False
+        scripts = data.get("scripts")
+        if not isinstance(scripts, dict):
+            scripts = {}
+        for name, command in required.items():
+            current = scripts.get(name)
+            if isinstance(current, str) and current.strip():
+                # Keep a wrapper the model added, but never a type-check step:
+                # it runs first and fails the grader before any test executes.
+                if name != "build" or "tsc" not in current:
+                    continue
+            scripts[name] = command
+            changed = True
+        if scripts != data.get("scripts"):
+            data["scripts"] = scripts
+            changed = True
+
+        scaffold_data = _load_package(source) if source.exists() else None
+        if scaffold_data:
+            for key in ("dependencies", "devDependencies"):
+                wanted = scaffold_data.get(key)
+                if not isinstance(wanted, dict):
+                    continue
+                block = data.get(key)
+                if not isinstance(block, dict):
+                    block = {}
+                    data[key] = block
+                for name, version in wanted.items():
+                    if name not in block:
+                        block[name] = version
+                        changed = True
+
+        if not changed:
+            continue
+        target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        fixes.append(f"{relative}: build plumbing normalised")
+
     return fixes

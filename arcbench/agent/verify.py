@@ -49,6 +49,25 @@ def log(msg: str) -> None:
 
 NPM_INSTALL = ["npm", "install", "--no-audit", "--no-fund", "--no-package-lock"]
 
+#: The generation container has no npm registry access (the grading container
+#: does). An install that dies on the network says nothing about the submission,
+#: yet r38 burned a repair turn on it - and the model "fixed" a healthy
+#: package.json by adding `tsc && vite build`, which is what broke the build.
+_ENV_HINTS = (
+    "enotfound", "eai_again", "etimedout", "econnrefused", "econnreset",
+    "err_socket", "network", "registry", "getaddrinfo", "proxy",
+)
+
+
+def _is_environment_failure(output: str) -> bool:
+    """True when an `npm install` failure looks like the container, not the code."""
+    text = (output or "").strip()
+    if len(text) < 40:      # npm said nothing useful; we cannot blame the files
+        return True
+    lowered = text.lower()
+    return any(hint in lowered for hint in _ENV_HINTS)
+
+
 #: Express route registrations we can turn into a smoke request.
 API_ROUTE_RE = re.compile(r"""\.(get|use|all)\(\s*['"]([^'"]+)['"]""")
 
@@ -237,6 +256,9 @@ def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -
     if (frontend / "package.json").exists():
         rc, out = _run([npm, *NPM_INSTALL[1:]], frontend, timeout)
         if rc != 0 and not (frontend / "node_modules").is_dir():
+            if _is_environment_failure(out):
+                return ("SKIP: `npm install` cannot reach a registry from this container "
+                        f"(rc={rc}); the grading container installs for itself:\n{out[-400:]}")
             return f"frontend `npm install` failed:\n{out}"
         rc, out = _run([npm, "run", "build"], frontend, timeout)
         if rc != 0:
@@ -246,6 +268,9 @@ def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -
         return "backend/package.json missing"
     rc, out = _run([npm, *NPM_INSTALL[1:]], backend, timeout)
     if rc != 0 and not (backend / "node_modules").is_dir():
+        if _is_environment_failure(out):
+            return ("SKIP: `npm install` cannot reach a registry from this container "
+                    f"(rc={rc}); the grading container installs for itself:\n{out[-400:]}")
         return f"backend `npm install` failed:\n{out}"
 
     free_port(smoke_port)
