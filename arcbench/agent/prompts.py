@@ -32,6 +32,27 @@ Violating a clause here scores zero on the requirements that touch it, silently.
   verbatim from the requirement document. If the requirement says the header
   exposes "Sign in" and "Create account" links, those are the exact English
   strings used as <a> link text.
+- NAMES ARE ANCHORED: the suite resolves a control with ANCHORED, case
+  insensitive regexes such as ``/^Issues$/i``. "Issues" matches; "All issues",
+  "Issues (3)" and "Open an issue" do NOT - the count, the prefix and the extra
+  words all break the match. Put the bare term on the control itself and move
+  any qualifier elsewhere on the page (or into an aria-label-free sibling).
+- NAVIGATION BY NAME: the suite never types a URL. A scenario starts at '/'
+  and then CLICKS the area it needs by name, then clicks the specific record by
+  its exact name. So the home page must expose a visible <a> or <button> for
+  every area the requirements name (e.g. Repositories, Issues, Pull requests,
+  Branches, Workbooks, Worksheets), each labelled with that bare term; the area
+  listing must render every seeded record as a clickable link whose text is the
+  record's exact name; and the detail page that opens must show that same exact
+  name as visible text. A record reachable only by typing its URL is invisible
+  to the suite and scores zero.
+- SUCCESS FEEDBACK: after every successful create, update, delete, move or
+  import, the page must render a visible ``role="status"`` element whose text
+  contains one of success / saved / created / updated / deleted (or its subject
+  noun, e.g. "Comment added"). The suite asserts on that element before moving
+  on, so a silent mutation fails the test even when the data changed correctly.
+  Keep it to ONE element, and keep errors in ``role="alert"`` so the two never
+  collide.
 - STRICT-MODE UNIQUENESS: any value the page echoes (search criteria, workbook
   names, usernames, dates, organisation names) must appear in EXACTLY ONE
   visible element. Playwright's strict mode fails the whole test when two
