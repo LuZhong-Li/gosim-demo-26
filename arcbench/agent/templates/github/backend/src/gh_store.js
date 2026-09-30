@@ -95,8 +95,10 @@ function reposVisibleTo(username) {
     if (repo.ownerType === 'user') {
       return String(repo.owner).toLowerCase() === String(username).toLowerCase();
     }
+    // REQ-2: only organization Owners and accounts with a repository grant may
+    // read a private repository; plain organization membership is not enough.
     const member = membership(repo.owner, username);
-    if (member && member.role !== 'Read') return true;
+    if (member && member.role === 'Owner') return true;
     return Boolean(bestGrantPermission(repo.owner, repo.name, username));
   });
 }

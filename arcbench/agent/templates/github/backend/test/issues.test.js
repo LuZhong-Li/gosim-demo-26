@@ -131,8 +131,16 @@ test('milestones come from the current repository only', async () => {
   const list = await json(`${REPO}/milestones`);
   assert.deepEqual(list.payload.milestones, ['Q3 launch', 'v1.0']);
 
-  const other = await json('/api/repos/acme-demo/acme-private/milestones');
+  // REQ-2: the sibling repository is private, so its data is read as a member
+  // and an anonymous read is refused.
+  const alice = await login('alice-dev');
+  const other = await json('/api/repos/acme-demo/acme-private/milestones', {
+    headers: auth(alice),
+  });
   assert.deepEqual(other.payload.milestones, []);
+
+  const anonymous = await json('/api/repos/acme-demo/acme-private/milestones');
+  assert.equal(anonymous.response.status, 403);
 });
 
 test('assigning a milestone needs triage-or-higher on issues and pull requests', async () => {

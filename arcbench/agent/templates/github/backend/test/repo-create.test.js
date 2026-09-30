@@ -52,7 +52,9 @@ test('a repository can be created with a README or without one', async () => {
     }),
   });
   assert.equal(withReadme.response.status, 201);
-  const readmeTree = await json('/api/repos/alice-dev/readme-demo/tree');
+  // REQ-3-4: a private repository is only readable by its owner, so the tree
+  // read is authenticated.
+  const readmeTree = await json('/api/repos/alice-dev/readme-demo/tree', { headers: auth(alice) });
   assert.deepEqual(readmeTree.payload.files, ['README.md']);
 
   const withoutReadme = await json('/api/repos', {

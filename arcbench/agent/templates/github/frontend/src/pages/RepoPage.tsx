@@ -157,6 +157,15 @@ export default function RepoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeView]);
 
+  // REQ-4-2-2: a short-hash link opens that revision's diff page.
+  useEffect(() => {
+    if (codeView !== 'commit') return;
+    const sha = searchParams.get('sha');
+    if (!sha) return;
+    void showCommitDiff(sha);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeView, searchParams.get('sha')]);
+
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
@@ -183,6 +192,15 @@ export default function RepoPage() {
     try {
       setCommits(await api.listCommits(owner, name));
       setShowCommits(true);
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  // REQ-4-2-2: open one commit's diff from its short hash.
+  async function showCommitDiff(sha: string) {
+    try {
+      setCommitDiff(await api.getCommitDiff(owner, name, sha));
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -650,7 +668,7 @@ export default function RepoPage() {
             const list = commits.length ? commits : await api.listCommits(owner, name);
             const latest = list[0];
             if (!latest) return;
-            setCommitDiff(await api.getCommitDiff(owner, name, latest.sha));
+            await showCommitDiff(latest.sha);
           } catch (caught) {
             setError(api.errorMessage(caught));
           }
@@ -693,7 +711,14 @@ export default function RepoPage() {
                   <strong>{commit.message}</strong>
                   <span className="muted">
                     {' '}
-                    · {commit.sha.slice(0, 7)} · {commit.author} · {relativeTime(commit.timestamp)}
+                    ·{' '}
+                    {/* REQ-4-2-2: the short hash opens that revision's diff. */}
+                    <Link
+                      to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&view=commit&sha=${encodeURIComponent(commit.sha)}`}
+                    >
+                      {commit.sha.slice(0, 7)}
+                    </Link>{' '}
+                    · {commit.author} · {relativeTime(commit.timestamp)}
                   </span>
                 </li>
               ))}

@@ -88,6 +88,19 @@ function requireUser(req, res, next) {
 
 app.get('/api/health', (req, res) => res.json({ code: 200, message: 'GitHub Ready' }));
 
+// REQ-2 / REQ-3-3 / REQ-3-4: a private repository is only readable by its
+// personal owner, an organization Owner, or an account with a repository grant.
+// The guard runs before every repository route so no read endpoint leaks files,
+// issues or pull requests from a private repository.
+app.use('/api/repos/:owner/:name', (req, res, next) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return next();
+  if (repo.visibility !== 'private') return next();
+  const user = store.userByToken(authToken(req));
+  if (canReadPrivateRepo(repo, user && user.username)) return next();
+  return res.status(403).json({ error: 'Access denied' });
+});
+
 app.post('/api/auth/register', (req, res) => {
   const body = req.body || {};
   const errors = validateRegistration(body);
@@ -651,17 +664,7 @@ app.get('/api/repos/:owner/:name', (req, res) => {
   const user = store.userByToken(authToken(req));
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
-  if (repo.visibility === 'private') {
-    const authorized =
-      (repo.ownerType === 'user' && user && String(repo.owner).toLowerCase() === user.username) ||
-      (repo.ownerType === 'organization' &&
-        Boolean(
-          user &&
-            (store.membership(repo.owner, user.username) ||
-              store.bestGrantPermission(repo.owner, repo.name, user.username)),
-        ));
-    if (!authorized) return res.status(403).json({ error: 'Access denied' });
-  }
+  // REQ-3-4: private visibility is enforced by the repository guard middleware.
   res.json({
     repo: {
       owner: repo.owner,
@@ -683,20 +686,9 @@ app.get('/api/repos/:owner/:name', (req, res) => {
 });
 
 app.get('/api/repos/:owner/:name/search', (req, res) => {
-  const user = store.userByToken(authToken(req));
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
-  if (repo.visibility === 'private') {
-    const authorized =
-      (repo.ownerType === 'user' && user && String(repo.owner).toLowerCase() === user.username) ||
-      (repo.ownerType === 'organization' &&
-        Boolean(
-          user &&
-            (store.membership(repo.owner, user.username) ||
-              store.bestGrantPermission(repo.owner, repo.name, user.username)),
-        ));
-    if (!authorized) return res.status(403).json({ error: 'Access denied' });
-  }
+  // REQ-4-2-3: private visibility is enforced by the repository guard middleware.
   const matches = store.searchCode(repo, req.query.q, req.query.path);
   res.json({ matches });
 });
@@ -726,6 +718,10 @@ app.get('/api/repos/:owner/:name/tree', (req, res) => {
 app.get('/api/repos/:owner/:name/compare', requireUser, (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  // REQ-6-2-2: only Write, Maintain, Admin or organization Owner may compare.
+  if (!store.canWrite(repo, req.user.username)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
   const base = String(req.query.base || 'main').trim();
   const head = String(req.query.head || '').trim();
   if (!head) return res.status(400).json({ error: 'A head branch is required.' });
@@ -1379,6 +1375,46 @@ function nonAssignableUsers(repo, names) {
   return names.filter((name) => !allowed.has(String(name).toLowerCase()));
 }
 
+// REQ-2: organization membership alone does not grant private repository access.
+function canReadPrivateRepo(repo, username) {
+  if (!username) return false;
+  if (repo.ownerType === 'user') {
+    return String(repo.owner).toLowerCase() === String(username).toLowerCase();
+  }
+  const member = store.membership(repo.owner, username);
+  if (member && member.role === 'Owner') return true;
+  return Boolean(store.bestGrantPermission(repo.owner, repo.name, username));
+}
+
+// REQ-5-3-2: file contents at a specific commit, keyed by path.
+function snapshotOfCommit(repo, sha) {
+  const commit = store.commitBySha(repo, sha);
+  if (!commit) return null;
+  const files = {};
+  for (const file of commit.snapshot || []) files[file.path] = file.content;
+  return files;
+}
+
+// REQ-6-5: a merge is blocked when both branches changed the same file relative
+// to the commit the pull request was opened from.
+function mergeConflicts(repo, pull) {
+  // Without a recorded creation-time base commit there is no ancestor to
+  // compare against, so nothing can be reported as conflicting.
+  if (!store.commitBySha(repo, pull.baseSha)) return [];
+  const ancestor = snapshotOfCommit(repo, pull.baseSha) || {};
+  const base = snapshotOfCommit(repo, store.branchHead(repo, pull.baseBranch)) || {};
+  const head = snapshotOfCommit(repo, store.branchHead(repo, pull.headBranch)) || {};
+  const paths = new Set([...Object.keys(base), ...Object.keys(head)]);
+  const conflicts = [];
+  for (const path of paths) {
+    const original = ancestor[path];
+    const baseChanged = base[path] !== original;
+    const headChanged = head[path] !== original;
+    if (baseChanged && headChanged && base[path] !== head[path]) conflicts.push(path);
+  }
+  return conflicts;
+}
+
 app.get('/api/repos/:owner/:name/pulls', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
@@ -1419,6 +1455,17 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
   if (baseBranch === headBranch) {
     return res.status(400).json({ error: 'Base and head branches must be different.' });
   }
+  // REQ-6-2 / REQ-6-2-3: an open or draft pull request for the same branch pair
+  // already exists, so no second record may be created.
+  const duplicate = (repo.pulls || []).find(
+    (item) =>
+      item.baseBranch === baseBranch &&
+      item.headBranch === headBranch &&
+      (item.state === 'open' || item.state === 'draft'),
+  );
+  if (duplicate) {
+    return res.status(422).json({ error: 'A pull request already exists for these branches' });
+  }
   const pull = {
     number: store.nextPullNumber(repo),
     title,
@@ -1428,6 +1475,8 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
     state: (req.body || {}).draft === true ? 'draft' : 'open',
     baseBranch,
     headBranch,
+    // REQ-6-5: the creation-time base commit is the ancestor used for conflicts.
+    baseSha: store.branchHead(repo, baseBranch),
     headSha: store.branchHead(repo, headBranch),
     milestone: String((req.body || {}).milestone || '').trim() || null,
     createdAt: new Date().toISOString(),
@@ -1436,6 +1485,8 @@ app.post('/api/repos/:owner/:name/pulls', requireUser, (req, res) => {
   };
   repo.pulls = repo.pulls || [];
   repo.pulls.push(pull);
+  // REQ-6-2-3: creation is an activity record on the pull request.
+  pushActivity(pull, 'Opened this pull request', req.user.username);
   return res.status(201).json({ pull });
 });
 
@@ -1451,6 +1502,8 @@ app.get('/api/repos/:owner/:name/pulls/:number', (req, res) => {
     pull: { ...pull, checks: normalizedChecks(pull, protection, headSha) },
     protection,
     approvals: approvalCount(pull, repo),
+    // REQ-6-5: conflicting paths block the merge and are surfaced to the UI.
+    conflicts: mergeConflicts(repo, pull),
     canAdmin: store.canAdmin(repo, user && user.username),
     // REQ-6-6: only the author, Maintain, Admin or Owner may close or reopen.
     canClose: canManagePull(repo, user && user.username, pull),
@@ -1591,17 +1644,36 @@ app.post('/api/repos/:owner/:name/pulls/:number/comments', requireUser, (req, re
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   const pull = store.findPull(repo, req.params.number);
   if (!pull) return res.status(404).json({ error: 'Pull request not found.' });
-  if (pull.author === req.user.username) {
-    return res.status(403).json({ error: 'The author cannot review their own pull request.' });
+  const path_ = String((req.body || {}).path || '').trim();
+  const body = String((req.body || {}).body || '').trim();
+  const line = Number((req.body || {}).line || 0);
+  if (!body) {
+    return res.status(400).json({ error: 'Comment is required' });
   }
   if (!store.canWrite(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have permission to comment.' });
   }
-  const path_ = String((req.body || {}).path || '').trim();
-  const body = String((req.body || {}).body || '').trim();
-  const line = Number((req.body || {}).line || 0);
-  if (!path_ || !body) {
-    return res.status(400).json({ error: 'A file path and a non-empty comment are required.' });
+  // REQ-6-3-1: a comment without a code location is an ordinary conversation
+  // comment, which the pull request author may also post.
+  if (!path_) {
+    pull.comments = pull.comments || [];
+    const conversationComment = {
+      id: `pc${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      author: req.user.username,
+      body,
+      createdAt: new Date().toISOString(),
+    };
+    pull.comments.push(conversationComment);
+    pushActivity(pull, 'Commented', req.user.username, {
+      body,
+      commentId: conversationComment.id,
+    });
+    return res.status(201).json({ comment: conversationComment });
+  }
+  // REQ-6-3-3: an inline review comment is anchored to a changed line and the
+  // author of the pull request cannot review their own change.
+  if (pull.author === req.user.username) {
+    return res.status(403).json({ error: 'The author cannot review their own pull request.' });
   }
   pull.reviewComments = pull.reviewComments || [];
   const comment = {
@@ -1724,6 +1796,11 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
     return res.status(403).json({ error: 'You do not have permission to merge.' });
   }
   if (pull.state !== 'open') return res.status(409).json({ error: 'Pull request is not open.' });
+  // REQ-6-5: merge conflicts block the merge before anything is written.
+  const conflicts = mergeConflicts(repo, pull);
+  if (conflicts.length) {
+    return res.status(409).json({ error: `Merge conflict in ${conflicts.join(', ')}` });
+  }
   const protection = protectionOf(repo, pull.baseBranch);
   const headSha = store.branchHead(repo, pull.headBranch);
   const approvals = approvalCount(pull, repo);

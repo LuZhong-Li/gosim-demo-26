@@ -246,6 +246,8 @@ function seed(store) {
     docs.pulls = [];
     docs.pullCounter = 0;
     const featureHead = store.branchHead(docs, 'feature-search');
+    // REQ-6-5: the creation-time base commit is the conflict-detection ancestor.
+    const mainBase = store.branchHead(docs, 'main');
 
     docs.pulls.push({
       number: store.nextPullNumber(docs),
@@ -255,6 +257,7 @@ function seed(store) {
       state: 'open',
       baseBranch: 'main',
       headBranch: 'feature-search',
+      baseSha: mainBase,
       headSha: featureHead,
       milestone: null,
       createdAt: new Date().toISOString(),
@@ -273,6 +276,7 @@ function seed(store) {
       state: 'open',
       baseBranch: 'main',
       headBranch: 'feature-search',
+      baseSha: mainBase,
       headSha: featureHead,
       milestone: null,
       createdAt: new Date().toISOString(),

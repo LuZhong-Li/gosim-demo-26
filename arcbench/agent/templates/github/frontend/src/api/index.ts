@@ -75,6 +75,10 @@ export type PullRequest = {
   mergeCommit?: string;
   mergeMethod?: string;
   milestone?: string | null;
+  /** REQ-6-3-1: ordinary conversation comments. */
+  comments?: { id: string; author: string; body: string; createdAt?: string }[];
+  /** REQ-6-2-3 / REQ-6-6: pull request activity records. */
+  activities?: { type: string; actor: string; at: string; body?: string }[];
 };
 export type PullDetail = {
   pull: PullRequest;
@@ -87,6 +91,8 @@ export type PullDetail = {
   canMerge?: boolean;
   /** REQ-5-3-3: whether the signed-in user may change the milestone. */
   canTriage?: boolean;
+  /** REQ-6-5: paths that conflict between the base and compare branches. */
+  conflicts?: string[];
 };
 export type DiffLine = { type: string; text: string };
 export type DiffFile = { path: string; status: string; lines: DiffLine[] };
@@ -496,6 +502,20 @@ export async function addPullComment(
     input,
   );
   return response.data.comment as ReviewComment;
+}
+
+// REQ-6-3-1: an ordinary Conversation comment carries no code location.
+export async function addPullConversationComment(
+  owner: string,
+  name: string,
+  number: number,
+  body: string,
+): Promise<{ id: string; author: string; body: string; createdAt?: string }> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/pulls/${number}/comments`,
+    { body },
+  );
+  return response.data.comment;
 }
 
 export async function getPullFiles(

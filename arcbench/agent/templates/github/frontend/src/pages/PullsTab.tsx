@@ -25,6 +25,8 @@ export default function PullsTab({
   const [reviewBody, setReviewBody] = useState('');
   const [files, setFiles] = useState<PullFiles | null>(null);
   const [comments, setComments] = useState<ReviewComment[]>([]);
+  const [conversationDraft, setConversationDraft] = useState('');
+  const [conversationError, setConversationError] = useState('');
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
   const [inlineTarget, setInlineTarget] = useState<{ path: string; line: number } | null>(null);
   const [reviewerDraft, setReviewerDraft] = useState('');
@@ -133,6 +135,8 @@ export default function PullsTab({
   // REQ-6-6: a viewer who is not the author or a maintainer must not see close/reopen.
   const canClose = Boolean(selected?.canClose);
   const canMerge = Boolean(selected?.canMerge);
+  // REQ-6-5: the pull request reports the paths that conflict between branches.
+  const conflicts = selected?.conflicts || [];
   const changesRequested = (selected?.pull.reviews || []).some(
     (review) => review.state === 'CHANGES_REQUESTED',
   );
@@ -272,6 +276,61 @@ export default function PullsTab({
                   ))}
                 </ul>
               )}
+              {/* REQ-6-3-1: Conversation also carries ordinary comments and the
+                  status events of the pull request. */}
+              {(selected.pull.comments || []).length > 0 && (
+                <ul className="repo-list">
+                  {(selected.pull.comments || []).map((comment) => (
+                    <li key={comment.id}>
+                      <strong>{comment.author}</strong>
+                      <p>{comment.body}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(selected.pull.activities || []).length > 0 && (
+                <>
+                  <h4>Activity</h4>
+                  <ul className="repo-list">
+                    {(selected.pull.activities || []).map((activity, index) => (
+                      <li key={`${activity.type}-${index}`}>
+                        <strong>{activity.type}</strong>
+                        <span className="muted">
+                          {` · ${activity.actor} · ${new Date(activity.at).toLocaleString()}`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <form
+                className="inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const body = conversationDraft.trim();
+                  if (!body) {
+                    setConversationError('Comment is required');
+                    return;
+                  }
+                  setConversationError('');
+                  run(
+                    () =>
+                      api.addPullConversationComment(owner, name, selected.pull.number, body),
+                    'Comment added.',
+                  ).then(() => openPull(selected.pull.number));
+                  setConversationDraft('');
+                }}
+              >
+                <input
+                  aria-label="Comment"
+                  type="text"
+                  placeholder="Leave a comment"
+                  value={conversationDraft}
+                  onChange={(event) => setConversationDraft(event.target.value)}
+                />
+                <button type="submit">Comment</button>
+                {conversationError && <p className="error">{conversationError}</p>}
+              </form>
             </>
           )}
           {view === 'commits' && (
@@ -665,7 +724,18 @@ export default function PullsTab({
                     ? `Required status check ${missingChecks.join(', ')} not satisfied`
                     : 'Required status checks satisfied'}
                 </li>
+                {/* REQ-6-5: conflicting files block the merge. */}
+                <li>
+                  {conflicts.length > 0
+                    ? 'Conflicting changes must be resolved before merging'
+                    : 'No merge conflicts'}
+                </li>
               </ul>
+              {conflicts.length > 0 && (
+                <p className="error">
+                  These branches have conflicting changes: {conflicts.join(', ')}
+                </p>
+              )}
               {!canMerge ? (
                 <div className="merge-status">
                   <button type="button" disabled>
@@ -673,7 +743,7 @@ export default function PullsTab({
                   </button>
                   <p>You do not have permission to merge this pull request</p>
                 </div>
-              ) : mergeBlocked || changesRequested ? (
+              ) : mergeBlocked || changesRequested || conflicts.length > 0 ? (
                 <div className="merge-status">
                   <button type="button" disabled>
                     Merge pull request
@@ -683,6 +753,7 @@ export default function PullsTab({
                     <p>{`Required status check ${missingChecks.join(', ')} has not passed`}</p>
                   )}
                   {changesRequested && <p>Changes requested by a reviewer must be resolved</p>}
+                  {conflicts.length > 0 && <p>Merge conflicts must be resolved</p>}
                 </div>
               ) : mergeConfirm ? (
                 <span className="inline-form">
