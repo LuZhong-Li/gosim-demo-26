@@ -31,6 +31,7 @@ import yaml
 from arcbench_agent_runtime import AgentRuntime
 from guard import guard as guard_generated
 from llm import LlmClient
+from selfcheck import main as run_selfcheck
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -486,11 +487,12 @@ def main(argv: list[str] | None = None) -> int:
         # shipping task-specific implementations inside the template. The model
         # writes the task-specific source on top of the generic scaffold.
         llm = LlmClient()
+        nodes_payload = list((task_map or {}).get("nodes") or [])
         generated, covered = generate_task_modules(
             project_dir,
             tree,
             modules,
-            list((task_map or {}).get("nodes") or []),
+            nodes_payload,
             asset_slug,
             llm,
         )
@@ -507,6 +509,12 @@ def main(argv: list[str] | None = None) -> int:
         # Module notes reflect what the model reported as implemented.
         modules = build_module_plan(task_map, coverage)
         write_module_files(project_dir, modules)
+        # Self-check: names the requirements pin down but the generated source
+        # never mentions cannot be found by the tests either.
+        try:
+            run_selfcheck(project_dir, nodes_payload)
+        except Exception as exc:  # noqa: BLE001 - never fail the run for this
+            print(f"[selfcheck] skipped: {exc}", flush=True)
 
         tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path.cwd() / "tests"))
 
