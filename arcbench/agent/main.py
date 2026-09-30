@@ -29,6 +29,7 @@ from pathlib import Path
 import yaml
 
 from arcbench_agent_runtime import AgentRuntime
+from guard import guard as guard_generated
 from llm import LlmClient
 
 try:
@@ -493,6 +494,14 @@ def main(argv: list[str] | None = None) -> int:
             asset_slug,
             llm,
         )
+        # A single broken build-critical file would make the whole submission
+        # unbuildable, so restore the scaffold copy of anything the model broke.
+        reverts = guard_generated(project_dir, TEMPLATES / slug, set(generated))
+        if reverts:
+            print(f"[arc-agent] reverted broken generated files: {reverts}", flush=True)
+        generated = {path: body for path, body in generated.items() if path not in {
+            entry.split(":", 1)[0] for entry in reverts
+        }}
         coverage = coverage | set(covered)
         write_generation_report(project_dir, llm, generated)
         # Module notes reflect what the model reported as implemented.

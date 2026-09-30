@@ -11,6 +11,7 @@ usage block, so the agent can be exercised without a real key:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -24,7 +25,20 @@ FILES = {
             "path": "../escape.txt",
             "content": "must never be written",
         },
-    ]
+    ],
+    "covered": ["REQ-1-1-1"],
+}
+
+# ARC_STUB_BROKEN=1 makes the stub vandalise build-critical files, so the
+# post-generation guard can be exercised.
+BROKEN_FILES = {
+    "files": [
+        {"path": "frontend/vite.config.js", "content": "this is not javascript {{{\n"},
+        {"path": "backend/src/app.js", "content": ""},
+        {"path": "backend/package.json", "content": "{ not json"},
+        {"path": "frontend/src/generated-probe.txt", "content": "still generated\n"},
+    ],
+    "covered": ["REQ-1-1-1"],
 }
 
 
@@ -37,7 +51,12 @@ class Handler(BaseHTTPRequestHandler):
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": json.dumps(FILES)},
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps(
+                            BROKEN_FILES if os.environ.get("ARC_STUB_BROKEN") == "1" else FILES
+                        ),
+                    },
                     "finish_reason": "stop",
                 }
             ],
