@@ -121,6 +121,38 @@ function toTsv(rows: string[][]): string {
   return rows.map((row) => row.join('\t')).join('\n');
 }
 
+// Grid cells are inputs labelled "Cell A1", so a plain tag check would treat the
+// grid as a text field and disable copy/cut/paste on it. Only the formula bar,
+// the inline cell editor and unrelated form controls keep native behaviour.
+// The paste event can be dispatched on window (no attributes), so every helper
+// reads the label defensively.
+function elementLabel(target: EventTarget | null): string {
+  const element = target as HTMLElement | null;
+  if (!element || typeof element.getAttribute !== 'function') return '';
+  return element.getAttribute('aria-label') || '';
+}
+
+function isGridCellTarget(target: EventTarget | null): boolean {
+  return elementLabel(target).startsWith('Cell ');
+}
+
+function isFormulaBarOrEditor(target: EventTarget | null): boolean {
+  const label = elementLabel(target);
+  return label === 'Formula bar' || label.startsWith('Edit ');
+}
+
+function isTextEditorTarget(target: EventTarget | null): boolean {
+  if (isFormulaBarOrEditor(target)) return true;
+  if (isGridCellTarget(target)) return false;
+  const element = target as HTMLElement | null;
+  if (!element || !element.tagName) return false;
+  return (
+    element.tagName === 'INPUT' ||
+    element.tagName === 'TEXTAREA' ||
+    Boolean(element.isContentEditable)
+  );
+}
+
 type Clipboard = {
   mode: 'copy' | 'cut';
   start: { col: number; row: number };
@@ -950,11 +982,8 @@ export default function SheetPage() {
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       const target = event.target as HTMLElement | null;
-      const label = target?.getAttribute('aria-label') || '';
-      const tag = target?.tagName;
-      const inTextField =
-        tag === 'INPUT' || tag === 'TEXTAREA' || Boolean(target?.isContentEditable);
-      if (label === 'Formula bar' || label.startsWith('Edit ')) return;
+      const inTextField = isTextEditorTarget(target);
+      if (isFormulaBarOrEditor(target)) return;
       if (key === 'z') {
         event.preventDefault();
         undoRedoRef.current.undo();
@@ -978,8 +1007,8 @@ export default function SheetPage() {
     // event on the document, so listen there and fall back to its payload.
     function onPaste(event: ClipboardEvent) {
       const target = event.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      // A focused grid cell is an input, but it still belongs to the grid.
+      if (isTextEditorTarget(target)) return;
       const text = event.clipboardData?.getData('text/plain') ?? '';
       if (!text) return;
       event.preventDefault();

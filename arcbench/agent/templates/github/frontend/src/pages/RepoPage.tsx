@@ -229,18 +229,25 @@ export default function RepoPage() {
 
   async function saveAssignees(next: string[]) {
     if (!selected) return;
+    const number = selected.number;
+    // REQ-5-3-1: the picker reflects the choice immediately; the server
+    // response reconciles the stored value right after.
+    setSelected((current) => (current ? { ...current, assignees: next } : current));
     await run(
-      () => api.updateIssue(owner, name, selected.number, { assignees: next }),
+      () => api.updateIssue(owner, name, number, { assignees: next }),
       'Assignees updated.',
-    ).then(() => openIssue(selected.number));
+    ).then(() => openIssue(number));
   }
 
   async function saveLabels(next: string[]) {
     if (!selected) return;
+    const number = selected.number;
+    // REQ-5-3-2: the label pills and checkboxes update without a round trip.
+    setSelected((current) => (current ? { ...current, labels: next } : current));
     await run(
-      () => api.updateIssue(owner, name, selected.number, { labels: next }),
+      () => api.updateIssue(owner, name, number, { labels: next }),
       'Labels updated.',
-    ).then(() => openIssue(selected.number));
+    ).then(() => openIssue(number));
   }
 
   if (!repo) {
