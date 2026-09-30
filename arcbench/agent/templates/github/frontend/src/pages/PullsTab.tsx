@@ -41,10 +41,14 @@ export default function PullsTab({
   const [commits, setCommits] = useState<
     { sha: string; message: string; author: string; timestamp: string }[]
   >([]);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   // REQ-6-3-1: the same PR number and view survive a reload or a re-opened URL.
   const requestedPull = Number(searchParams.get('pull')) || initialPullNumber || null;
   const view = searchParams.get('view') || 'conversation';
+  // REQ-6-2-1: status / author / review filters live in the URL so a reload keeps them.
+  const statusFilter = searchParams.get('status') || '';
+  const authorFilter = searchParams.get('author') || '';
+  const reviewFilter = searchParams.get('review') || '';
 
   const refresh = useCallback(async () => {
     try {
@@ -138,23 +142,96 @@ export default function PullsTab({
       <h2>Pull requests ({pulls.length})</h2>
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
-      {pulls.length === 0 ? (
-        <p>No pull requests yet.</p>
-      ) : (
-        <ul className="repo-list">
-          {pulls.map((pull) => (
-            <li key={pull.number}>
-              {/* REQ-6-2-1: the title is the link that opens the PR detail page. */}
-              <Link to={`/${owner}/${name}?tab=pulls&pull=${pull.number}`}>{pull.title}</Link>
-              <span className="muted">
-                {' '}
-                # {pull.number} · {stateLabel(pull.state)} · {pull.headBranch} →{' '}
-                {pull.baseBranch} · by {pull.author}
-              </span>
-            </li>
+      {/* REQ-6-2-1: the public list offers status links plus author and review filters. */}
+      <nav className="tabs" aria-label="Pull request filters">
+        {['Draft', 'Open', 'Closed', 'Merged'].map((label) => (
+          <Link
+            key={label}
+            className={statusFilter === label.toLowerCase() ? 'active' : ''}
+            to={`/${owner}/${name}?tab=pulls&status=${label.toLowerCase()}`}
+          >
+            {label}
+          </Link>
+        ))}
+        <Link className={statusFilter ? '' : 'active'} to={`/${owner}/${name}?tab=pulls`}>
+          All
+        </Link>
+      </nav>
+      <div className="inline-form">
+        <label htmlFor="pull-author-filter">Author</label>
+        <select
+          id="pull-author-filter"
+          aria-label="Author"
+          value={authorFilter}
+          onChange={(event) => {
+            const next = new URLSearchParams(searchParams);
+            next.set('tab', 'pulls');
+            if (event.target.value) next.set('author', event.target.value);
+            else next.delete('author');
+            setSearchParams(next, { replace: true });
+          }}
+        >
+          <option value="">All authors</option>
+          {Array.from(new Set(pulls.map((pull) => pull.author))).map((author) => (
+            <option key={author} value={author}>
+              {author}
+            </option>
           ))}
-        </ul>
-      )}
+        </select>
+        <label htmlFor="pull-review-filter">Review status</label>
+        <select
+          id="pull-review-filter"
+          aria-label="Review status"
+          value={reviewFilter}
+          onChange={(event) => {
+            const next = new URLSearchParams(searchParams);
+            next.set('tab', 'pulls');
+            if (event.target.value) next.set('review', event.target.value);
+            else next.delete('review');
+            setSearchParams(next, { replace: true });
+          }}
+        >
+          <option value="">Any review status</option>
+          <option value="approved">Approved</option>
+          <option value="changes_requested">Changes requested</option>
+          <option value="review_required">Review required</option>
+        </select>
+      </div>
+      {(() => {
+        const visible = pulls.filter((pull) => {
+          if (statusFilter && String(pull.state).toLowerCase() !== statusFilter) return false;
+          if (authorFilter && pull.author !== authorFilter) return false;
+          if (reviewFilter) {
+            const reviews = pull.reviews || [];
+            const latest = new Map<string, string>();
+            for (const review of reviews) latest.set(review.author, review.state);
+            const states = Array.from(latest.values());
+            const approved = states.includes('APPROVED');
+            const changes = states.includes('CHANGES_REQUESTED');
+            if (reviewFilter === 'approved' && !approved) return false;
+            if (reviewFilter === 'changes_requested' && !changes) return false;
+            if (reviewFilter === 'review_required' && (approved || changes)) return false;
+          }
+          return true;
+        });
+        return visible.length === 0 ? (
+          <p>No pull requests match this filter.</p>
+        ) : (
+          <ul className="repo-list">
+            {visible.map((pull) => (
+              <li key={pull.number}>
+                {/* REQ-6-2-1: the title is the link that opens the PR detail page. */}
+                <Link to={`/${owner}/${name}?tab=pulls&pull=${pull.number}`}>{pull.title}</Link>
+                <span className="muted">
+                  {' '}
+                  # {pull.number} · {stateLabel(pull.state)} · {pull.headBranch} →{' '}
+                  {pull.baseBranch} · by {pull.author}
+                </span>
+              </li>
+            ))}
+          </ul>
+        );
+      })()}
 
       {selected && (
         <div className="issue-detail">

@@ -66,6 +66,16 @@ test('whitespace-only titles are rejected with the official message', async () =
   assert.equal(edit.payload.error, 'Title is required');
 });
 
+test('the seeded list contains an Open PR by the author and a Closed PR by a second account', async () => {
+  const list = await json(`${REPO}/pulls`);
+  const open = list.payload.pulls.find((pull) => pull.title === 'Improve onboarding');
+  const closed = list.payload.pulls.find((pull) => pull.title === 'Retire legacy banner');
+  assert.equal(open.state, 'open');
+  assert.equal(open.author, 'alice-dev');
+  assert.equal(closed.state, 'closed');
+  assert.equal(closed.author, 'bob-reviewer');
+});
+
 test('close and reopen are limited to the author, maintainers and owners', async () => {
   const [alice, bob, carol] = await Promise.all([
     login('alice-dev'),

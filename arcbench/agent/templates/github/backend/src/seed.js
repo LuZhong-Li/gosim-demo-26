@@ -316,6 +316,25 @@ function seed(store) {
       reviewers: [],
       reviewComments: [],
     });
+
+    // REQ-6-2-1 seed: a Closed PR authored by a second account, used by the author filter.
+    const releaseHead = store.branchHead(docs, 'release');
+    docs.pulls.push({
+      number: store.nextPullNumber(docs),
+      title: 'Retire legacy banner',
+      body: 'Superseded by the new onboarding flow.',
+      author: 'bob-reviewer',
+      state: 'closed',
+      baseBranch: 'main',
+      headBranch: 'release',
+      headSha: releaseHead,
+      milestone: null,
+      createdAt: new Date().toISOString(),
+      reviews: [],
+      checks: [],
+      reviewers: [],
+      reviewComments: [],
+    });
   }
 
   // ----- repository milestones (REQ-5-3-3 seed) -----
