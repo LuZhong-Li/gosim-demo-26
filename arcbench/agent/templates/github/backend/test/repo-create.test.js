@@ -96,3 +96,22 @@ test('a repository can be created in an organization the user belongs to', async
   });
   assert.equal(unknown.response.status, 404);
 });
+
+test('a private source always forks into a private repository and records its source', async () => {
+  const alice = await login('alice-dev');
+  const fork = await json('/api/repos/acme-demo/acme-private/fork', {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({
+      name: 'private-fork',
+      targetOwner: 'alice-dev',
+      visibility: 'public',
+    }),
+  });
+  assert.equal(fork.response.status, 201);
+  assert.equal(fork.payload.repo.visibility, 'private');
+  assert.equal(fork.payload.repo.forkedFrom, 'acme-demo/acme-private');
+
+  const reloaded = await json('/api/repos/alice-dev/private-fork', { headers: auth(alice) });
+  assert.equal(reloaded.payload.repo.forkedFrom, 'acme-demo/acme-private');
+});

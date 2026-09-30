@@ -45,6 +45,12 @@ export default function RepoPage() {
   const [issueBodyDraft, setIssueBodyDraft] = useState('');
   const [issueEditError, setIssueEditError] = useState('');
   const [milestones, setMilestones] = useState<string[]>([]);
+  const [forkOpen, setForkOpen] = useState(false);
+  const [forkName, setForkName] = useState('');
+  const [forkOwner, setForkOwner] = useState('');
+  const [forkVisibility, setForkVisibility] = useState('public');
+  const [myOrgs, setMyOrgs] = useState<api.Org[]>([]);
+  const [forkError, setForkError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneProtocol, setCloneProtocol] = useState<'https' | 'ssh'>('https');
@@ -103,6 +109,14 @@ export default function RepoPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // REQ-3-2-2: the fork form offers the personal namespace plus organizations the user can write to.
+  useEffect(() => {
+    api
+      .listOrgs()
+      .then(setMyOrgs)
+      .catch(() => setMyOrgs([]));
+  }, []);
 
   useEffect(() => {
     setIssueSearch(issueQuery);
@@ -202,6 +216,73 @@ export default function RepoPage() {
         {repo.visibility === 'private' ? 'Private' : 'Public'} · default branch:{' '}
         {repo.defaultBranch}
       </p>
+      {/* REQ-3-2-2: a fork records and shows its source repository. */}
+      {repo.forkedFrom && (
+        <p className="muted">
+          {'Forked from '}
+          <Link to={`/${repo.forkedFrom}`}>{repo.forkedFrom}</Link>
+        </p>
+      )}
+      {forkOpen && (
+        <form
+          className="form-grid"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setForkError('');
+            try {
+              const fork = await api.forkRepo(owner, name, {
+                name: forkName.trim(),
+                targetOwner: forkOwner,
+                visibility: forkVisibility,
+              });
+              navigate(`/${fork.owner}/${fork.name}`);
+            } catch (caught) {
+              setForkError(api.errorMessage(caught));
+            }
+          }}
+        >
+          <div className="field">
+            <label htmlFor="fork-owner">Owner</label>
+            <select
+              id="fork-owner"
+              value={forkOwner}
+              onChange={(event) => setForkOwner(event.target.value)}
+            >
+              {forkOwner && <option value={forkOwner}>{forkOwner}</option>}
+              {myOrgs
+                .filter((org) => org.role === 'Owner' || org.role === 'Admin')
+                .map((org) => (
+                  <option key={org.name} value={org.name}>
+                    {org.displayName || org.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="fork-name">Repository name</label>
+            <input
+              id="fork-name"
+              type="text"
+              value={forkName}
+              onChange={(event) => setForkName(event.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="fork-visibility">Visibility</label>
+            <select
+              id="fork-visibility"
+              value={forkVisibility}
+              disabled={repo.visibility === 'private'}
+              onChange={(event) => setForkVisibility(event.target.value)}
+            >
+              <option value="public">Public</option>
+              <option value="private">Private</option>
+            </select>
+          </div>
+          <button type="submit">Create fork</button>
+          {forkError && <p className="error">{forkError}</p>}
+        </form>
+      )}
       {/* REQ-4-2-3: the repository page exposes one searchbox named "Search". */}
       <form
         className="inline-form"
@@ -230,11 +311,15 @@ export default function RepoPage() {
           onClick={async () => {
             setError('');
             setInfo('');
+            setForkError('');
+            setForkOpen(true);
+            setForkName(name);
+            setForkVisibility(repo.visibility === 'private' ? 'private' : 'public');
             try {
-              const fork = await api.forkRepo(owner, name);
-              navigate(`/${fork.owner}/${fork.name}`);
-            } catch (caught) {
-              setError(api.errorMessage(caught));
+              const current = await api.me();
+              setForkOwner(current.username);
+            } catch {
+              setForkOwner('');
             }
           }}
         >

@@ -176,9 +176,14 @@ app.post('/api/auth/reset', (req, res) => {
 app.get('/api/orgs', requireUser, (req, res) => {
   const orgs = store.state.memberships
     .filter((m) => String(m.username).toLowerCase() === req.user.username)
-    .map((m) => store.findOrg(m.org))
-    .filter(Boolean)
-    .map((org) => ({ name: org.name, displayName: org.displayName }));
+    .map((m) => ({ membership: m, org: store.findOrg(m.org) }))
+    .filter((entry) => entry.org)
+    .map((entry) => ({
+      name: entry.org.name,
+      displayName: entry.org.displayName,
+      // REQ-3-2-2: the fork form only offers namespaces the user can create in.
+      role: entry.membership.role || null,
+    }));
   res.json({ orgs });
 });
 
@@ -610,11 +615,17 @@ app.post('/api/repos/:owner/:name/fork', requireUser, (req, res) => {
     return res.status(409).json({ error: 'A repository with that name already exists.' });
   }
   const visibility = String((req.body || {}).visibility || 'public').trim().toLowerCase();
+  // REQ-3-2-2: a private source always forks into a private repository.
+  const forkVisibility = source.visibility === 'private'
+    ? 'private'
+    : ['public', 'private'].includes(visibility)
+      ? visibility
+      : 'public';
   const fork = store.forkRepo(
     source,
     targetOwner,
     org ? 'organization' : 'user',
-    ['public', 'private'].includes(visibility) ? visibility : 'public',
+    forkVisibility,
     req.user.username,
   );
   fork.name = forkName;

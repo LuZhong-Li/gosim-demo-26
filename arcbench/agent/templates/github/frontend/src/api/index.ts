@@ -1,7 +1,12 @@
 import axios from 'axios';
 
 export type User = { username: string; email: string; emailVerified: boolean };
-export type Org = { name: string; displayName: string };
+export type Org = {
+  name: string;
+  displayName: string;
+  /** REQ-3-2-2: the signed-in user's role in the organization, when known. */
+  role?: string | null;
+};
 export type Repo = {
   owner: string;
   name: string;
