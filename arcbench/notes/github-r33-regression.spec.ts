@@ -127,3 +127,17 @@ test('repository code search narrows by path and opens the matched line', async 
   await page.goto(`${REPO}/search?q=search&path=docs-nowhere/`);
   await expect(page.getByText('No code results')).toBeVisible();
 });
+
+test('file history is scoped to that file and the diff names its revisions', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}?tab=code&file=src/search.ts`);
+
+  // REQ-4-2-1: history opened from a file page only lists commits that touched it.
+  await page.getByRole('link', { name: 'Commits' }).click();
+  await expect(page.getByRole('link', { name: /^[0-9a-z]{7}$/ }).first()).toBeVisible();
+  await expect(page.getByText('Draft onboarding changes')).toHaveCount(0);
+
+  // REQ-4-2-2: the diff names the base and compare revisions.
+  await page.getByRole('button', { name: 'View latest commit diff' }).click();
+  await expect(page.getByText(/^base .+ → compare /)).toBeVisible();
+});

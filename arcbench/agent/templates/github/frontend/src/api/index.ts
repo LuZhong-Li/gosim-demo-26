@@ -379,9 +379,11 @@ export async function compareBranches(
 export async function listCommits(
   owner: string,
   name: string,
+  options: { path?: string } = {},
 ): Promise<{ sha: string; message: string; author: string; timestamp: string; changed: string[] }[]> {
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/commits`,
+    { params: { path: options.path || '' } },
   );
   return response.data.commits;
 }

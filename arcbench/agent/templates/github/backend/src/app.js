@@ -852,14 +852,19 @@ app.get('/api/repos/:owner/:name/commits/:sha', (req, res) => {
 app.get('/api/repos/:owner/:name/commits', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  // REQ-4-2-1: a file page reads only the history that modified that file.
+  const filePath = String(req.query.path || req.query.file || '').trim();
   res.json({
-    commits: (repo.commits || []).map((commit) => ({
-      sha: commit.sha,
-      message: commit.message,
-      author: commit.author,
-      timestamp: commit.timestamp,
-      changed: commit.changed,
-    })),
+    commits: (repo.commits || [])
+      .filter((commit) => !filePath || (commit.changed || []).includes(filePath))
+      .map((commit) => ({
+        sha: commit.sha,
+        message: commit.message,
+        author: commit.author,
+        timestamp: commit.timestamp,
+        changed: commit.changed,
+      })),
+    path: filePath || null,
   });
 });
 

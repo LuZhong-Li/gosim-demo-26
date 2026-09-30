@@ -192,7 +192,8 @@ export default function RepoPage() {
 
   async function loadCommits() {
     try {
-      setCommits(await api.listCommits(owner, name));
+      // REQ-4-2-1: opening history from a file page scopes it to that file.
+      setCommits(await api.listCommits(owner, name, { path: requestedFile || undefined }));
       setShowCommits(true);
     } catch (caught) {
       setError(api.errorMessage(caught));
@@ -702,6 +703,8 @@ export default function RepoPage() {
       </button>
       {commitDiff && (
         <div className="diff-view">
+          {/* REQ-4-2-2: the diff names the base and compare revisions. */}
+          <p className="muted">{`base ${commitDiff.parentSha ? commitDiff.parentSha.slice(0, 7) : 'initial'} → compare ${commitDiff.commit.sha.slice(0, 7)}`}</p>
           <p className="muted">
             {commitDiff.commit.message} · +{commitDiff.stats.added} / -{commitDiff.stats.removed}
           </p>
