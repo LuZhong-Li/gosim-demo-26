@@ -34,17 +34,18 @@ function Header({ user, onLogout }: { user: User | null; onLogout: () => void })
               Account menu
             </button>
             {menuOpen && (
-              <div className="account-menu-popover" role="menu">
+              <div className="account-menu-popover" role="menu" aria-label="Account menu">
                 <span className="username">{user.username}</span>
-                <Link to="/orgs" role="menuitem" onClick={() => setMenuOpen(false)}>
+                {/* REQ-1-2 / REQ-2: the account menu exposes links, including
+                    exactly one link named "Sign out". */}
+                <Link to="/orgs" onClick={() => setMenuOpen(false)}>
                   Your organizations
                 </Link>
-                <Link to="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
+                <Link to="/settings" onClick={() => setMenuOpen(false)}>
                   Settings
                 </Link>
                 <a
                   href="#signout"
-                  role="menuitem"
                   onClick={(event) => {
                     event.preventDefault();
                     setMenuOpen(false);
