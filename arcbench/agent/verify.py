@@ -71,6 +71,86 @@ def _is_environment_failure(output: str) -> bool:
 #: Express route registrations we can turn into a smoke request.
 API_ROUTE_RE = re.compile(r"""\.(get|use|all)\(\s*['"]([^'"]+)['"]""")
 
+# ------------------------------------------------------------ store contract
+#
+# r38's GitHub run died before the port ever opened:
+#   backend/src/app.js:11  if (!store.getData().initialized) {
+#   TypeError: Cannot read properties of null (reading 'initialized')
+# The modules are written independently, so one of them reaches for a shared
+# store method that does not exist (or exists but is only filled in later). The
+# same class of bug - `store.getState is not a function` - cost r37 its 100
+# spreadsheet tests. This is a static, high-precision check for it: no npm, no
+# node_modules, just the generated sources.
+STORE_IMPORT_RES = (
+    re.compile(
+        r"""(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*['"]"""
+        r"""(?:\.\.?/)*(?:src/)?store(?:\.js)?['"]\s*\)"""
+    ),
+)
+STORE_CALL_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(")
+STORE_DEFINITION_RES = (
+    re.compile(r"\bfunction\s+([A-Za-z_$][\w$]*)\s*\("),
+    re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\()"),
+    re.compile(r"\b([A-Za-z_$][\w$]*)\s*[:=]\s*(?:async\s*)?function\b"),
+    re.compile(r"\bexports\.([A-Za-z_$][\w$]*)\s*="),
+    re.compile(r"\bmodule\.exports\.([A-Za-z_$][\w$]*)\s*="),
+)
+STORE_OBJECT_EXPORT_RE = re.compile(r"module\.exports\s*=\s*\{(.*?)\}", re.S)
+
+
+def _store_definitions(store_text: str) -> set[str]:
+    defined: set[str] = set()
+    for pattern in STORE_DEFINITION_RES:
+        defined.update(pattern.findall(store_text))
+    match = STORE_OBJECT_EXPORT_RE.search(store_text)
+    if match:
+        for entry in re.split(r"[,\n]", match.group(1)):
+            name = entry.split(":")[0].strip()
+            if re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+                defined.add(name)
+    return {name for name in defined if name not in {"if", "for", "while", "switch", "catch"}}
+
+
+def backend_store_contract(project_dir: Path) -> list[str]:
+    """Report store methods the generated modules call but the store never defines."""
+    backend = project_dir / "backend"
+    store_path = backend / "src" / "store.js"
+    if not store_path.exists():
+        return []
+    try:
+        defined = _store_definitions(store_path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return []
+
+    findings: list[str] = []
+    seen: set[str] = set()
+    for path in sorted(backend.rglob("*.js")):
+        if path == store_path or "node_modules" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        aliases: set[str] = set()
+        for pattern in STORE_IMPORT_RES:
+            aliases.update(pattern.findall(text))
+        if not aliases:
+            continue
+        relative = path.relative_to(project_dir)
+        for lineno, line in enumerate(text.splitlines(), 1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            for alias, method in STORE_CALL_RE.findall(line):
+                if alias not in aliases or method in defined:
+                    continue
+                finding = (f"{relative}:{lineno}: `{alias}.{method}()` is called but "
+                           f"backend/src/store.js never defines `{method}`")
+                if finding not in seen:
+                    seen.add(finding)
+                    findings.append(finding)
+    return findings[:12]
+
 
 def _npm() -> str | None:
     found = shutil.which("npm")

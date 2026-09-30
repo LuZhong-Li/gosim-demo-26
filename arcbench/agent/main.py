@@ -54,6 +54,7 @@ from selfcheck import main as run_selfcheck
 from selfcheck import report as selfcheck_report
 from selfcheck import quoted_names as exact_names
 from verify import (
+    backend_store_contract,
     free_port,
     locate_acceptance_tests,
     log,
@@ -771,7 +772,10 @@ def repair_from_rehearsal(
         "Typical causes: a require() path that does not match the real file "
         "location, a file referenced but never written, a syntax error in a "
         "module loaded at start-up, an import path that does not resolve, or a "
-        "dependency that is not installed. Fix the cause and emit the corrected "
+        "dependency that is not installed; a router reading a collection before "
+        "it is initialised (``TypeError: Cannot read properties of "
+        "undefined/null``) - initialise ``store.state.<key>`` before you read "
+        "it. Fix the cause and emit the corrected "
         "files, complete, in the JSON envelope.\n\n"
         "On this stack the single most common cause is an Express 5 wildcard "
         "route: `app.get('*', ...)` or `app.use('*', ...)` throws "
@@ -1062,6 +1066,29 @@ def main(argv: list[str] | None = None) -> int:
         build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
         if build_fixes:
             log(f"[arc-agent] normalised build plumbing: {build_fixes}")
+
+        # The modules are generated independently, so one of them routinely
+        # calls a store method another module never defined - that alone scored
+        # zero in r37 (Sheet) and r38 (GitHub). Catch it before the grader does.
+        contract_issues = backend_store_contract(project_dir)
+        if contract_issues:
+            log(f"[arc-agent] store contract issues: {contract_issues}")
+            if time.time() < deadline:
+                patched = repair_from_rehearsal(
+                    project_dir, llm,
+                    "Static contract check failed before the grader ever ran:\n"
+                    + "\n".join(contract_issues)
+                    + "\n\nEvery backend module shares ONE store, imported from "
+                      "backend/src/store.js. Emit the missing store method in "
+                      "backend/src/store.js, or call only methods that already "
+                      "exist. Keep one consistent shape across all modules.",
+                    deadline,
+                )
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    extra = fix_build_scripts(project_dir, TEMPLATES / slug)
+                    if extra:
+                        log(f"[arc-agent] normalised build plumbing after contract fix: {extra}")
         coverage = coverage | set(covered)
         modules = build_module_plan(task_map, coverage)
         write_module_files(project_dir, modules)

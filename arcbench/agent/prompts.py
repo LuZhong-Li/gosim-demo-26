@@ -121,6 +121,19 @@ replace it:
   verify the store methods your code needs. A router calling ``store.getState()``
   when the store only defines ``get()``/``set()`` makes every request 500 and
   the whole run scores zero.
+- ``store.state`` starts as an empty object. Initialise a collection before you
+  read or write into it: ``store.state.x = store.state.x || {}`` (or ``[]``).
+  Reading ``store.state.x.y`` when ``store.state.x`` is missing throws
+  ``TypeError: Cannot read properties of undefined/null`` at module load and
+  crashes the backend before a single test runs — initialise every collection
+  the moment the file that owns it is loaded.
+- The store must be complete when ``backend/src/store.js`` finishes loading.
+  Calling a store method the file never defines — ``store.getData()`` when the
+  store exports only ``state``/``save``/``hydrate`` — throws at require time and
+  the backend never opens the port, so all 100 tests score zero. Every module
+  shares that one store; either emit the method you need or call only methods
+  that already exist, and never read store data at module scope before the
+  store has initialised it.
 - Do not add npm dependencies. Everything needed is already installed; a new
   dependency is a real risk of a failed install at grading time.
 - Emit complete files, never fragments or diffs: the project must build and run
