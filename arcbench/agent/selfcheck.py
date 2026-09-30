@@ -28,6 +28,11 @@ NOT_A_UI_NAME = re.compile(
     r"|^[a-z0-9][a-z0-9/-]*$"
     # Relation phrases such as "owner/repository name" or "pull request (PR)".
     r"|/|\((PR|optional)\)"
+    # Scenario scaffolding, not UI. The sheet revision names every scenario
+    # "<REQ-id> -the requested workflow,...", and those placeholders were being
+    # listed - and prompted back to the model - as exact accessible names, which
+    # would have added a nonsense control to every screen.
+    r"|requested workflow|^REQ-"
     # Leftovers from a stringified structure never name a control.
     r"|[{}()\[\]:]|'\w+':|^\W"
 )

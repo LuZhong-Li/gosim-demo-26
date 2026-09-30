@@ -222,6 +222,55 @@ def load_task_map(slug: str) -> dict | None:
     return None
 
 
+def merge_runtime_requirements(task_map: dict | None, tree: dict | None) -> dict:
+    """Overlay the requirement tree the platform mounted onto the bundled map.
+
+    The generator decomposes a task from the copy of the requirement map that
+    ships inside this package, while the platform hands the *current* tree over
+    at run time. Those two drift: the map that shipped with r45 was an older
+    revision in which 55 of 65 github nodes had a different description and 149
+    quoted UI strings never appeared at all - so the model was told to build
+    strings the tests no longer look for, and never saw the ones they do.
+
+    The mounted text wins whenever it says anything; the bundled checklist is
+    kept because the mount does not carry one. Returns small counters so the run
+    log shows which way the overlay went on the real grader too.
+    """
+    report = {"refreshed": 0, "grew": 0, "shrank": 0, "ids": []}
+    if not task_map or not isinstance(tree, dict):
+        return report
+    if os.environ.get("ARC_DISABLE_REQUIREMENT_MERGE"):
+        return report
+    runtime = {
+        node.get("id"): node
+        for node in iter_nodes(tree)
+        if isinstance(node, dict) and node.get("id")
+    }
+    for node in task_map.get("nodes") or []:
+        source = runtime.get(node.get("id"))
+        if not isinstance(source, dict):
+            continue
+        changed = False
+        for key, source_key in (("description", "description"),
+                                ("title", "name"),
+                                ("dependencies", "dependencies"),
+                                ("scenarios", "scenarios")):
+            value = source.get(source_key)
+            if value in (None, "", [], {}):
+                continue
+            if node.get(key) == value:
+                continue
+            if key == "description":
+                delta = len(str(value)) - len(str(node.get(key) or ""))
+                report["grew" if delta > 0 else "shrank"] += 1
+            node[key] = value
+            changed = True
+        if changed:
+            report["refreshed"] += 1
+            report["ids"].append(str(node.get("id")))
+    return report
+
+
 def load_asset_guidance(slug: str) -> str:
     """Domain notes shipped next to the requirement map, if there are any."""
     folder = ASSETS / slug / "prompts"
@@ -1095,6 +1144,12 @@ def main(argv: list[str] | None = None) -> int:
         task_map = load_task_map(asset_slug)
         slug = asset_slug if (TEMPLATES / asset_slug).is_dir() else WEB_FALLBACK_TEMPLATE
         log(f"[arc-agent] task={asset_slug} template={slug}")
+        overlay = merge_runtime_requirements(task_map, tree)
+        if overlay["refreshed"]:
+            log(f"[arc-agent] requirement overlay: refreshed "
+                f"{overlay['refreshed']} node(s) from the mounted tree "
+                f"(grew={overlay['grew']} shrank={overlay['shrank']}) e.g. "
+                f"{', '.join(overlay['ids'][:6])}")
         copy_template(slug, project_dir)
         coverage = load_coverage(slug)
         write_manifest(project_dir, slug, tree, task_map)
