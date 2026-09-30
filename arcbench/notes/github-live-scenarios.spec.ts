@@ -351,3 +351,121 @@ test('REQ-3-2-1 create a repository with owner, visibility and README', async ({
   await expect(page.getByText('Private').first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'README.md' })).toBeVisible();
 });
+
+test('REQ-2-3 manage access replaces a grant instead of duplicating it', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}/settings/access`);
+
+  await page.getByRole('button', { name: 'Add people or teams' }).click();
+  const search = page.getByRole('textbox', { name: 'Search' }).first();
+  await search.fill('frontend-team');
+  await expect(
+    page.getByRole('option', { name: /frontend-team/ }).first(),
+  ).toBeVisible();
+  // The picker itself offers a Role combobox and an Add button; it hides the
+  // row editors while open, so reload before editing an existing grant.
+  await expect(page.getByRole('combobox', { name: 'Role' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add' }).first()).toBeVisible();
+  await page.reload();
+
+  // A row for the seeded collaborator exposes a Role combobox and Save.
+  const roleSelects = page.getByRole('combobox', { name: 'Role' });
+  await expect(roleSelects.first()).toBeVisible();
+  await roleSelects.first().selectOption('Read');
+  await page.getByRole('button', { name: 'Save' }).first().click();
+
+  await page.reload();
+  await expect(page.getByText('bob-reviewer').first()).toBeVisible();
+  const afterReload = page.getByRole('combobox', { name: 'Role' }).first();
+  await expect(afterReload).toHaveValue('Read');
+});
+
+test('REQ-3-4 visibility change and the non-admin view', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}/settings`);
+  await page.getByRole('link', { name: 'General' }).first().click();
+  await expect(page.getByText('Danger Zone').first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Change visibility' }).click();
+  await page.getByRole('radio', { name: 'Private' }).check();
+  await page.getByRole('button', { name: 'Confirm visibility' }).click();
+  await expect(page.getByText('Private').first()).toBeVisible();
+
+  // Back to public so the rest of the suite sees the seeded shape.
+  await page.getByRole('button', { name: 'Change visibility' }).click();
+  await page.getByRole('radio', { name: 'Public' }).check();
+  await page.getByRole('button', { name: 'Confirm visibility' }).click();
+  await expect(page.getByText('Public').first()).toBeVisible();
+
+  // A Maintain collaborator is not a repository Admin, so the action is absent.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('link', { name: 'Sign out' }).click();
+  await page.getByRole('dialog', { name: 'Sign out' }).getByRole('button', { name: 'Confirm sign out' }).click();
+  await page.goto('/auth?mode=signin');
+  await page.getByLabel('Username or email').fill('bob-reviewer');
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.goto(`${REPO}/settings`);
+  await expect(page.getByRole('button', { name: 'Change visibility' })).toHaveCount(0);
+});
+
+test('REQ-4-3-3 change the default branch through Settings then Branches', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}/settings/branches`);
+
+  const defaultBranch = page.getByRole('combobox', { name: 'Default branch' });
+  await expect(defaultBranch).toBeVisible();
+  await defaultBranch.selectOption('release');
+  await page.getByRole('button', { name: 'Update' }).click();
+  await page.getByRole('button', { name: 'Confirm' }).first().click();
+
+  await page.goto(REPO);
+  await expect(page.getByText('Branch release').first()).toBeVisible();
+
+  // Restore main for the rest of the suite.
+  await page.goto(`${REPO}/settings/branches`);
+  await page.getByRole('combobox', { name: 'Default branch' }).selectOption('main');
+  await page.getByRole('button', { name: 'Update' }).click();
+  await page.getByRole('button', { name: 'Confirm' }).first().click();
+
+  // A Maintain collaborator gets no default-branch combobox.
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('link', { name: 'Sign out' }).click();
+  await page.getByRole('dialog', { name: 'Sign out' }).getByRole('button', { name: 'Confirm sign out' }).click();
+  await page.goto('/auth?mode=signin');
+  await page.getByLabel('Username or email').fill('bob-reviewer');
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.goto(`${REPO}/settings/branches`);
+  await expect(page.getByRole('combobox', { name: 'Default branch' })).toHaveCount(0);
+});
+
+test('REQ-5-2-1 and REQ-5-2-2 create and then edit an issue', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}?tab=issues`);
+
+  await page.getByRole('link', { name: 'New issue' }).click();
+  await page.getByRole('button', { name: 'Submit new issue' }).click();
+  await expect(page.getByText('Title is required')).toBeVisible();
+
+  const title = `Scenario issue ${Date.now().toString(36)}`;
+  await page.getByLabel('Title', { exact: true }).fill(title);
+  await page.getByLabel('Description', { exact: true }).fill('Created by the live scenario suite.');
+  await page.getByRole('button', { name: 'Submit new issue' }).click();
+  await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  await expect(page.getByText('Open').first()).toBeVisible();
+
+  // Editing the title keeps the change and rejects a blank value.
+  await page.getByRole('button', { name: 'Edit issue title' }).click();
+  const renamed = `${title} renamed`;
+  await page.getByLabel('Issue title', { exact: true }).fill(renamed);
+  await page.getByRole('button', { name: 'Save issue title' }).click();
+  await expect(page.getByRole('heading', { name: renamed })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit issue title' }).click();
+  await page.getByLabel('Issue title', { exact: true }).fill('   ');
+  await page.getByRole('button', { name: 'Save issue title' }).click();
+  await expect(page.getByText('Title is required')).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: renamed })).toBeVisible();
+});
