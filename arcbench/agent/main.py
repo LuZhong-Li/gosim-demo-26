@@ -29,6 +29,7 @@ from pathlib import Path
 import yaml
 
 from arcbench_agent_runtime import AgentRuntime
+from llm import LlmClient
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -187,6 +188,106 @@ def write_module_files(project_dir, modules):
         (modules_dir / f"{module['id']}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+GENERATION_SYSTEM = (
+    "You are a senior full-stack engineer inside a requirement-to-application "
+    "factory. You receive a requirement document and must emit the application "
+    "source that satisfies it. Reply with JSON only, shaped "
+    '{"files":[{"path":"relative/path","content":"file body"}]}. '
+    "Paths are relative to the project root and must stay inside it."
+)
+
+
+def build_generation_prompt(tree: dict, modules: list[dict]) -> str:
+    """Requirements in, task-specific application source out."""
+    lines = [
+        f"Product: {tree.get('name')}",
+        "",
+        "Modules and their requirement ids:",
+    ]
+    for module in modules:
+        lines.append(f"- {module['id']} {module['name']} ({len(module['requirement_ids'])} requirements)")
+        description = (module.get("description") or "").strip()
+        if description:
+            lines.append(f"  {description}")
+    lines.extend(
+        [
+            "",
+            "The project already contains a generic React + Express scaffold "
+            "(frontend/ and backend/). Emit the task-specific route handlers, "
+            "React pages and state that the requirements above describe, "
+            "replacing the scaffold's placeholder modules where needed. "
+            "Keep every write server-persisted, permission-checked and atomic.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def parse_generated_files(content: str) -> dict[str, str]:
+    """Accept the JSON envelope, or the first JSON object found in the reply."""
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+    try:
+        payload = json.loads(text)
+    except Exception:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return {}
+        try:
+            payload = json.loads(text[start : end + 1])
+        except Exception:
+            return {}
+
+    raw_files = payload.get("files")
+    if raw_files is None and isinstance(payload.get("path"), str):
+        raw_files = [payload]
+    files: dict[str, str] = {}
+    for entry in raw_files or []:
+        path = str(entry.get("path") or "").replace("\\", "/").strip()
+        body = entry.get("content")
+        # Never let a generated path escape the project directory.
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            continue
+        if not isinstance(body, str):
+            continue
+        files[path] = body
+    return files
+
+
+def generate_task_modules(
+    project_dir: Path, tree: dict, modules: list[dict], llm: LlmClient
+) -> dict[str, str]:
+    """Ask the model for the task-specific source and write it into the project."""
+    if not llm.available:
+        print("[arc-agent] no model configured; skipping model generation", flush=True)
+        return {}
+    content = llm.chat(
+        [
+            {"role": "system", "content": GENERATION_SYSTEM},
+            {"role": "user", "content": build_generation_prompt(tree, modules)},
+        ]
+    )
+    files = parse_generated_files(content or "")
+    for relative, body in files.items():
+        target = project_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+    print(
+        f"[arc-agent] model generation: files={len(files)} tokens={llm.usage.total_tokens}",
+        flush=True,
+    )
+    return files
+
+
+def write_generation_report(project_dir: Path, llm: LlmClient, files: dict[str, str]) -> None:
+    report = {"model": llm.model, "usage": llm.usage.as_dict(), "files": sorted(files)}
+    (project_dir / "generation-report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 def wait_for_port(port: int, timeout: float = 15.0) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -281,6 +382,13 @@ def main(argv: list[str] | None = None) -> int:
         write_manifest(project_dir, slug, tree, task_map)
         modules = build_module_plan(task_map, coverage)
         write_module_files(project_dir, modules)
+
+        # The rules require the agent to actually call a model, and forbid
+        # shipping task-specific implementations inside the template. The model
+        # writes the task-specific source on top of the generic scaffold.
+        llm = LlmClient()
+        generated = generate_task_modules(project_dir, tree, modules, llm)
+        write_generation_report(project_dir, llm, generated)
 
         tests_dir = Path(os.environ.get("ARC_TESTS_DIR", Path.cwd() / "tests"))
 
