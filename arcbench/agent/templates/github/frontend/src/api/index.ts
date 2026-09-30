@@ -215,12 +215,36 @@ export type CodeMatch = {
   sha: string;
 };
 
-export async function searchCode(owner: string, name: string, query: string, pathPrefix: string): Promise<CodeMatch[]> {
+export type CodeSearchResult = {
+  matches: CodeMatch[];
+  branch: string;
+  languages: string[];
+};
+
+// REQ-4-2-3: search code within the current repository, optionally scoped by
+// path, language and branch.
+export async function searchCode(
+  owner: string,
+  name: string,
+  query: string,
+  options: { path?: string; language?: string; branch?: string } = {},
+): Promise<CodeSearchResult> {
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/search`,
-    { params: { q: query, path: pathPrefix } },
+    {
+      params: {
+        q: query,
+        path: options.path || '',
+        language: options.language || '',
+        branch: options.branch || '',
+      },
+    },
   );
-  return response.data.matches as CodeMatch[];
+  return {
+    matches: response.data.matches as CodeMatch[],
+    branch: response.data.branch as string,
+    languages: (response.data.languages as string[]) || [],
+  };
 }
 
 export async function searchRepos(query: string): Promise<Repo[]> {

@@ -31,6 +31,8 @@ export default function RepoPage() {
   const codeView = searchParams.get('view') || '';
   const requestedBranch = searchParams.get('branch') || '';
   const requestedPath = searchParams.get('path') || '';
+  // REQ-4-2-3: a code-search result opens the file at the matching line.
+  const requestedLine = Number(searchParams.get('line')) || null;
   const [currentBranch, setCurrentBranch] = useState('');
   const requestedIssue = Number(searchParams.get('issue')) || null;
   // REQ-5-1-1: state, keyword and label filters live in the URL so a refresh keeps them.
@@ -563,7 +565,22 @@ export default function RepoPage() {
               <h3>{fileContent.path}</h3>
               {/* REQ-4-1: the file page shows the current branch as well as the path. */}
               <p className="muted">{`Branch ${currentBranch || requestedBranch || 'main'}`}</p>
-              <pre>{fileContent.content}</pre>
+              {requestedLine && (
+                <p className="muted">{`Matched line ${requestedLine}`}</p>
+              )}
+              {/* REQ-4-2-3: the matched line is marked when arriving from search. */}
+              <pre aria-label={`File content for ${fileContent.path}`}>
+                {fileContent.content.split('\n').map((line, index) => (
+                  <span
+                    key={index}
+                    className={requestedLine === index + 1 ? 'highlight-line' : undefined}
+                    data-line={index + 1}
+                  >
+                    {line}
+                    {'\n'}
+                  </span>
+                ))}
+              </pre>
               <p>
                 <Link
                   to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&path=${encodeURIComponent(requestedPath)}&file=${encodeURIComponent(fileContent.path)}&view=commits`}

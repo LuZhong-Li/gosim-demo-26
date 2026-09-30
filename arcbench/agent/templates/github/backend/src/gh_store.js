@@ -467,25 +467,60 @@ function branchHead(repo, branchName) {
   return branch ? branch.head : null;
 }
 
-function searchCode(repo, term, pathPrefix) {
-  const query = String(term || '').trim().toLowerCase();
-  const prefix = String(pathPrefix || '').trim();
+// REQ-4-2-3: code search reads the readable content of one branch and reports
+// the matching snippet, file path, branch and revision.
+const LANGUAGE_EXTENSIONS = {
+  typescript: ['.ts', '.tsx'],
+  javascript: ['.js', '.jsx', '.mjs', '.cjs'],
+  markdown: ['.md', '.markdown'],
+  python: ['.py'],
+  json: ['.json'],
+  css: ['.css'],
+  html: ['.html', '.htm'],
+};
+
+function normalizeLanguage(value) {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  return raw.startsWith('.') ? raw.slice(1) : raw;
+}
+
+function fileMatchesLanguage(filePath, language) {
+  if (!language) return true;
+  const lower = String(filePath || '').toLowerCase();
+  const extensions = LANGUAGE_EXTENSIONS[language];
+  if (extensions) return extensions.some((extension) => lower.endsWith(extension));
+  // Any other value is treated as an extension (for example "ts").
+  return lower.endsWith(`.${language}`);
+}
+
+function searchCode(repo, options = {}) {
+  const query = String(options.term || '').trim().toLowerCase();
   if (!query) return [];
+  const prefix = String(options.pathPrefix || '').trim();
+  const language = normalizeLanguage(options.language);
+  const branchName = String(options.branch || repo.defaultBranch || 'main').trim() || 'main';
+  const head = branchHead(repo, branchName);
+  const commit = head ? commitBySha(repo, head) : null;
+  // Prefer the branch snapshot; fall back to the working files for old records.
+  const files = (commit && commit.snapshot) || repo.files || [];
   const matches = [];
-  for (const file of repo.files || []) {
+  for (const file of files) {
     if (prefix && !String(file.path || '').startsWith(prefix)) continue;
+    if (!fileMatchesLanguage(file.path, language)) continue;
     const lines = String(file.content || '').split('\n');
-    lines.forEach((lineText, index) => {
-      if (lineText.toLowerCase().includes(query)) {
-        matches.push({
-          path: file.path,
-          line: index + 1,
-          snippet: lineText.trim(),
-          branch: 'main',
-          sha: branchHead(repo, 'main'),
-        });
-      }
-    });
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!lines[index].toLowerCase().includes(query)) continue;
+      matches.push({
+        path: file.path,
+        line: index + 1,
+        snippet: lines[index].trim(),
+        branch: branchName,
+        sha: head,
+      });
+      if (matches.length >= 50) return matches;
+    }
   }
   return matches;
 }
@@ -582,6 +617,7 @@ hydrate();
 module.exports = {
   hydrate,
   save,
+  SEARCH_LANGUAGES: Object.keys(LANGUAGE_EXTENSIONS),
   createSession,
   createUser,
   destroySession,

@@ -699,8 +699,22 @@ app.get('/api/repos/:owner/:name/search', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   // REQ-4-2-3: private visibility is enforced by the repository guard middleware.
-  const matches = store.searchCode(repo, req.query.q, req.query.path);
-  res.json({ matches });
+  const branch = String(req.query.branch || '').trim();
+  if (branch && !(repo.branches || []).some((item) => item.name === branch)) {
+    return res.status(404).json({ error: 'Branch not found.' });
+  }
+  const matches = store.searchCode(repo, {
+    term: req.query.q,
+    pathPrefix: req.query.path,
+    language: req.query.language,
+    branch,
+  });
+  // REQ-4-2-3: results carry the branch/revision context they were read from.
+  res.json({
+    matches,
+    branch: branch || repo.defaultBranch || 'main',
+    languages: store.SEARCH_LANGUAGES,
+  });
 });
 
 app.get('/api/repos/:owner/:name/tree', (req, res) => {

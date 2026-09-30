@@ -102,3 +102,28 @@ test('a private repository is refused for a visitor', async ({ page }) => {
   await page.goto('/acme-demo/acme-private');
   await expect(page.getByText('Access denied')).toBeVisible();
 });
+
+test('repository code search narrows by path and opens the matched line', async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${REPO}?tab=code`);
+
+  // REQ-4-2-3: the repository page search box opens the Code results page.
+  await page.getByRole('searchbox', { name: 'Search' }).fill('search');
+  await page.getByRole('searchbox', { name: 'Search' }).press('Enter');
+
+  const hit = page.getByRole('link', { name: /^src\/search\.ts:\d+$/ });
+  await expect(hit).toBeVisible();
+  await expect(page.getByText('Branch main')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Language' })).toBeVisible();
+
+  // Clicking a result opens that file on that branch at the matched line.
+  await hit.click();
+  await expect(page.getByText(/^Matched line \d+$/)).toBeVisible();
+  await expect(page.getByLabel('File content for src/search.ts')).toContainText(
+    'export function search',
+  );
+
+  // A path filter that matches nothing shows the empty state.
+  await page.goto(`${REPO}/search?q=search&path=docs-nowhere/`);
+  await expect(page.getByText('No code results')).toBeVisible();
+});
