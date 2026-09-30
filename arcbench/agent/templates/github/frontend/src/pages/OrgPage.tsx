@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Member, Org, Repo, Team } from '../api';
 import * as api from '../api';
 
 export default function OrgPage() {
   const { name = '' } = useParams();
+  const navigate = useNavigate();
   const [org, setOrg] = useState<Org | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -16,6 +17,8 @@ export default function OrgPage() {
   const [description, setDescription] = useState('');
   const [memberUsername, setMemberUsername] = useState('');
   const [memberRole, setMemberRole] = useState('Member');
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
   const [teamName, setTeamName] = useState('');
   const [teamDescription, setTeamDescription] = useState('');
   const [parentDraft, setParentDraft] = useState<Record<string, string>>({});
@@ -151,46 +154,88 @@ export default function OrgPage() {
         </ul>
       )}
       {canManage && (
+        !addMemberOpen ? (
+          <button type="button" onClick={() => setAddMemberOpen(true)}>
+            Add member
+          </button>
+        ) : (
         <form
           className="inline-form"
           onSubmit={(event) => {
             event.preventDefault();
             run(() => api.addOrgMember(name, { username: memberUsername, role: memberRole }), 'Member added.');
             setMemberUsername('');
+            setAddMemberOpen(false);
           }}
         >
+          <label htmlFor="org-member-username">Username or email</label>
           <input
-            aria-label="Member username"
+            id="org-member-username"
             type="text"
             value={memberUsername}
-            placeholder="username"
             onChange={(event) => setMemberUsername(event.target.value)}
           />
+          <label htmlFor="org-member-role">Role</label>
           <select
-            aria-label="Member role"
+            id="org-member-role"
             value={memberRole}
             onChange={(event) => setMemberRole(event.target.value)}
           >
-            <option>Read</option>
-            <option>Triage</option>
-            <option>Write</option>
-            <option>Maintain</option>
-            <option>Admin</option>
             <option>Member</option>
             <option>Owner</option>
           </select>
           <button type="submit">Add member</button>
         </form>
+        )
       )}
 
       <h2>Teams</h2>
+      {/* REQ-2-2-1: an Owner opens the team creation form from the New team link. */}
+      {role === 'Owner' && !newTeamOpen && (
+        <p>
+          <button type="button" className="link-button" onClick={() => setNewTeamOpen(true)}>
+            New team
+          </button>
+        </p>
+      )}
+      {role === 'Owner' && newTeamOpen && (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            api
+              .createTeam(name, { name: teamName, description: teamDescription })
+              .then((created) => {
+                navigate(`/orgs/${name}/teams/${created.name}`);
+              })
+              .catch((caught) => setError(api.errorMessage(caught)));
+          }}
+        >
+          <label htmlFor="new-team-name">Team name</label>
+          <input
+            id="new-team-name"
+            type="text"
+            value={teamName}
+            onChange={(event) => setTeamName(event.target.value)}
+          />
+          <label htmlFor="new-team-description">Description</label>
+          <input
+            id="new-team-description"
+            type="text"
+            value={teamDescription}
+            onChange={(event) => setTeamDescription(event.target.value)}
+          />
+          <button type="submit">Create team</button>
+        </form>
+      )}
       {teams.length === 0 ? (
         <p>No teams yet.</p>
       ) : (
         <ul className="repo-list">
           {teams.map((team) => (
             <li key={team.name} data-team={team.name}>
-              {team.name} <span className="muted">· {team.members.length} members</span>
+              <Link to={`/orgs/${name}/teams/${team.name}`}>{team.name}</Link>{' '}
+              <span className="muted">· {team.members.length} members</span>
               <span className="muted"> · parent: {team.parent || 'none'}</span>
               {team.description && <p className="muted">{team.description}</p>}
               {/* REQ-2-2-2: hierarchy is editable and cycles are rejected server-side */}
@@ -219,37 +264,6 @@ export default function OrgPage() {
           ))}
         </ul>
       )}
-      {role && (
-        <form
-          className="inline-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            run(
-              () => api.createTeam(name, { name: teamName, description: teamDescription }),
-              'Team created.',
-            );
-            setTeamName('');
-            setTeamDescription('');
-          }}
-        >
-          <input
-            aria-label="Team name"
-            type="text"
-            value={teamName}
-            placeholder="team name"
-            onChange={(event) => setTeamName(event.target.value)}
-          />
-          <input
-            aria-label="Team description"
-            type="text"
-            value={teamDescription}
-            placeholder="description (optional)"
-            onChange={(event) => setTeamDescription(event.target.value)}
-          />
-          <button type="submit">Create team</button>
-        </form>
-      )}
-
       {/* REQ-2-3: grant a repository role to a member or a team */}
       <h2>Manage access</h2>
       {grants.length > 0 && (

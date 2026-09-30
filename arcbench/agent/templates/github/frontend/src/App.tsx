@@ -11,6 +11,7 @@ import RepoPage from './pages/RepoPage';
 import RepoSearchPage from './pages/RepoSearchPage';
 import RepoSettingsPage from './pages/RepoSettingsPage';
 import SettingsPage from './pages/SettingsPage';
+import TeamPage from './pages/TeamPage';
 
 function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -129,6 +130,8 @@ function App() {
             <Route path="/auth" element={<AuthPage user={user} onAuth={handleAuth} />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:name" element={<OrgPage />} />
+            {/* REQ-2-2-1 / REQ-2-2-2: organization team detail page */}
+            <Route path="/orgs/:name/teams/:team" element={<TeamPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/:owner/:name/compare" element={<ComparePage />} />
             {/* REQ-4-2-3: code search results with a unique "Code" filter link */}

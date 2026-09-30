@@ -655,6 +655,36 @@ export async function setTeamParent(
   return response.data.team as Team;
 }
 
+// REQ-2-2-1 / REQ-2-2-2: the team detail page.
+export async function getTeam(
+  org: string,
+  team: string,
+): Promise<{ org: Org; team: Team; teams: string[]; role: string | null }> {
+  const response = await client.get(
+    `/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}`,
+  );
+  return response.data;
+}
+
+export async function addTeamMember(org: string, team: string, username: string): Promise<Team> {
+  const response = await client.post(
+    `/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}/members`,
+    { username },
+  );
+  return response.data.team as Team;
+}
+
+export async function removeTeamMember(
+  org: string,
+  team: string,
+  username: string,
+): Promise<Team> {
+  const response = await client.delete(
+    `/orgs/${encodeURIComponent(org)}/teams/${encodeURIComponent(team)}/members/${encodeURIComponent(username)}`,
+  );
+  return response.data.team as Team;
+}
+
 export async function getIssue(owner: string, name: string, number: number): Promise<Issue> {
   const response = await client.get(
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${number}`,

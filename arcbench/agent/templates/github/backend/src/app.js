@@ -249,14 +249,15 @@ app.post('/api/orgs/:name/members', requireUser, (req, res) => {
   }
   const username = String((req.body || {}).username || '').trim().toLowerCase();
   const role = String((req.body || {}).role || 'Member').trim();
+  const existing = store.membership(org.name, username);
+  // REQ-2-2-3: the official messages for a known member and an unknown account.
+  if (existing) return res.status(409).json({ error: 'Account is already a member' });
   const user = store.findUserByUsername(username);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  if (!['Read', 'Triage', 'Write', 'Maintain', 'Admin', 'Member', 'Owner'].includes(role)) {
+  if (!user) return res.status(404).json({ error: 'Account not found' });
+  if (!['Member', 'Owner'].includes(role)) {
     return res.status(400).json({ error: 'Unsupported role.' });
   }
-  const existing = store.membership(org.name, username);
-  if (existing) existing.role = role;
-  else store.state.memberships.push({ org: org.name, username, role });
+  store.state.memberships.push({ org: org.name, username, role });
   return res.status(201).json({ member: { username, role } });
 });
 
@@ -291,23 +292,54 @@ app.post('/api/orgs/:name/teams', requireUser, (req, res) => {
   const org = store.findOrg(req.params.name);
   if (!org) return res.status(404).json({ error: 'Organization not found.' });
   const current = store.membership(org.name, req.user.username);
-  if (!current) return res.status(403).json({ error: 'You are not a member of this organization.' });
-  const teamName = String((req.body || {}).name || '').trim();
-  if (!teamName || teamName.length > 100) {
-    return res.status(400).json({ error: 'Team name is required (max 100 characters).' });
+  // REQ-2-2-1: only an organization Owner may create teams.
+  if (!current || current.role !== 'Owner') {
+    return res.status(403).json({ error: 'Only an organization owner can create teams.' });
   }
+  const teamName = String((req.body || {}).name || '').trim();
+  // REQ-2-2-1: 1-50 characters, lowercase ASCII letters, digits or single hyphens.
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(teamName)) {
+    return res.status(400).json({ error: 'Team name format is invalid' });
+  }
+  if (store.findTeam(org.name, teamName)) {
+    return res.status(409).json({ error: 'Team name already exists.' });
+  }
+  const timestamp = new Date().toISOString();
   const team = {
     name: teamName,
     description: String((req.body || {}).description || '').trim(),
     members: [],
     parent: String((req.body || {}).parentTeam || '').trim() || null,
-    createdAt: new Date().toISOString(),
+    creator: req.user.username,
+    createdAt: timestamp,
+    updatedAt: timestamp,
   };
   if (team.parent && (!store.findTeam(org.name, team.parent) || team.parent === team.name)) {
     return res.status(400).json({ error: 'Parent team must be another team in this organization.' });
   }
   store.addTeam(org.name, team);
-  return res.status(201).json({ team });
+  return res.status(201).json({ team, org: { name: org.name, displayName: org.displayName } });
+});
+
+// REQ-2-2-1 / REQ-2-2-2: the team detail page.
+app.get('/api/orgs/:name/teams/:team', (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const team = store.findTeam(org.name, req.params.team);
+  if (!team) return res.status(404).json({ error: 'Team not found.' });
+  const user = store.userByToken(authToken(req));
+  const role = user ? store.membership(org.name, user.username)?.role || null : null;
+  res.json({
+    org: { name: org.name, displayName: org.displayName },
+    team: {
+      name: team.name,
+      description: team.description || '',
+      parent: team.parent || null,
+      members: team.members || [],
+    },
+    teams: store.orgTeams(org.name).map((entry) => entry.name),
+    role,
+  });
 });
 
 // REQ-2-2-2 Manage Organization Team Members and Hierarchy
@@ -335,12 +367,14 @@ app.patch('/api/orgs/:name/teams/:team', requireUser, (req, res) => {
       if (seen.has(parentName)) break;
       seen.add(parentName);
       if (parentName === String(team.name).toLowerCase()) {
-        return res.status(400).json({ error: 'That would create a cycle in the team hierarchy.' });
+        // REQ-2-2-2: the official message for a rejected cycle.
+        return res.status(400).json({ error: 'Cyclic team hierarchy is not allowed' });
       }
       cursor = store.findTeam(org.name, cursor.parent);
     }
   }
   team.parent = parent || null;
+  team.updatedAt = new Date().toISOString();
   return res.json({ team });
 });
 
@@ -351,12 +385,32 @@ app.post('/api/orgs/:name/teams/:team/members', requireUser, (req, res) => {
     return res.status(403).json({ error: 'You are not a member of this organization.' });
   }
   const username = String((req.body || {}).username || '').trim().toLowerCase();
-  if (!store.findUserByUsername(username)) {
-    return res.status(404).json({ error: 'User not found.' });
+  if (!store.findUserByUsername(username)) return res.status(404).json({ error: 'Account not found' });
+  // REQ-2-2-2: only current organization members can join a team.
+  if (!store.membership(org.name, username)) {
+    return res.status(400).json({ error: 'That account is not a member of this organization.' });
   }
   const team = store.addTeamMember(org.name, req.params.team, username);
   if (!team) return res.status(404).json({ error: 'Team not found.' });
   return res.status(201).json({ team });
+});
+
+// REQ-2-2-2: remove a member from the team (the organization membership stays).
+app.delete('/api/orgs/:name/teams/:team/members/:username', requireUser, (req, res) => {
+  const org = store.findOrg(req.params.name);
+  if (!org) return res.status(404).json({ error: 'Organization not found.' });
+  const current = store.membership(org.name, req.user.username);
+  if (!current || !['Owner', 'Admin'].includes(current.role)) {
+    return res.status(403).json({ error: 'Only an organization owner can manage team members.' });
+  }
+  const team = store.findTeam(org.name, req.params.team);
+  if (!team) return res.status(404).json({ error: 'Team not found.' });
+  const target = String(req.params.username || '').trim().toLowerCase();
+  team.members = (team.members || []).filter(
+    (member) => String(member).toLowerCase() !== target,
+  );
+  team.updatedAt = new Date().toISOString();
+  return res.json({ team });
 });
 
 app.post('/api/orgs/:name/access', requireUser, (req, res) => {
@@ -532,7 +586,7 @@ app.post('/api/repos/:owner/:name/fork', requireUser, (req, res) => {
           store.membership(source.owner, req.user.username) ||
             store.bestGrantPermission(source.owner, source.name, req.user.username),
         ));
-    if (!allowed) return res.status(403).json({ error: 'Repository is private.' });
+    if (!allowed) return res.status(403).json({ error: 'Access denied' });
   }
   const targetOwner = String((req.body || {}).targetOwner || req.user.username)
     .trim()
@@ -595,7 +649,7 @@ app.get('/api/repos/:owner/:name', (req, res) => {
             (store.membership(repo.owner, user.username) ||
               store.bestGrantPermission(repo.owner, repo.name, user.username)),
         ));
-    if (!authorized) return res.status(403).json({ error: 'Repository is private.' });
+    if (!authorized) return res.status(403).json({ error: 'Access denied' });
   }
   res.json({
     repo: {
@@ -630,7 +684,7 @@ app.get('/api/repos/:owner/:name/search', (req, res) => {
             (store.membership(repo.owner, user.username) ||
               store.bestGrantPermission(repo.owner, repo.name, user.username)),
         ));
-    if (!authorized) return res.status(403).json({ error: 'Repository is private.' });
+    if (!authorized) return res.status(403).json({ error: 'Access denied' });
   }
   const matches = store.searchCode(repo, req.query.q, req.query.path);
   res.json({ matches });
