@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 import urllib.error
 import urllib.request
@@ -31,6 +32,18 @@ from dataclasses import dataclass, field
 
 
 DEFAULT_MAX_TOKENS = 32768
+
+#: Attempts per chat() call. The platform proxy intermittently refuses
+#: connections or answers 5xx; r45 lost a whole run to that - every module call
+#: failed at the socket, the agent fell back to the bare scaffold and scored
+#: zero, and the run cost nothing precisely because no token was ever billed.
+#: The backoff below therefore has to outlast a proxy hiccup, not just a blip.
+CHAT_ATTEMPTS = int(os.environ.get("ARC_LLM_ATTEMPTS", "6"))
+BACKOFF_SECONDS = (2.0, 5.0, 10.0, 20.0, 30.0)
+
+#: The start-up probe gets its own patience: if the endpoint is cold, waiting
+#: here is far cheaper than discovering it once per module.
+PROBE_ATTEMPTS = int(os.environ.get("ARC_LLM_PROBE_ATTEMPTS", "5"))
 
 
 def log_line(message: str) -> None:
@@ -53,6 +66,7 @@ class LlmUsage:
     errors: list[str] = field(default_factory=list)
     truncated_replies: int = 0
     empty_replies: int = 0
+    transport_failures: int = 0
 
     def add(self, payload: dict, finish_reason: str | None = None) -> None:
         usage = (payload or {}).get("usage") or {}
@@ -71,8 +85,14 @@ class LlmUsage:
             "total_tokens": self.total_tokens,
             "truncated_replies": self.truncated_replies,
             "empty_replies": self.empty_replies,
+            "transport_failures": self.transport_failures,
             "errors": self.errors,
         }
+
+    def note_transport_failure(self, detail: str) -> None:
+        self.transport_failures += 1
+        if len(self.errors) < 20:
+            self.errors.append(detail)
 
 
 class LlmClient:
@@ -136,21 +156,45 @@ class LlmClient:
             return json.loads(response.read().decode("utf-8"))
 
     def probe(self) -> bool:
-        """Cheapest possible round trip, to tell a dead endpoint from a bad request."""
+        """Cheapest possible round trip, retried while the proxy warms up.
+
+        Returns True as soon as the endpoint answers. A False here is a strong
+        signal - it means every module call is about to fail the same way - so
+        the caller logs it as such instead of discovering it module by module.
+        """
         if not self.available:
             log_line("[probe] no model endpoint configured")
             return False
-        try:
-            payload = self._post([{"role": "user", "content": "Reply with exactly: OK"}], 8, 0.0)
-        except Exception as exc:  # noqa: BLE001 - diagnostics only
-            log_line(f"[probe] endpoint unreachable: {type(exc).__name__}: {exc}")
-            return False
-        choices = (payload or {}).get("choices") or []
-        text = ""
-        if choices:
-            text = str((choices[0].get("message") or {}).get("content") or "").strip()
-        log_line(f"[probe] model={self.model} effort={self._effort()} answered {text[:60]!r}")
-        return bool(text)
+        last = ""
+        for attempt in range(1, max(1, PROBE_ATTEMPTS) + 1):
+            try:
+                payload = self._post(
+                    [{"role": "user", "content": "Reply with exactly: OK"}], 8, 0.0
+                )
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:200]
+                last = f"HTTP {exc.code}: {detail}"
+            except Exception as exc:  # noqa: BLE001 - diagnostics only
+                last = f"{type(exc).__name__}: {exc}"
+            else:
+                choices = (payload or {}).get("choices") or []
+                text = ""
+                if choices:
+                    text = str((choices[0].get("message") or {}).get("content") or "").strip()
+                log_line(
+                    f"[probe] model={self.model} effort={self._effort()} "
+                    f"answered {text[:60]!r} (attempt {attempt})"
+                )
+                if text:
+                    return True
+                last = "response contained no message content"
+            log_line(f"[probe] attempt {attempt}/{PROBE_ATTEMPTS} failed: {last}")
+            if attempt < PROBE_ATTEMPTS:
+                time.sleep(min(2.0 * attempt, 15.0) + random.uniform(0, 1.5))
+        log_line(f"[llm] ENDPOINT UNREACHABLE after {PROBE_ATTEMPTS} probe attempts: {last}")
+        self.last_error = last
+        self.usage.note_transport_failure(f"probe: {last}")
+        return False
 
     def chat(
         self,
@@ -167,7 +211,8 @@ class LlmClient:
         budget = max_tokens or self.max_tokens
         last_error = ""
         deadline = time.time() + self.call_budget
-        for attempt in range(4):
+        attempts = max(1, CHAT_ATTEMPTS)
+        for attempt in range(attempts):
             if time.time() > deadline:
                 last_error = f"call budget {self.call_budget:.0f}s exceeded on attempt {attempt}"
                 break
@@ -206,12 +251,22 @@ class LlmClient:
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")[:300]
                 last_error = f"HTTP {exc.code}: {detail}"
+                self.usage.note_transport_failure(last_error)
                 if exc.code in {400, 401, 403, 404}:
                     break
             except Exception as exc:  # noqa: BLE001 - network problems are retryable
                 last_error = f"{type(exc).__name__}: {exc}"
-            time.sleep(min(2 ** attempt, 20))
+                self.usage.note_transport_failure(last_error)
+                log_line(
+                    f"[llm] attempt {attempt + 1}/{attempts} failed: {last_error}"
+                )
+            if attempt + 1 < attempts:
+                # Jitter keeps several modules from retrying in lockstep when the
+                # proxy comes back, and the last step is deliberately long: a
+                # refused connection usually means "wait", not "give up".
+                delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+                time.sleep(delay + random.uniform(0, delay / 4))
 
-        self.usage.errors.append(last_error or "unknown failure")
+        self.usage.note_transport_failure(last_error or "unknown failure")
         self.last_error = last_error or "unknown failure"
         return None

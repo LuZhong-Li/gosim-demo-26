@@ -185,6 +185,130 @@ def drop_shadow_entry_files(project_dir: Path) -> list[str]:
     return fixes
 
 
+#: Modules each generated file may import with a relative path.
+SOURCE_SUFFIXES = (".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".json", ".css")
+
+FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]""")
+SIDE_EFFECT_IMPORT_RE = re.compile(r"""(?m)^\s*import\s*['"]([^'"]+)['"]""")
+REQUIRE_RE = re.compile(r"""\brequire\(\s*['"]([^'"]+)['"]\s*\)""")
+
+
+def _resolve_target(base: Path, specifier: str) -> Path | None:
+    """The file a relative import points at, or None when it is not ours/absent."""
+    if not specifier.startswith("."):
+        # Bare specifier, node builtin or a bundler alias: not ours to resolve.
+        return None
+    target = base.parent / specifier
+    candidates = [target]
+    if not target.suffix:
+        candidates.extend(Path(f"{target}{suffix}") for suffix in SOURCE_SUFFIXES)
+        candidates.extend(target / f"index{suffix}" for suffix in SOURCE_SUFFIXES)
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _specifiers(path: Path) -> set[str]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    found = set(FROM_RE.findall(text))
+    found.update(SIDE_EFFECT_IMPORT_RE.findall(text))
+    found.update(REQUIRE_RE.findall(text))
+    return found
+
+
+def reachable_from(entry: Path) -> set[Path]:
+    """Every file reachable from ``entry`` by following relative imports."""
+    seen: set[Path] = set()
+    stack = [entry]
+    while stack:
+        path = stack.pop()
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        for specifier in _specifiers(path):
+            target = _resolve_target(path, specifier)
+            if target is not None and target not in seen:
+                stack.append(target)
+    return seen
+
+
+def unrouted_pages(project_dir: Path) -> list[str]:
+    """Page components that nothing reachable from the entry point imports.
+
+    The modules are generated one call at a time and each is told to add its own
+    routes to ``App.tsx``. A later module that rewrites that file from scratch
+    instead of extending it drops every earlier module's routes: the page files
+    are still on disk, the accessible names are still in the source - so the
+    self-check is happy - but no test can navigate to them. That is invisible in
+    the build and in the start-up rehearsal, and it costs every test that needs
+    those screens.
+    """
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return []
+    entry = next(
+        (src / f"main{suffix}" for suffix in (".tsx", ".ts", ".jsx", ".js")
+         if (src / f"main{suffix}").exists()),
+        None,
+    )
+    if entry is None:
+        return []
+    reachable = reachable_from(entry)
+    orphaned: list[str] = []
+    for folder in ("pages", "screens", "views"):
+        root = src / folder
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix not in (".tsx", ".jsx"):
+                continue
+            if path not in reachable:
+                orphaned.append(str(path.relative_to(project_dir)).replace("\\", "/"))
+    return orphaned
+
+
+def check_local_imports(project_dir: Path) -> list[str]:
+    """List relative imports whose target file was never written.
+
+    Every module is its own model call, so one module can import
+    ``./pages/RepoPage`` while the module that was supposed to write that file
+    failed or named it differently. Nothing in the build catches it in time: the
+    frontend bundle throws on the first missing module (a blank page for every
+    test) and the backend dies on ``require`` before it binds the port (zero
+    tests execute at all). Both are exactly the shape of the last few zero
+    scores, and both are cheap to detect statically.
+    """
+    missing: list[str] = []
+    for root in (project_dir / "frontend" / "src", project_dir / "backend"):
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix not in (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+                continue
+            if "node_modules" in path.parts:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            specifiers = set(FROM_RE.findall(text))
+            specifiers.update(SIDE_EFFECT_IMPORT_RE.findall(text))
+            specifiers.update(REQUIRE_RE.findall(text))
+            for specifier in sorted(specifiers):
+                # Only relative paths belong to this project; a bare specifier
+                # is an installed package or a bundler alias.
+                if not specifier.startswith("."):
+                    continue
+                if _resolve_target(path, specifier) is not None:
+                    continue
+                missing.append(f"{path.relative_to(project_dir)} imports '{specifier}'")
+    return missing
+
+
 def _load_package(path: Path) -> dict | None:
     """Parse a package.json, returning ``None`` when it is unusable."""
     try:

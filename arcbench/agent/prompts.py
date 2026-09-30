@@ -53,11 +53,13 @@ Violating a clause here scores zero on the requirements that touch it, silently.
   on, so a silent mutation fails the test even when the data changed correctly.
   Keep it to ONE element, and keep errors in ``role="alert"`` so the two never
   collide.
-- STRICT-MODE UNIQUENESS: any value the page echoes (search criteria, workbook
-  names, usernames, dates, organisation names) must appear in EXACTLY ONE
-  visible element. Playwright's strict mode fails the whole test when two
-  elements match, so repeated echoes are as fatal as missing ones. When an
-  entity has a short and a long written form, pick one display form per page.
+- ECHOED VALUES: the suite resolves a name, takes the first VISIBLE match and
+  asserts on it, so a value may appear in more than one place (a breadcrumb and
+  a heading, a filter chip and the row it filters) without failing anything.
+  What does fail is a value that is not visible anywhere, or one that only
+  exists inside a collapsed, hidden or truncated node - so render the exact name
+  the requirement quotes as real visible text on the page that owns it. When an
+  entity has a short and a long written form, show the short quoted name.
 - SEED DATA: the scenarios carry the data the tests expect. Provision exactly
   those records at start-up, with the verbatim strings shown (a date written
   "Sun, May 31" is data, not an ISO date). Search matching must be
@@ -168,28 +170,33 @@ import { client, errorMessage } from '../api';
 export default function SignIn() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  // One message per invalid field, keyed by field. Several are on screen at
+  // once: the requirements demand the itemized messages appear together.
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!username.trim() || !password) {
-      setError('Username or email and password are required');
-      return;
-    }
+    const found: Record<string, string> = {};
+    if (!username.trim()) found.username = 'Username or email is required';
+    if (!password) found.password = 'Password is required';
+    setErrors(found);
+    if (Object.keys(found).length) return;
     try {
       const { data } = await client.post('/auth/sign-in', { username, password });
       localStorage.setItem('arc-token', data.token);
       window.location.href = '/';
     } catch (caught) {
-      setError(errorMessage(caught));
+      // A failed sign-in is one generic message - never say which field was wrong.
+      setErrors({ password: errorMessage(caught) });
     }
   };
   return (
     <form onSubmit={submit}>
       <label htmlFor="f-user">Username or email</label>
       <input id="f-user" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
+      {errors.username && <p className="field-error">{errors.username}</p>}
       <label htmlFor="f-pass">Password</label>
       <input id="f-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      {error && <p role="alert">{error}</p>}
+      {errors.password && <p className="field-error">{errors.password}</p>}
       <button type="submit">Sign in</button>
     </form>
   );
@@ -217,8 +224,10 @@ module.exports = router;
 The pattern the example demonstrates:
 - ``type="text"`` for free-text fields, ``type="password"`` only for secrets.
 - A visible ``<label>`` with ``htmlFor`` for EVERY input, matched by ``id``.
-- EXACTLY ONE inline error element (``role="alert"``); never a per-field error
-  plus a form-level summary.
+- A message rendered beside the field it is about. Validation renders one
+  message per invalid field, all of them at once; an authentication failure
+  renders a single generic message. Never print the same sentence twice (a field
+  message and a summary) - that is the only duplication the suite trips over.
 - A real ``<button>`` whose visible text is the requirement's exact action name.
 - Collections come from ``store.collection('name', default)`` - never read
   ``store.state.x.y`` directly.

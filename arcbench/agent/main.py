@@ -41,6 +41,8 @@ from guard import fix_build_scripts
 from guard import fix_wildcard_routes
 from guard import guard as guard_generated
 from guard import drop_shadow_entry_files
+from guard import check_local_imports
+from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
     AUTH_CONTRACT,
@@ -427,6 +429,28 @@ def module_names(module: dict, nodes: list[dict]) -> list[str]:
     return exact_names(selected)
 
 
+#: Files that wire the whole application together. Their *content* - not just
+#: their name - has to reach every module after the first one, or a rewrite
+#: quietly deletes the routes and mounts earlier modules added.
+KEY_SHELL_FILES = ("frontend/src/App.tsx", "backend/src/app.js")
+
+
+def read_key_files(project_dir: Path, limit: int = 24000) -> dict[str, str]:
+    """Current bodies of the shared shell files, skipping anything oversized."""
+    found: dict[str, str] = {}
+    for relative in KEY_SHELL_FILES:
+        path = project_dir / relative
+        if not path.is_file():
+            continue
+        try:
+            body = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if body.strip() and len(body) <= limit:
+            found[relative] = body
+    return found
+
+
 def _scenario_text(scenario) -> str:
     """Render a scenario into readable prose, preserving every step's content.
 
@@ -472,6 +496,7 @@ def build_module_prompt(
     ports: str = "",
     names: list[str] | None = None,
     existing_files: list[str] | None = None,
+    key_files: dict[str, str] | None = None,
 ) -> str:
     """One module's requirement text, plus everything that decides the score."""
     wanted = set(module["requirement_ids"])
@@ -539,6 +564,21 @@ def build_module_prompt(
             "one instead. One concept = one file:",
         ])
         lines.extend(f"- {path}" for path in existing_files[:120])
+    if key_files:
+        # A file list is not enough for the shell: emitting App.tsx "again" means
+        # the model has to reproduce every route an earlier module added, and a
+        # later module that rewrites it from its own memory silently drops them.
+        # The pages stay on disk, the names stay in the source, the self-check is
+        # happy - and no test can reach them. So show the current bodies.
+        lines.extend([
+            "",
+            "CURRENT CONTENT of the files that already wire this app together.",
+            "Emit each of them COMPLETE and UNCHANGED except for your additions:",
+            "every route, import and handler already present must survive, because",
+            "another module built the page it points at.",
+        ])
+        for name, body in key_files.items():
+            lines.extend(["", f"--- {name} ---", body])
     lines.extend(["", "Requirements to implement in this step:"])
     # FOLDER-level requirements carry their own checklist (e.g. REQ-4 / REQ-6
     # assert "each named control is unique" and the shared sign-in flow). They
@@ -812,16 +852,16 @@ def generate_task_modules(
     delta = load_live_delta(task)
     files: dict[str, str] = {}
     covered: list[str] = []
-    for module in modules:
-        if time.time() > deadline:
-            log(f"[arc-agent] time budget exhausted before {module['id']}; "
-                "closing the run with what has been generated")
-            break
+    failed: list[dict] = []
+
+    def run_module(module: dict) -> bool:
+        """One module: prompt, call, and one focused nudge if the reply is unusable."""
         user_prompt = build_module_prompt(
             tree, module, nodes, delta,
             guidance=guidance, specs_text=specs_text, ports=ports,
             names=module_names(module, nodes),
             existing_files=sorted(files),
+            key_files=read_key_files(project_dir),
         )
         messages = [
             {"role": "system", "content": GENERATION_SYSTEM},
@@ -850,15 +890,51 @@ def generate_task_modules(
                 log(f"[arc-agent] {module['id']}: still unusable ({reason}); "
                     f"finish={llm.last_finish_reason} chars={len(content or '')} "
                     f"tail={(content or '')[-200:]!r}")
-                continue
+                return False
         write_generated(project_dir, module_files)
         files.update(module_files)
         covered.extend(module_covered)
         log(f"[arc-agent] {module['id']}: files={len(module_files)} "
             f"covered={len(module_covered)} tokens={llm.usage.total_tokens}")
+        return True
+
+    for module in modules:
+        if time.time() > deadline:
+            log(f"[arc-agent] time budget exhausted before {module['id']}; "
+                "closing the run with what has been generated")
+            break
+        if not run_module(module):
+            failed.append(module)
+
+    # Second wind. A transport outage at the start of a run (r45: zero tokens
+    # billed, bare scaffold shipped) or one unlucky module leaves holes that cost
+    # every test touching them. Once the endpoint has demonstrably answered at
+    # least once, retry the holes: the prompts are deterministic, so this only
+    # spends budget on modules that are still missing.
+    if failed and llm.usage.calls and time.time() < deadline:
+        log("[arc-agent] second wind: retrying " + str(len(failed)) + " module(s) "
+            "that produced nothing (" + ", ".join(m["id"] for m in failed) + ")")
+        still_missing: list[dict] = []
+        for module in failed:
+            if time.time() > deadline:
+                still_missing.append(module)
+                continue
+            if run_module(module):
+                log(f"[arc-agent] {module['id']}: recovered on the second wind")
+            else:
+                still_missing.append(module)
+        failed = still_missing
+
+    if failed:
+        log("[arc-agent] modules that produced no source: "
+            + ", ".join(module["id"] for module in failed))
     log(f"[arc-agent] model generation done: files={len(files)} "
         f"covered={len(set(covered))} calls={llm.usage.calls} "
-        f"tokens={llm.usage.total_tokens}")
+        f"tokens={llm.usage.total_tokens} "
+        f"transport_failures={llm.usage.transport_failures}")
+    if llm.usage.calls == 0:
+        log("[llm] NO MODEL CALL SUCCEEDED"
+            f" ({llm.last_error or 'unknown'}); this run can only ship the scaffold")
     return files, sorted(set(covered))
 
 
@@ -905,6 +981,85 @@ def repair_from_rehearsal(
         log(f"[arc-agent] repair turn wrote {len(files)} file(s)")
     else:
         log(f"[arc-agent] repair turn produced no files ({reason}; "
+            f"finish={llm.last_finish_reason})")
+    return files
+
+
+def repair_unrouted_pages(
+    project_dir: Path,
+    llm: LlmClient,
+    orphaned: list[str],
+    deadline: float,
+) -> dict[str, str]:
+    """Re-attach page components that no route reaches any more.
+
+    Each module call is told to add its screens to ``App.tsx``. A later module
+    that rewrites that file instead of extending it silently drops the earlier
+    routes: the files survive, the accessible names survive (so the self-check
+    reports them as present), but nothing links to them and no test can open
+    them. This hands the orphan list back to the model with the one instruction
+    that fixes it - import and route them - and nothing else.
+    """
+    if not llm.available or not orphaned or time.time() > deadline:
+        return {}
+    prompt = (
+        "These page components exist in the project but NOTHING imports them, so "
+        "no route reaches them and no test can open them:\n\n"
+        + "\n".join(f"- {item}" for item in orphaned[:40])
+        + "\n\nEmit ``frontend/src/App.tsx`` (and any other file you need) so that "
+        "each of those pages is imported and reachable through a route, keeping "
+        "every route that already exists. If one of them is a pure duplicate of "
+        "a page that is already routed, leave that duplicate out of the routing "
+        "table instead of adding a second entry. Complete files only."
+    )
+    content = llm.chat([
+        {"role": "system", "content": REPAIR_SYSTEM},
+        {"role": "user", "content": prompt},
+    ])
+    files, _, reason = parse_generation(content or "")
+    if files:
+        write_generated(project_dir, files)
+        log(f"[arc-agent] unrouted-page patch wrote {len(files)} file(s)")
+    else:
+        log(f"[arc-agent] unrouted-page patch produced no files ({reason}; "
+            f"finish={llm.last_finish_reason})")
+    return files
+
+
+def repair_unresolved_imports(
+    project_dir: Path,
+    llm: LlmClient,
+    missing: list[str],
+    deadline: float,
+) -> dict[str, str]:
+    """Ask for the modules that other files import but nobody ever wrote.
+
+    A missing relative import is fatal in both halves of the app: the frontend
+    bundle throws while loading (every page renders blank) and the backend dies
+    on ``require`` before it binds the port (no test executes at all). The build
+    rehearsal would catch both, but only after the whole run has been spent.
+    """
+    if not llm.available or not missing or time.time() > deadline:
+        return {}
+    prompt = (
+        "The generated project imports modules that do not exist. Every one of "
+        "these makes the app fail to load:\n\n"
+        + "\n".join(f"- {item}" for item in missing[:40])
+        + "\n\nEither write the missing file (a COMPLETE file body, matching the "
+        "import that expects it) or correct the import path so it points at a "
+        "file that does exist. Keep everything else as it is; emit the "
+        "corrected files, complete, in the JSON envelope."
+    )
+    content = llm.chat([
+        {"role": "system", "content": REPAIR_SYSTEM},
+        {"role": "user", "content": prompt},
+    ])
+    files, _, reason = parse_generation(content or "")
+    if files:
+        write_generated(project_dir, files)
+        log(f"[arc-agent] unresolved-import patch wrote {len(files)} file(s)")
+    else:
+        log(f"[arc-agent] unresolved-import patch produced no files ({reason}; "
             f"finish={llm.last_finish_reason})")
     return files
 
@@ -1159,7 +1314,11 @@ def main(argv: list[str] | None = None) -> int:
         nodes_payload = list((task_map or {}).get("nodes") or [])
 
         llm = LlmClient()
-        llm.probe()
+        if llm.available and not llm.probe():
+            # Not fatal - the client retries per call - but this is the earliest
+            # signal that the whole run is about to generate nothing.
+            log("[llm] the endpoint did not answer the start-up probe; generation "
+                "will still be attempted, but expect the per-call retries to matter")
         generated, covered = generate_task_modules(
             project_dir, tree, modules, nodes_payload, asset_slug, llm,
             guidance=load_asset_guidance(asset_slug),
@@ -1184,6 +1343,42 @@ def main(argv: list[str] | None = None) -> int:
         build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
         if build_fixes:
             log(f"[arc-agent] normalised build plumbing: {build_fixes}")
+
+        # A module that imports a file nobody wrote is fatal in both halves: the
+        # bundle throws while loading and the backend dies before it binds.
+        missing_imports = check_local_imports(project_dir)
+        if missing_imports:
+            log(f"[arc-agent] unresolved local imports ({len(missing_imports)}): "
+                f"{missing_imports[:8]}")
+            if time.time() < deadline:
+                patched = repair_unresolved_imports(
+                    project_dir, llm, missing_imports, deadline
+                )
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    fix_build_scripts(project_dir, TEMPLATES / slug)
+                    missing_imports = check_local_imports(project_dir)
+            if missing_imports:
+                log(f"[arc-agent] {len(missing_imports)} unresolved import(s) remain: "
+                    f"{missing_imports[:8]}")
+
+        # A page nobody routes is invisible to every test, and the self-check
+        # cannot see it: the names are all present in the source.
+        orphaned = unrouted_pages(project_dir)
+        if orphaned:
+            log(f"[arc-agent] {len(orphaned)} page(s) not reachable from main.tsx: "
+                f"{orphaned[:8]}")
+            if time.time() < deadline:
+                patched = repair_unrouted_pages(project_dir, llm, orphaned, deadline)
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    fix_build_scripts(project_dir, TEMPLATES / slug)
+                    remaining = unrouted_pages(project_dir)
+                    if remaining != orphaned:
+                        log(f"[arc-agent] unrouted pages after patch: {len(remaining)}")
+                    orphaned = remaining
+            if orphaned:
+                log(f"[arc-agent] still unreachable: {orphaned[:8]}")
 
         # The modules are generated independently, so one of them routinely
         # calls a store method another module never defined - that alone scored
