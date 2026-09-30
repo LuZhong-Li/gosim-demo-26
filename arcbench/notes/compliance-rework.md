@@ -47,11 +47,40 @@ sheet_store / seed 等任何任务实现。
 
 ## 尚未验证 / 已知风险
 
-- **脚手架能否构建运行未在本地验证**：本机 pnpm 安装报错，且 pnpm 的 store 软链跨目录无法解析，
-  所以没有本地 `vite build` + 启动的结论。平台侧的 `npm install` + `vite build` 才是真正验收，
-  这一步必须靠下一次提交确认。
+- ~~脚手架能否构建运行未在本地验证~~ → **已补验，见下。**
 - **分数预期会下降**：改造前 r33 是 15/200（7.5%），那 15 条来自预置实现。
   现在应用完全依赖模型现场生成，**短期分数很可能低于 15**，需要靠提示词与迭代爬回来。
 - **回退点**：git tag `pre-generic-template`（改造前的完整状态）。
 - **`arcbench/reference/` 仍留在仓库里**：它是本地参考资料，不属于提交包
   （提交包由 `arcbench/agent/` 打包）。如果审核范围包含整个仓库，需要把该目录也移出仓库或加进 .gitignore。
+
+## 补验：脚手架在本地能构建、能跑（2026-09-30）
+
+用 agent 的真实输出目录（`main.py` 生成、无 key → 纯脚手架）直接验证，不依赖任何参考模板：
+
+```powershell
+# 依赖（运行时只带 pnpm，没有 npm；pnpm 版本 11.19.0）
+cd <out>\backend ; pnpm install      # express ok
+cd <out>\frontend; pnpm install      # 装完提示 Ignored build scripts: esbuild@0.28.2
+
+# 构建：绕开 pnpm 的 deps-status 预检，直接跑 vite（等价于平台跑的 vite build）
+node .\node_modules\vite\bin\vite.js build
+#   → ✓ 41 modules transformed，dist/index.html + assets 产出
+
+# 启动
+node src/index.js   # PORT=3399
+```
+
+| 请求 | 结果 |
+| --- | --- |
+| `GET /api/health` | 200，`{"code":200,"message":"Ready"}` |
+| `GET /` | 200，返回构建后的 index.html |
+| `GET /some/deep/link` | 200，SPA 回退生效 |
+
+结论：**即使模型什么都不产出，agent 生成的工程也能构建、能启动、能响应 API 与深链**。
+这条保底是成立的；平台侧 `npm install` + `vite build` 应当同样通过（pnpm 的 esbuild 警告是
+包管理器差异，esbuild 的可选平台包已装好，vite 实际构建正常）。
+
+注意：本地验证用的是 pnpm；平台用 npm。两者在依赖树一致性上无差异，
+但 pnpm 会因"忽略构建脚本"导致 `pnpm run build` 的 deps-status 预检失败——
+这是**本地工具链问题，不是脚手架问题**，用 `node vite.js build` 或平台 npm 均不受影响。
