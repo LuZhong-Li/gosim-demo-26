@@ -8,6 +8,7 @@ export default function HomePage({ user }: { user: User | null }) {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [myOrgs, setMyOrgs] = useState<Org[]>([]);
   const [query, setQuery] = useState('');
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
   const [newRepoOwner, setNewRepoOwner] = useState('');
@@ -44,6 +45,7 @@ export default function HomePage({ user }: { user: User | null }) {
     event.preventDefault();
     try {
       setRepos(await api.searchRepos(query));
+      setSearched(true);
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -173,25 +175,27 @@ export default function HomePage({ user }: { user: User | null }) {
       <h2>Public repositories</h2>
       <form className="inline-form" onSubmit={handleSearch}>
         <input
-          aria-label="Search repositories"
+          aria-label="Search"
           type="search"
           value={query}
-          placeholder="Search repositories"
+          placeholder="Search"
           onChange={(event) => setQuery(event.target.value)}
         />
         <button type="submit">Search</button>
       </form>
       {error && <p className="error">{error}</p>}
       {repos.length === 0 ? (
-        <p>No repositories yet.</p>
+        <p>{searched ? 'No results' : 'No repositories yet.'}</p>
       ) : (
         <ul className="repo-list">
           {repos.map((repo) => (
             <li key={`${repo.owner}/${repo.name}`}>
-              <Link to={`/${repo.owner}/${repo.name}`}>
-                {repo.owner}/{repo.name}
-              </Link>
-              <span className="muted"> · {repo.visibility}</span>
+              {/* REQ-3-1: the result link's exact accessible name is the repository name. */}
+              <Link to={`/${repo.owner}/${repo.name}`}>{repo.name}</Link>
+              <span className="muted">
+                {' '}
+                · {repo.owner}/{repo.name} · {repo.visibility}
+              </span>
               {repo.description && <p className="muted">{repo.description}</p>}
             </li>
           ))}

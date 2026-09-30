@@ -10,6 +10,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   createPersonalRepo: vi.fn(),
   discover: vi.fn(),
   listOrgs: vi.fn(),
+  searchRepos: vi.fn(),
 }));
 
 const user = { username: 'alice-dev', email: 'alice.dev@example.test', emailVerified: true };
@@ -17,6 +18,7 @@ const user = { username: 'alice-dev', email: 'alice.dev@example.test', emailVeri
 function mockHome() {
   vi.mocked(api.discover).mockResolvedValue({ orgs: [], repos: [] });
   vi.mocked(api.listOrgs).mockResolvedValue([{ name: 'acme-demo', displayName: 'Acme Demo' }]);
+  vi.mocked(api.searchRepos).mockResolvedValue([]);
   vi.mocked(api.createPersonalRepo).mockResolvedValue({
     owner: 'alice-dev',
     name: 'demo-repo',
@@ -75,5 +77,27 @@ describe('new repository flow', () => {
       }),
     );
     expect(await screen.findByText('repository page')).toBeInTheDocument();
+  });
+});
+
+describe('global repository search', () => {
+  it('uses a searchbox named Search and labels results with the exact repository name', async () => {
+    mockHome();
+    vi.mocked(api.discover).mockResolvedValue({
+      orgs: [],
+      repos: [
+        { owner: 'acme-demo', name: 'acme-docs', visibility: 'public', description: 'seed' },
+      ],
+    });
+    const user = userEvent.setup();
+    renderHome('/');
+
+    const box = await screen.findByRole('searchbox', { name: 'Search' });
+    expect(screen.getByRole('link', { name: 'acme-docs' })).toBeInTheDocument();
+
+    vi.mocked(api.searchRepos).mockResolvedValue([]);
+    await user.type(box, 'zzz{Enter}');
+
+    expect(await screen.findByText('No results')).toBeInTheDocument();
   });
 });
