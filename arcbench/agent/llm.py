@@ -84,6 +84,11 @@ class LlmClient:
         # reference adapter allows 900s for a single request. 120s was cutting
         # replies off and looked like an empty-response bug.
         self.timeout = float(os.environ.get("ARC_LLM_TIMEOUT", "600"))
+        # Wall-clock budget for ONE chat() call across all its retries. r34's
+        # whole run burned 37 minutes waiting on six modules that never answered;
+        # this bounds that wait so the run can still close cleanly with whatever
+        # partial app it has (the flow-level ARC_TIME_BUDGET does the rest).
+        self.call_budget = float(os.environ.get("ARC_LLM_CALL_BUDGET", "900"))
         self.max_tokens = int(os.environ.get("ARC_LLM_MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
         self.reasoning_effort = os.environ.get("ARC_LLM_REASONING_EFFORT")
         self.usage = LlmUsage()
@@ -161,7 +166,11 @@ class LlmClient:
 
         budget = max_tokens or self.max_tokens
         last_error = ""
+        deadline = time.time() + self.call_budget
         for attempt in range(4):
+            if time.time() > deadline:
+                last_error = f"call budget {self.call_budget:.0f}s exceeded on attempt {attempt}"
+                break
             try:
                 payload = self._post(messages, budget, temperature) or {}
                 choices = payload.get("choices") or []

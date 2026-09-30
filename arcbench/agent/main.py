@@ -334,6 +334,34 @@ def module_names(module: dict, nodes: list[dict]) -> list[str]:
     return exact_names(selected)
 
 
+def _scenario_text(scenario) -> str:
+    """Render a scenario into readable prose, preserving every step's content.
+
+    The seed data the tests expect lives inside the ``GIVEN``/``WHEN``/``THEN``
+    step ``content`` (e.g. ``alice-dev``, ``Valid-password-123!``, ``Q3 Sales``,
+    ``East/1200/Open``). A JSON dump of the whole dict also carries it, but it is
+    hard for a model to scan; this flattens it to plain text without dropping a
+    word.
+    """
+    if isinstance(scenario, str):
+        return scenario
+    if isinstance(scenario, dict):
+        parts: list[str] = []
+        name = scenario.get("name")
+        if name:
+            parts.append(str(name))
+        for step in scenario.get("steps") or []:
+            if isinstance(step, dict):
+                keyword = str(step.get("keyword") or "").strip()
+                content = str(step.get("content") or "").strip()
+                if keyword or content:
+                    parts.append(f"{keyword} {content}".strip())
+            elif isinstance(step, str):
+                parts.append(step)
+        return " ".join(parts)
+    return json.dumps(scenario, ensure_ascii=False)
+
+
 def build_module_prompt(
     tree: dict,
     module: dict,
@@ -376,7 +404,7 @@ def build_module_prompt(
             "",
             "Domain notes for this product (relationships and view names the",
             "requirements assume; the requirement text still wins on a conflict):",
-            guidance[:8000],
+            guidance,
         ])
     if specs_text:
         lines.extend([
@@ -399,17 +427,21 @@ def build_module_prompt(
         lines.append(f"[{node['id']}] {node.get('title')}")
         description = (node.get("description") or "").strip()
         if description:
-            lines.append(description[:4000])
+            lines.append(description)
         seed_hint = (node.get("seed_hint") or "").strip()
         if seed_hint:
-            lines.append(f"Seed data: {seed_hint[:800]}")
-        for index, scenario in enumerate((node.get("scenarios") or [])[:3], 1):
-            text = scenario if isinstance(scenario, str) else json.dumps(scenario, ensure_ascii=False)
-            lines.append(f"Scenario {index}: {text[:1500]}")
+            lines.append(f"Seed data: {seed_hint}")
+        checklist = node.get("checklist")
+        checklist_items = checklist if isinstance(checklist, list) else []
+        if checklist_items:
+            lines.append("Exact assertions (authoritative, from the live task page):")
+            lines.extend(f"- {str(item).strip()}" for item in checklist_items)
+        for index, scenario in enumerate(node.get("scenarios") or [], 1):
+            lines.append(f"Scenario {index}: {_scenario_text(scenario)}")
     additions = [sentence for rid in wanted for sentence in delta.get(rid, [])]
     if additions:
         lines.extend(["", "Late clarifications from the current task page (authoritative):"])
-        lines.extend(f"- {sentence[:400]}" for sentence in additions[:40])
+        lines.extend(f"- {sentence}" for sentence in additions)
     lines.extend([
         "",
         f"Emit the files that implement module {module['id']} and list the",

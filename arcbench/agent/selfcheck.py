@@ -60,12 +60,18 @@ def quoted_names(nodes: list[dict]) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
     for node in nodes:
+        # The live checklist (attached to each node as ``checklist`` by the data
+        # refresh) is the authoritative assertion list and quotes the exact
+        # accessible names; scan it too so a stale map cannot hide a missing name.
+        checklist = node.get("checklist")
+        checklist_text = " ".join(checklist) if isinstance(checklist, list) else ""
         text = " ".join(
             [
                 str(node.get("title") or ""),
                 str(node.get("description") or ""),
                 str(node.get("seed_hint") or ""),
                 _scenario_text(node.get("scenarios")),
+                checklist_text,
             ]
         )
         for match in re.finditer(r"[“\"]([^”\"\n]{3,60})[”\"]", text):

@@ -436,3 +436,23 @@ def probe_home(port: int, timeout: float = 10.0) -> int:
         except Exception:  # noqa: BLE001 - not up yet
             time.sleep(0.5)
     return 0
+
+
+def collect_aria_snapshot(page) -> str:
+    """ARIA/accessibility snapshot of a Playwright page for a repair prompt.
+
+    ``page`` is duck-typed: only the two snapshot methods are touched, so the
+    caller can pass a real Playwright ``Page`` while the platform container
+    (which has no browser) never imports Playwright at all. Failures degrade to
+    an empty string rather than raising.
+    """
+    if page is None:
+        return ""
+    try:
+        return str(page.locator("body").aria_snapshot())
+    except Exception:  # noqa: BLE001 - snapshot is best-effort
+        pass
+    try:
+        return str(page.accessibility.snapshot())
+    except Exception:  # noqa: BLE001
+        return ""

@@ -1,7 +1,7 @@
 {
   "task": "GitHub Collaboration Platform Core Requirements",
   "task_id": "github",
-  "generated_at": "2026-09-09T01:31:14.575351+00:00",
+  "generated_at": "2026-09-30T13:43:51.639266+00:00",
   "nodes": [
     {
       "id": "ROOT",
@@ -11,7 +11,8 @@
       "dependencies": [],
       "description": "This product is a simplified GitHub collaboration platform. The home page is the starting point for unauthenticated visitors and displays entry points to public organizations and public repositories; after sign-in, the workspace shows the current account, organizations the account belongs to, and accessible repositories in the account menu. An “account” is an individual identity that can sign in. The frontend represents it by a username, avatar, or account menu; the system persistently stores the account identifier, username, verified email, credential status, and session ownership. An “organization” is a namespace in which multiple accounts jointly manage resources, rather than an account or repository itself; the frontend presents it through an organization overview page whose title shows the organization name and that contains the Repositories, People, and Teams tabs; the system stores the organization identifier, display name, creator, and “organization-account-Member/Owner” membership relationships. A “team” is a grouping of accounts within an organization; the frontend displays teams on the Teams page and in the team tree, while the system stores the team identifier, owning organization, name, optional parent team, and “team-account” membership relationships. A “repository” is a code and collaboration container owned by an individual account or organization; the repository overview page title is “owner/repository name” and contains the Code, Issues, Pull requests, and Settings navigation entries. A repository owned by an organization is called an “organization repository”, whose owner is the organization rather than an individual account; the system stores the repository identifier, owner type and identifier, name, visibility, default branch, description, and creator. Public repositories are readable by visitors; private repositories are readable only by accounts authorized under the defined rules. Organizations, repositories, branches, commits, files, issues, comments, pull requests, reviews, and access grants all belong to explicit parent objects, and the page title or primary area must display the name of the current object. A “branch” is a named line of code in a repository that points to a commit; the branch selector on the Code page determines the branch currently being viewed. A “commit” is an immutable record of a file-snapshot change and stores the parent commit, author, message, timestamp, and changed files. An “Issue” is a work item or defect record with a unique number within a repository; its detail page displays the title, description, Open/Closed status, comments, assignees, labels, milestone, and activity timeline. A “Milestone” is an existing goal-classification item in the current repository and is presented in the frontend as selectable metadata on the right side of an issue or PR; the system stores the association between a work item and a milestone and does not create cross-repository associations. A “pull request (PR)” is a proposal to merge changes from the compare branch into the base branch; its detail page displays Conversation, Commits, Files changed, Checks, reviews, and status. All write operations must be persisted on the server as objects, relationships, or state records; after refresh, re-login, or opening the relevant page from another account, the same final state must be read; on failure, no partial objects may be created and no partial state may be modified. An organization Owner has Admin permission over the organization and its repositories; a repository Admin has repository-management permission; Read may only view, Triage may view and manage issue/PR metadata, Write additionally may create branches, commit files, create issues/PRs, comment, and review, Maintain additionally may manage labels, milestones, assignees, and review requests, and Admin additionally may manage repository visibility, access grants, and branch protection. Every write operation must first check the current session and target-object permission according to these rules, and successful results must be visible on the relevant detail pages and lists. Real-time collaboration, Actions, Packages, Wiki, project boards, notification delivery, and external Git remote protocols are outside the scope of this product.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-1",
@@ -21,7 +22,8 @@
       "dependencies": [],
       "description": "This module defines the “account” and “session” required to access the system. An account is a persistent individual identity storing a username, verified email, and credential status; a session is a record created after successful account sign-in that represents only the current browser login state. Visitors enter the account-access page from “Sign up”, “Sign in”, or “Forgot password” on the home page; signed-in users enter security settings or sign out from the account menu. The account menu is the control in the upper-right corner of the page that displays the current signed-in account, organization list, and sign-out entry. No page, error message, or recovery flow may display a full password. After successful sign-in, the account menu displays the current user, and subsequent organization, repository, issue, and pull-request pages use this session to determine visibility and operation permissions; sign-out, password changes, and recovery must immediately change the session state visible to subsequent requests.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-1-1",
@@ -31,7 +33,8 @@
       "dependencies": [],
       "description": "The account-access page is the shared page used by unauthenticated users to register, sign in, and recover a password, with the frontend showing the appropriate form and submit button for each operation. The local product does not implement an email-verification page, email delivery, or an external verification-code service — successful registration directly stores a sign-in-capable account and marks its email as verified; successful sign-in only stores a new session and does not create a duplicate account; after submitting an email for password recovery, the page directly displays the fixed verification code `123456` and the password-reset form, and only the correct code together with a compliant new password updates the password of the same account. Registration, sign-in, and recovery pages must use visible labels to identify fields and submit actions; after failure, non-sensitive input is retained, while password and password-confirmation fields must not redisplay submitted values.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-1-1-1",
@@ -63,7 +66,16 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-sign-up.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-sign-up.png)",
+      "checklist": [
+        "Register a New GitHub Account Register a New GitHub Account The registration page is the form opened by the unique link named “Create an account” from the sign-in page.",
+        "The form contains exactly one textbox labeled “Username”, one textbox labeled “Email”, one password input labeled “Password”, one password input labeled “Confirm password”, one initially unchecked checkbox named “Agree to the terms”, and one enabled button named “Create account”.",
+        "The corresponding visible field message contains “Username already exists”, “Username format is invalid”, “Email format is invalid”, “Password requirements are not satisfied”, or “Agree to terms is required”, as applicable.",
+        "Submitting several invalid fields together must show the username, email, password, and missing-terms messages together, rather than revealing only one error per submission; the submit button remains actionable so these messages can be read.",
+        "For example, a username beginning with a hyphen, email “not-an-email”, password “short”, confirmation “different”, and unchecked terms produce these field errors and preserve the attempted username.",
+        "A duplicate username paired with a different unused email displays “Username already exists” and retains both attempted values.",
+        "A successful registration accepts a unique username such as “pw-user-<unique suffix>”, its “@example.test” email, and password “Valid-password-123!”; the sign-in form is immediately available, accepts that email, and the resulting signed-in username remains visible after reload."
+      ]
     },
     {
       "id": "REQ-1-1-2",
@@ -97,7 +109,8 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-sign-in.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-sign-in.png)",
+      "checklist": []
     },
     {
       "id": "REQ-1-1-3",
@@ -131,7 +144,16 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-password-reset.png) ![image](reference/github-password-reset-1.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-password-reset.png) ![image](reference/github-password-reset-1.png)",
+      "checklist": [
+        "Recover Account Access Through a Verified Email Recover Account Access Through a Verified Email The password-recovery page is opened by the link “Forgot password” on the sign-in page; the fixed code is displayed as a distinct visible text value exactly “123456”, not only embedded inside a longer instruction.",
+        "“Email”, “Verification code”, “New password”, and “Confirm password” are associated field labels;",
+        "“Send reset link” and “Reset password” are buttons.",
+        "The recovery scenario uses a newly registered account, an unknown email, a compliant replacement such as “Replacement-password-456!”, and invalid code “000000”; failure leaves the registered account able to sign in with its old email/password.",
+        "In this flow, the local system does not send email, generate a copyable reset link, or call an external verification-code service.",
+        "If the verification code is wrong, the email is unknown, the password is noncompliant, or the confirmation does not match, the page explains the reason beside the corresponding field and does not modify any account; an incorrect verification code displays “Verification code is invalid”.",
+        "After successful submission, the page directly displays “Password updated” and does not produce any email or link."
+      ]
     },
     {
       "id": "REQ-1-2",
@@ -165,7 +187,14 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-account-menu-sign-out.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-account-menu-sign-out.png)",
+      "checklist": [
+        "The page contains exactly one button named “Account menu”; its menu contains exactly one link named “Sign out”.",
+        "Activating it displays a dialog named “Sign out” with buttons named “Confirm sign out” and “Cancel”.",
+        "The dialog explains that sign-out affects only the current browser session.",
+        "Only “Confirm sign out” invalidates the session, while “Cancel” or closing the dialog retains the current session and page.",
+        "After confirming, refresh, browser back navigation, or directly reopening a previously accessible protected account, repository, or organization page restores an unauthenticated state and displays the “Sign in” link."
+      ]
     },
     {
       "id": "REQ-1-3",
@@ -199,7 +228,12 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-password-settings.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-password-settings.png)",
+      "checklist": [
+        "The security form has uniquely labeled password inputs “Current password”, “New password”, and “Confirm password”, and a button “Update password”; submitting an empty current-password field must display the visible application message “Current password is required”.",
+        "A failure with an incorrect current password and confirmation “does-not-match” must display the corresponding current-password or confirmation error and leave the old credentials usable.",
+        "If the current password is incorrect, the new password is noncompliant, the confirmation does not match, or any field is missing, the system displays the reason in the corresponding field and does not modify the credentials; the applicable visible message is “Current password is incorrect”, “Password confirmation does not match”, or “Current password is required”."
+      ]
     },
     {
       "id": "REQ-2",
@@ -211,7 +245,8 @@
       ],
       "description": "Signed-in users enter the organization list through “Your organizations” in the account menu and can create or open an organization; visitors can only view public repositories through public organization pages. The organization overview provides Repositories, People, and Teams entries. An organization Owner directly adds or removes members on People, creates teams and maintains hierarchy on Teams, and grants roles to members or teams in Manage access under repository Settings. Organization membership only determines whether a user can see the organization and can be a candidate for team/repository authorization; it does not automatically grant access to any private repository. Access to a private repository comes only from organization Owner status, a direct role grant on that repository, or direct membership in a team authorized for that repository. All changes must be reflected simultaneously in organization details, people/team lists, and the actual access results of affected repositories.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-2-1",
@@ -223,7 +258,10 @@
       ],
       "description": "The organization overview page uses the organization name as its title; the Repositories tab lists repositories owned by the organization, the People tab lists members and their Member/Owner roles, and the Teams tab lists teams. This module supports visitors discovering an organization's public repositories and signed-in accounts creating organizations from the “Your organizations” page. The unique organization name uses the same globally unique 1–39-character lowercase ASCII format as the REQ-1 username; the display name must contain 1–100 non-empty characters after trimming leading and trailing whitespace. After successful creation, the system stores the organization object and the creating account's Owner membership relationship, and the user enters the new organization overview page; subsequent team, member, and organization-repository authorization is scoped by this organization identifier. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Organization Identity and Discovery Organization Identity and Discovery The organization overview page uses the organization name as a heading; its “Repositories”, “People”, and “Teams” navigation entries have link roles even when visually styled as tabs."
+      ]
     },
     {
       "id": "REQ-2-1-1",
@@ -255,7 +293,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-organization-repositories.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-organization-repositories.png)",
+      "checklist": [
+        "Browse Organization Repositories Browse Organization Repositories The organization page presents “Repositories” as a navigation link, visually usable as a tab, and a textbox labeled “Find a repository”.",
+        "Each result has a link named exactly with the repository name, and opens a heading displaying “organization name/repository name”."
+      ]
     },
     {
       "id": "REQ-2-1-2",
@@ -289,7 +331,15 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Create an Organization After Authentication Create an Organization After Authentication The account-menu link “Your organizations” opens a page with the link “New organization”.",
+        "Its form has fields labeled “Organization name” and “Display name” and a button “Create organization”.",
+        "Submitting an existing identifier must show “Organization name already exists” even when the display name is also missing; it must not navigate to a heading for the existing organization.",
+        "The malformed identifier “-invalid-organization” and a whitespace-only display name are rejected with the applicable field error.",
+        "The applicable visible message is “Organization name already exists”, “Organization name format is invalid”, or “Display name is required”.",
+        "The user enters organization identifier mobile-guild, a display name Mobile Guild, and clicks “Create organization”."
+      ]
     },
     {
       "id": "REQ-2-2",
@@ -301,7 +351,8 @@
       ],
       "description": "On the current organization's member- and team-management pages, users create teams, maintain team hierarchy and membership relationships, and directly add or remove organization members. A team name contains 1–50 lowercase ASCII letters, digits, or hyphens, may not begin or end with a hyphen, and must be unique within the same organization; a team must belong to an organization, and a parent team must belong to the same organization and may not create a direct or indirect cycle. Organization membership and team membership are independent persisted relationships; team hierarchy is used only for display and management and does not implicitly add members of a parent or child team to the other team. On the People page, an Owner enters the username or verified email of an existing account and confirms, after which the system immediately saves that account's Member or Owner membership relationship; there is no invitation, Pending, or acceptance step. When removing a member, the system atomically deletes that organization-membership relationship, all of that account's team memberships in the organization, and all direct grants to that account on repositories of the organization; team grants themselves are not deleted. If removal would leave the organization with no Owner, the system rejects the operation and keeps all relationships unchanged; the person's account, personal repositories, and relationships with other organizations must not be deleted. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-2-1-2 (Create an Organization After Authentication); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-2-2-1",
@@ -335,7 +386,13 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Create an Organization Team Create an Organization Team The organization overview has a “Teams” link; that page has a “New team” link opening the field “Team name” and button “Create team”.",
+        "The resulting team heading contains its name and remains visible after reload.",
+        "A team page is the detail page for a grouping of accounts within an organization, titled “organization name/team name”; the Members tab displays the team's direct members, and Settings is used to change the parent team.",
+        "A malformed team name displays “Team name format is invalid”."
+      ]
     },
     {
       "id": "REQ-2-2-2",
@@ -386,7 +443,15 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "The team page has links “Members” and “Settings”.",
+        "On Members, the button “Add member” opens a textbox labeled “Username” and the submit button “Add member”; only the current step's Add member button is exposed as an actionable match.",
+        "After adding, the member's complete username is visible once in the member list, alongside a button named “Remove <username>”.",
+        "Activating this removal button immediately removes that member without a second confirmation step, and reload keeps the username absent.",
+        "Settings contains a native select with combobox role labeled “Parent team”, whose option labels are team names, and a button “Save”.",
+        "A rejected cycle displays “Cyclic team hierarchy is not allowed”."
+      ]
     },
     {
       "id": "REQ-2-2-3",
@@ -420,7 +485,14 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Directly Add a User as an Organization Member Directly Add a User as an Organization Member The organization overview opens “People” through a link.",
+        "Its button “Add member” opens the labeled field “Username or email”, a combobox “Role” defaulting to Member, and a submission button “Add member”.",
+        "Opening Role exposes clickable options “Member” and “Owner”.",
+        "A separately signed-in new member sees the organization identifier as complete visible text in Your organizations, while an ungranted private repository shows “Access denied”.",
+        "For an existing member, unknown account, unsupported role, or persistence failure, the system displays the reason and does not change the membership relationship; an existing member displays “Account is already a member”, and the unknown username unknown-reviewer displays “Account not found”."
+      ]
     },
     {
       "id": "REQ-2-2-4",
@@ -471,7 +543,12 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Remove a Member from an Organization Remove a Member from an Organization Open the organization's “People” link to read member usernames.",
+        "Each removable member has a button named “Member menu <username>”; it opens the menuitem “Remove from organization”, followed by the confirmation button “Remove”.",
+        "A non-Owner viewing the same member has no member-menu button and no Remove from organization menuitem, rather than merely a disabled control."
+      ]
     },
     {
       "id": "REQ-2-3",
@@ -523,7 +600,14 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Grant Repository Access to People and Teams Grant Repository Access to People and Teams From the repository's “Settings” link, open the “Manage access” link and activate “Add people or teams”.",
+        "The picker presents a textbox “Search”, a matching selectable team option whose name contains the team name, a combobox “Role” with clickable role options including “Write”, and an “Add” button.",
+        "Existing grants appear as rows whose accessible names include the subject name; each row contains a native select labeled “Role” and a “Save” button.",
+        "Selecting the option labeled “Read” and saving replaces Write; after reload exactly one row for the team remains and contains Read.",
+        "In the access-subject picker, matching member or team options update as the administrator types; pressing Enter or activating a separate search button is not required before selecting an option."
+      ]
     },
     {
       "id": "REQ-3",
@@ -533,7 +617,8 @@
       "dependencies": [],
       "description": "A repository is a container for code, branches, commits, files, and collaborative work items. The repository overview page is titled “owner/repository name”, displays the owner, name, Public/Private marker, description, and default branch, and provides Code, Issues, Pull requests, and Settings entries; the “owner” is an individual account or organization, and a repository belonging to an organization is an organization repository. Users open a repository overview from global search results, a personal/organization Repositories list, or a direct link; signed-in users with creation permission create a personal or organization repository from “New repository”. Public repositories allow visitor Read access; private personal repositories allow access only to their owner and explicitly authorized subjects; private organization repositories allow access only to organization Owners, members with direct repository roles, or direct members of teams with repository roles, and ordinary organization Members do not automatically gain access merely through membership. After visibility or access grants change, search, lists, direct links, and repository pages must all use the same access rule.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-3-1",
@@ -565,7 +650,13 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-search-results.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-search-results.png)",
+      "checklist": [
+        "Search for and Locate Repositories Search for and Locate Repositories The top global search control has searchbox role and accessible name “Search”; entering a repository name and pressing Enter displays repository results directly, without requiring an additional type-filter click.",
+        "Each repository result has a link whose accessible name is exactly its repository name, while the result also displays its owner/name metadata.",
+        "A query with no matching repository displays “No results”, including when the visitor returns home and repeats the same query.",
+        "Seed data provides a named public repository and a private repository inaccessible to visitors; searching the private name exposes no result link for it."
+      ]
     },
     {
       "id": "REQ-3-2",
@@ -577,7 +668,8 @@
       ],
       "description": "The repository-creation page is the form opened by “New repository”, where the user selects an owner, name, visibility, and initialization options. A “fork” is an independent repository copied from a readable source repository — the frontend displays the source link on the fork overview page, and the system stores the source-repository identifier; branches and commits in the fork may evolve independently and never write back to the source repository. A “clone URL” is a read-only address displayed in the repository Code popover and can be copied to the clipboard; it does not mean this product implements an external Git protocol. Both new repositories and forks must enter a browsable repository overview page. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-1-1-2 (Sign In with an Existing Account); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-3-2-1",
@@ -611,7 +703,15 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-create-repository.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-create-repository.png)",
+      "checklist": [
+        "The signed-in workspace provides a “New repository” link.",
+        "The form labels are “Owner”, “Repository name”, and “Description”; the signed-in user's personal namespace is selected by default, so it is possible to submit without changing the owner.",
+        "Visibility choices are radio controls “Public” and “Private”; initialization is a checkbox “Add a README file”; submission uses the button “Create repository”.",
+        "A successful initialized private repository shows a heading containing the new name, a visible Private marker, and a README file link; the overview persists after reload.",
+        "The optional description “Repository created by Playwright” is saved when entered.",
+        "An existing repository in this same default personal namespace is supplied for duplicate validation, which stays on the form and does not open the existing repository heading."
+      ]
     },
     {
       "id": "REQ-3-2-2",
@@ -646,7 +746,12 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-fork-repository.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-fork-repository.png)",
+      "checklist": [
+        "Fork a Repository into Another Namespace Fork a Repository into Another Namespace The source overview has a button “Fork”.",
+        "The fork form contains a field labeled “Repository name” and button “Create fork”; it defaults to the signed-in user's personal namespace and an allowed visibility, permitting submission after editing only the name.",
+        "Success opens a heading containing the new fork name and visible text “Forked from <source repository name>” with a source link; the heading and source relationship survive reload."
+      ]
     },
     {
       "id": "REQ-3-2-3",
@@ -680,7 +785,13 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-code-clone-menu.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-code-clone-menu.png)",
+      "checklist": [
+        "Copy a Repository Clone Value Copy a Repository Clone Value The clone popover is opened by a button “Code”, separate from the repository navigation link of the same name.",
+        "Protocol controls are tabs “HTTPS” and “SSH”, and the selected clone value has a button “Copy clone value”.",
+        "With browser clipboard permission, copying writes the selected complete value, displays “Copied”, and leaves the repository heading visible.",
+        "The page displays brief “Copied” feedback for the selected protocol, keeps the repository heading visible, and leaves repository files, commit history, and visibility unchanged."
+      ]
     },
     {
       "id": "REQ-3-3",
@@ -712,7 +823,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-overview.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-overview.png)",
+      "checklist": [
+        "View a Public Repository Overview View a Public Repository Overview The repository overview identifies the repository in a heading containing “owner/repository name”, displays a visible “Public” marker for a public repository, and provides a navigation link “Code”.",
+        "A seeded public repository with its matching name and stable address is readable without sign-in and retains the same heading after reload."
+      ]
     },
     {
       "id": "REQ-3-4",
@@ -747,7 +862,13 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-visibility-settings.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-visibility-settings.png)",
+      "checklist": [
+        "Open the repository's “Settings” link and then its “General” link to reach Danger Zone.",
+        "The visibility action is a button “Change visibility”; the confirmation flow provides a “Public” radio and a button “Confirm visibility”.",
+        "A non-Admin collaborator must not see the Change visibility button, including when a Settings link is available.",
+        "After successful confirmation, a visible Public marker appears, and an unauthenticated visitor reopening the same address sees its repository heading."
+      ]
     },
     {
       "id": "REQ-4",
@@ -759,7 +880,11 @@
       ],
       "description": "The Code page is the main page for browsing code in a repository — the top of the page displays the current branch selector, the main area displays files and directories at the current path on the current branch, clicking a file opens a read-only file page, and clicking Commits opens commit history. A file is content at a path on a branch; a directory is only a path hierarchy used for organization and is not an independent collaboration object. A branch is a named reference pointing to a commit, and switching branches only changes the file snapshot read by the current page. A commit is an immutable change record that stores the parent commit, author, message, time, and changed files; users with Write, Maintain, Admin, or organization Owner permission can create new commits from a file page through Edit or Add file. Every file, commit, comparison, and branch page displays the repository and current branch or revision. Editing a file must create a new commit and must not rewrite historical content.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "These accounts sign in through the home-page “Sign in” link, the “Username or email” and “Password” fields, and the “Sign in” button; the signed-in username is visible before opening the target repository entry.",
+        "Unless a narrower scope is explicitly given below, each named control is unique on the active page, and field and option names refer to accessible names."
+      ]
     },
     {
       "id": "REQ-4-1",
@@ -793,7 +918,8 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-code-file-browser.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-code-file-browser.png)",
+      "checklist": []
     },
     {
       "id": "REQ-4-2",
@@ -805,7 +931,8 @@
       ],
       "description": "The “commit history” page displays commit records for a branch or file path in reverse chronological order; the “diff” page compares the file contents of two commits or revisions line by line, where base is the earlier or target revision and compare is the newer or to-be-compared revision; the “code search” page searches for keywords only within readable file content in the current repository. All three are read-only views that do not create commits or modify files or branches and follow repository visibility and access permissions. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-4-1 (Browse Repository Files and Directories); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-4-2-1",
@@ -839,7 +966,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-commit-history.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-commit-history.png)",
+      "checklist": [
+        "The repository and file pages each expose one history link named “Commits” (a commit count may accompany the visible label without introducing another matching link).",
+        "Seed history includes a known commit message and author, displayed in full as distinct readable text values, and a relative timestamp containing “ago”."
+      ]
     },
     {
       "id": "REQ-4-2-2",
@@ -873,7 +1004,10 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-commit-diff.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-commit-diff.png)",
+      "checklist": [
+        "Opening that commit entry as a visitor displays the changed-file path as an exact text value, the “Changed files” summary, and the numeric additions/deletions summary described below, without requiring previous navigation through history."
+      ]
     },
     {
       "id": "REQ-4-2-3",
@@ -924,7 +1058,14 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-code-search.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-repository-code-search.png)",
+      "checklist": [
+        "The repository page and search results expose one searchbox named “Search”; after Enter, a unique link named “Code” selects code results.",
+        "This results-type link must remain distinguishable from repository navigation so the active search page has only one Code link.",
+        "Path and language filters are optional, and an unfiltered search can immediately open a result link whose exact accessible name is the matching file name.",
+        "Opening the matching file shows that text; refreshing preserves the file context, text, and a link named exactly after the file.",
+        "For the absent query, show “No code results” and retain the exact query in Search."
+      ]
     },
     {
       "id": "REQ-4-3",
@@ -936,7 +1077,8 @@
       ],
       "description": "The branch selector is the control at the top of the Code page that lists and switches branches; the system stores a unique name and current pointed-to commit for each branch. Creating a branch creates a new named reference at a specified base commit; it does not copy files or rewrite base history. The default branch is the branch read by default when opening the repository overview or a URL without a specified branch; it is not the only existing or writable branch. A branch name is 1–255 characters and may contain only ASCII letters, digits, `-`, `_`, `.`, and `/`; it must not end with `/` or `.`, and must not contain consecutive `..` or `//`; duplicate names, invalid names, or lack of permission must prevent branch creation. Changing the default branch must not alter existing branches, commits, or source/target references of already-open PRs. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-4-1 (Browse Repository Files and Directories); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-4-3-1",
@@ -987,7 +1129,12 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-branch-selector.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-branch-selector.png)",
+      "checklist": [
+        "Matching branch options or the “No matching branch” state update as the user types in the branch textbox; pressing Enter or activating a separate search button is not required.",
+        "The selector is a unique button named “Branch <current branch name>”; it opens a textbox named “Find branch” and selectable items with role option whose exact accessible names are the branch names.",
+        "Selecting the target immediately updates the button's branch name and shows a link with the exact target-only file name."
+      ]
     },
     {
       "id": "REQ-4-3-2",
@@ -1022,7 +1169,14 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-create-branch.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-create-branch.png)",
+      "checklist": [
+        "As the user types, a valid unused name displays the “Create branch: <name>” option without requiring Enter or a separate search action, while an invalid name immediately displays “Invalid branch”.",
+        "The selector and “Find branch” textbox use REQ-4-3-1's roles.",
+        "For a valid unused name, the creation entry has role option and accessible name “Create branch: <name>”.",
+        "Its displayed base defaults to the current branch head; selecting this option performs creation and switches branches without a second mandatory confirmation.",
+        "In particular, entering invalid..branch immediately shows “Invalid branch” and cannot create a reference; generated valid names such as pw-branch-<unique suffix> follow the same rules."
+      ]
     },
     {
       "id": "REQ-4-3-3",
@@ -1074,7 +1228,14 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-default-branch-settings.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-default-branch-settings.png)",
+      "checklist": [
+        "“Settings” and “Branches” are unique links on their respective pages;",
+        "“Default branch” is a native HTML select element exposing the combobox role, with options labeled by exact existing branch names; selecting an option must use the native selection behavior.",
+        "The administrator selects a different seeded branch, activates the “Update” button, and then the “Confirm” button in the confirmation dialog.",
+        "Opening the repository page entry without a branch then shows “Branch <new default branch name>”; opening that selector still offers an option named exactly after the old default branch.",
+        "A non-Admin may have Settings or Branches links hidden or may open a read-only settings page, but no “Default branch” combobox or default-branch update button is rendered for that user; a merely disabled editable selector is insufficient."
+      ]
     },
     {
       "id": "REQ-4-4",
@@ -1109,7 +1270,13 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-web-file-editor.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-web-file-editor.png)",
+      "checklist": [
+        "An invalid path displays “Invalid file path”, and an empty commit message displays “Commit message is required”.",
+        "From the writable Code page, the unique “Add file” button opens the “Create new file” menuitem.",
+        "The editor has a field labeled “File name”, a textbox named “File contents”, an initially empty field labeled “Commit message”, and a “Commit changes” button.",
+        "Its “Commits” link opens history displaying the exact submitted message."
+      ]
     },
     {
       "id": "REQ-5",
@@ -1121,7 +1288,10 @@
       ],
       "description": "An issue is a persistent work item within a repository used to record pending work, a defect, or a discussion topic; it is not a code file or PR. The Issues page is the list page in repository navigation; each row displays the issue number, title, Open/Closed status, author, and labels, and clicking the number or title opens the issue detail page. At the top of the detail page are the title and status; the right side displays Assignees, Labels, and Milestone metadata in order; the main area displays the description, comments, and activity timeline. The “activity timeline” is an append-only history that records creation, edits, comments, assignment, labels, milestone, and status changes in chronological order. A label is a pre-existing colored classification name in the current repository; a milestone is a pre-existing goal-classification item in the current repository that may be associated with multiple issues or PRs but does not change their content or status. Write, Maintain, and Admin may create issues, edit titles/descriptions, and comment; Triage, Maintain, and Admin may assign participants, apply labels, set milestones, and close or reopen issues; Read may only view. Every operation is performed around a unique issue number within the repository, and the detail page and list display the same persisted data; after refresh, re-login, or opening from another account with view permission, the same record is still read.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "All authenticated scenarios use the home-page “Sign in” link, fields labeled “Username or email” and “Password”, and the “Sign in” button, after which the signed-in username is visible."
+      ]
     },
     {
       "id": "REQ-5-1",
@@ -1133,7 +1303,8 @@
       ],
       "description": "The Issues list page displays issues within the current repository; status, keyword, and label filters only change the rows currently displayed in the browser and do not write or delete issues. The issue detail page is the complete view of the work item with the same number, aggregating the description, right-side metadata, comments, and activity timeline, and also serves as the common entry point for editing, commenting, assigning, labeling, setting milestones, and closing/reopening. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-3-3 (View a Public Repository Overview); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-5-1-1",
@@ -1184,7 +1355,12 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-issues-list.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-issues-list.png)",
+      "checklist": [
+        "Users can filter by Open/Closed, title or body keywords, and labels; when the user types in the issue search box, the matching issue rows update without requiring Enter or a separate search button.",
+        "“Open” and “Closed” are links, not buttons or tabs.",
+        "A unique searchbox named “Search issues” filters as the user types, including when the entire seeded title is entered."
+      ]
     },
     {
       "id": "REQ-5-1-2",
@@ -1218,7 +1394,10 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "View an Issue and Its Discussion View an Issue and Its Discussion An issue detail page is the read view for a uniquely numbered work item within a repository — the top displays the number, a heading whose exact accessible name is the complete title without the issue number, and visible status text “Open” or “Closed”; the body displays the complete saved description as readable text; the right side displays assignees, labels, and milestone; and the bottom displays sections or records containing “Comment” or “Activity” text over time."
+      ]
     },
     {
       "id": "REQ-5-2",
@@ -1230,7 +1409,8 @@
       ],
       "description": "Supports creating issues in the current repository, editing titles and descriptions, and appending discussion comments. An issue title contains 1–256 non-empty characters after trimming leading and trailing whitespace; the description may be empty and is at most 65536 characters; a comment contains 1–65536 non-empty characters after trimming leading and trailing whitespace. After successful creation, the issue is assigned a unique repository-scoped number and the detail page opens; editing changes only the current fields of the target issue, while comments are appended to the activity timeline as independent records with author and timestamp. On insufficient permission, empty required fields, overlong input, or persistence failure, the system must not create an empty issue, overwrite the original description, or append a partial comment. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-5-1-2 (View an Issue and Its Discussion); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-5-2-1",
@@ -1265,7 +1445,13 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-new-issue.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-new-issue.png)",
+      "checklist": [
+        "“New issue” is a link on the Issues page.",
+        "The creation form has fields labeled “Title” and “Description” and a “Submit new issue” button.",
+        "A successful submission displays a heading named exactly after the entered title and the exact saved description; reopening the Issues page entry shows a title link with the same exact name.",
+        "A title containing only three spaces is treated as blank; clicking Submit new issue displays “Title is required” and creates no issue, even if the optional description is empty."
+      ]
     },
     {
       "id": "REQ-5-2-2",
@@ -1316,7 +1502,14 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Edit an Issue Title and Description Edit an Issue Title and Description Only a signed-in user with Write, Maintain, or Admin may use the unique buttons named “Edit issue title” and “Edit issue description” on an issue detail page.",
+        "“Edit issue title” opens a form with a textbox labeled “Issue title” and a button named “Save issue title”;",
+        "“Edit issue description” opens a form with a textbox labeled “Issue description” and a button named “Save issue description”.",
+        "Saving title and description are separate actions; after both saves and reload, the title heading has exactly the new title as its accessible name and the exact new description is visible.",
+        "The invalid-edit seed is a separate issue with the original title Original issue title; replacing its title with three spaces and activating “Save issue title” shows “Title is required”, and reloading restores the original title heading."
+      ]
     },
     {
       "id": "REQ-5-2-3",
@@ -1368,7 +1561,11 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "The comment editor is labeled “Comment”, and its submit button is named exactly “Comment”.",
+        "For whitespace-only text the Comment button may either be disabled or remain enabled and display “Comment is required” when activated."
+      ]
     },
     {
       "id": "REQ-5-3",
@@ -1380,7 +1577,8 @@
       ],
       "description": "An “Assignee” is an account assigned to follow up on an issue and is displayed on the right side of the detail page; it only stores an association between the issue and account and does not change that account's repository permission. A “Label” is a preconfigured classification name in the current repository and is displayed in the frontend as a label badge; it only stores an association between the issue and label. A “Milestone” is a preconfigured stage or version goal in the current repository and is displayed as single-select metadata on the right side; a work item may be associated with at most one milestone, and selecting None deletes that association. This version provides no page or interface for creating, editing, or deleting labels or milestones; test data and initial repositories must provide selectable items. Each relationship addition or removal updates the details and activity record and does not automatically create cross-repository labels, milestones, or membership relationships. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-5-1-2 (View an Issue and Its Discussion); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-5-3-1",
@@ -1414,7 +1612,13 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Matching assignee options update as the user types in the search textbox; pressing Enter or activating a separate search button is not required before selecting an option.",
+        "The settings icon is a button named “Assignees”; the open selector contains a textbox named “Search assignees” and items with role option named exactly after the member username.",
+        "Clicking the member option immediately saves the assignment and closes the selector without a separate Save action; the exact username is visible in metadata and remains after reload.",
+        "Reopening Assignees shows the selected member without requiring another search; clicking that option again immediately removes the assignment and closes the selector so the username is no longer displayed as an assignee."
+      ]
     },
     {
       "id": "REQ-5-3-2",
@@ -1448,7 +1652,11 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "The sidebar has a button named “Labels”, opening options whose exact accessible names are the current repository's label names.",
+        "Clicking its option immediately saves the association and closes the picker, without requiring a separate Save button; the label name is visible on the detail page and remains after reload."
+      ]
     },
     {
       "id": "REQ-5-3-3",
@@ -1482,7 +1690,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-milestones.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-milestones.png)",
+      "checklist": [
+        "The settings icon is a button named “Milestone”, and selectable items have role option with the exact milestone name as their accessible name.",
+        "Clicking the option immediately saves the association and closes the picker with no separate confirmation or save action; the exact milestone name remains visible after reload."
+      ]
     },
     {
       "id": "REQ-5-4",
@@ -1533,7 +1745,13 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "The detail page offers a “Close issue” button when Open and a “Reopen issue” button when Closed; activating either immediately saves the change without an additional confirmation.",
+        "Closing displays Closed status and a “Closed issue” activity, and reopening displays Open status.",
+        "After reopening and reload the “Close issue” button is available again.",
+        "On the separate protected issue, the Read viewer sees neither close nor reopen button; hiding both controls is required, in addition to rejecting unauthorized requests."
+      ]
     },
     {
       "id": "REQ-6",
@@ -1546,7 +1764,11 @@
       ],
       "description": "A pull request (PR) is a persistent proposal to “merge code changes from the compare branch into the base branch”; it is not a branch, commit, or issue. The Pull requests page lists the current repository's PR number, title, author, source/target branches, and status; “New pull request” first opens the comparison page, where the user selects base (the target branch that receives the changes) and compare (the source branch that provides the changes) and inspects the diff. On the PR detail page, Conversation displays the title, description, ordinary comments, activities, and review summary; Commits displays commits on the compare branch relative to base; Files changed displays per-file, per-line differences; Checks displays check status for the PR's current compare commit. A PR's persisted status may only be Draft, Open, Closed, or Merged — normal creation produces Open, draft creation produces Draft, and the author or Maintain/Admin may mark a Draft as Ready for review to transition it to Open; the author or Maintain/Admin may transition an unmerged Open or Draft PR to Closed and may transition Closed back to Open; Merged is terminal and cannot be closed or reopened. Write, Maintain, and Admin may add inline comments and submit reviews, the author or Maintain/Admin may request reviewers, and only Maintain, Admin, or organization Owner may merge. Each PR stores a repository-scoped number, source/target branches, creation-time and current compare commits, creation-time base commit, title, description, author, status, and activity records. When the compare branch receives a new commit, the system updates the current compare commit, marks all existing review decisions as stale while preserving them in the timeline, recalculates merge eligibility, and retains inline comments at their original commit and line position marked Outdated. Failure does not change branches or PR state.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Each named action, field, and navigation link is unique on its active page unless explicitly repeated per changed line or reviewer.",
+        "Signed-in scenarios begin with the unique Sign in link on the home page, labeled Username or email and Password fields, a Sign in button, and the account username visible after authentication; each role account has a username, verified email, and password."
+      ]
     },
     {
       "id": "REQ-6-1",
@@ -1615,7 +1837,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-branch-protection.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-branch-protection.png)",
+      "checklist": [
+        "The rule form opens from the Add branch protection rule button and contains a field labeled Branch name pattern (an exact branch name, with no wildcard semantics), checkboxes named Require 1 approval and Require status check test, and a Create button; an existing rule uses Save changes.",
+        "On the PR detail page, the Checks area is available on arrival, displays test: pending initially, and offers the Admin a combobox named test status with a clickable option named success and a Save button."
+      ]
     },
     {
       "id": "REQ-6-2",
@@ -1627,7 +1853,8 @@
       ],
       "description": "Supports listing and filtering pull requests in the current repository, selecting source/target branches to view comparison results, and creating a normal or draft pull request from a valid comparison. Read may only view; Write, Maintain, and Admin may create PRs. Comparison results are temporary read-only context on the creation page; after successful creation, the system persists the source/target branches, current compare commit, creation-time base commit, title, description, author, and status, then opens the new pull-request detail page. Creation must be rejected without leaving a partial record when source and target are the same, there are no comparable commits, the same repository already has a Draft or Open PR with the same source/target pair, or the user lacks creation permission. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-4-3 (Branch Management); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-6-2-1",
@@ -1661,7 +1888,8 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-pull-requests-list.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-pull-requests-list.png)",
+      "checklist": []
     },
     {
       "id": "REQ-6-2-2",
@@ -1713,7 +1941,11 @@
           ]
         }
       ],
-      "seed_hint": "Screenshot reference:\n![image](reference/github-compare-branches.png)"
+      "seed_hint": "Screenshot reference:\n![image](reference/github-compare-branches.png)",
+      "checklist": [
+        "The comparison page has native select controls with combobox roles named base and compare; each option's visible label is its exact branch name.",
+        "Selecting the same branch in both fields immediately displays No changes and disables the creation button, without requiring Compare changes to be clicked first."
+      ]
     },
     {
       "id": "REQ-6-2-3",
@@ -1747,7 +1979,11 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Its Create pull request button opens a form with a field labeled Title, an optional Description field, and a single Create pull request submit button; the comparison-page action is no longer a competing active button.",
+        "Successful submission shows the entered title as the exact PR heading and visible Open status, and the title survives reload."
+      ]
     },
     {
       "id": "REQ-6-2-4",
@@ -1798,7 +2034,12 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Create a Draft Pull Request Create a Draft Pull Request A visible draft comparison entry offers a Create draft pull request button, which opens the form containing Title and optional Description fields and one Create draft pull request submit button.",
+        "Successful creation visibly shows Draft and a present but disabled Merge pull request button.",
+        "The PR author is signed in and has opened the detail page of a Draft PR they created titled Draft onboarding update, using source branch draft-feature and target branch main; the page displays the “Ready for review” button and no review has yet been submitted."
+      ]
     },
     {
       "id": "REQ-6-3",
@@ -1810,7 +2051,8 @@
       ],
       "description": "Supports viewing the overview, commits, changed files, and diffs on a pull-request detail page, and adding review comments or submitting review decisions on specific files and line ranges in the diff. Read may view; users with Write, Maintain, or Admin who are not the PR author may comment on an Open PR and submit Comment, Approve, or Request changes; Draft does not allow review submission. An inline comment must store the target PR, compare commit, file path, line position, author, and body; a review decision must store the reviewer, current compare commit, status, and explanation. Each reviewer has only one effective decision on a given current compare commit; a new decision replaces the reviewer's effective decision while preserving history. Viewing operations are read-only, and if comment or review submission fails, it must not be displayed as published. This feature builds on the persisted objects, opened pages, or authenticated-session context provided by REQ-6-2-3 (Create a Pull Request from Comparison Results); it must reuse that context and keep pages and data consistent after the context changes.",
       "scenarios": [],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": []
     },
     {
       "id": "REQ-6-3-1",
@@ -1844,7 +2086,11 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "A seeded public Open PR is directly viewable without sign-in and displays its exact title in a heading.",
+        "Reloading preserves the heading and usable navigation links; leaving and reopening the same visible page restores the same PR and allows the same navigation."
+      ]
     },
     {
       "id": "REQ-6-3-2",
@@ -1878,7 +2124,11 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "From a visible public pull request entry, a visitor activates the Files changed link and sees the known changed file path verbatim and visible aggregate text such as 3 additions, 1 deletions.",
+        "Each diff block displays the file path and added/deleted lines; aggregate statistics show the current PR's number of changed files and line counts in the format “<addition count> additions, <deletion count> deletions”."
+      ]
     },
     {
       "id": "REQ-6-3-3",
@@ -1930,7 +2180,10 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "The changed-line Add comment buttons are available for direct activation without a prerequisite hover; the first such button in document order targets the first commentable changed line."
+      ]
     },
     {
       "id": "REQ-6-3-4",
@@ -1982,7 +2235,10 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Submit a Pull Request Review Submit a Pull Request Review From the Files changed link, the reviewer activates the Review changes button to open one review form with an optional Summary field, radio controls named Comment, Approve, and Request changes, and a Submit review button."
+      ]
     },
     {
       "id": "REQ-6-4",
@@ -2017,7 +2273,14 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Request or Remove Pull Request Reviewers Request or Remove Pull Request Reviewers The Reviewers button opens a picker with a textbox named Search.",
+        "Typing an eligible username immediately reveals an option with that exact accessible name.",
+        "Selecting the option saves the request immediately without a separate Save action, closes the picker, and displays the username in the reviewer area; it remains after reload.",
+        "Each requested reviewer has a button named Remove followed by a space and the username; clicking it immediately removes the request and the username from that area, without a confirmation step.",
+        "Matching reviewer options update as the user types in the search textbox; pressing Enter or activating a separate search button is not required before selecting an option."
+      ]
     },
     {
       "id": "REQ-6-5",
@@ -2052,7 +2315,12 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "A blocked PR keeps a visible disabled Merge pull request button and explains its unmet review or protection condition before any click.",
+        "The blocked PR targets a protected branch and lacks the required valid approval; its disabled button is accompanied by Review required by branch protection.",
+        "If any condition is unsatisfied or persistence fails, the page explains the applicable reason and neither the target branch nor PR changes; a missing required approval displays “Review required by branch protection”."
+      ]
     },
     {
       "id": "REQ-6-6",
@@ -2104,7 +2372,10 @@
           ]
         }
       ],
-      "seed_hint": ""
+      "seed_hint": "",
+      "checklist": [
+        "Close pull request immediately sets Closed without an extra confirmation dialog, then Reopen pull request immediately restores Open."
+      ]
     }
   ]
 }
