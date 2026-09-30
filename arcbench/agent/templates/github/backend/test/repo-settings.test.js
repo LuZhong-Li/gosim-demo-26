@@ -197,3 +197,42 @@ test('a protected branch rejects direct file writes from a non-admin writer', as
   assert.equal(emptyMessage.response.status, 400);
   assert.equal(emptyMessage.payload.error, 'Commit message is required');
 });
+
+test('manage access grants require admin and replace an existing subject', async () => {
+  const alice = await login('alice-dev');
+  const carol = await login('carol-reader');
+
+  const denied = await json(`${REPO}/access`, {
+    method: 'POST',
+    headers: auth(carol),
+    body: JSON.stringify({ subject: 'frontend-team', kind: 'team', permission: 'Write' }),
+  });
+  assert.equal(denied.response.status, 403);
+
+  const granted = await json(`${REPO}/access`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({ subject: 'frontend-team', kind: 'team', permission: 'Write' }),
+  });
+  assert.equal(granted.response.status, 201);
+
+  const list = await json(`${REPO}/access`, { headers: auth(alice) });
+  assert.equal(list.payload.canManage, true);
+  assert.ok(list.payload.teams.includes('frontend-team'));
+  assert.ok(list.payload.members.includes('bob-reviewer'));
+  assert.equal(
+    list.payload.grants.filter((grant) => grant.subject === 'frontend-team').length,
+    1,
+  );
+
+  // Replacing the role keeps exactly one row for that subject.
+  await json(`${REPO}/access`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({ subject: 'frontend-team', kind: 'team', permission: 'Read' }),
+  });
+  const replaced = await json(`${REPO}/access`, { headers: auth(alice) });
+  const rows = replaced.payload.grants.filter((grant) => grant.subject === 'frontend-team');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].permission, 'Read');
+});

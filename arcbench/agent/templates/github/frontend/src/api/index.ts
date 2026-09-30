@@ -705,6 +705,41 @@ export async function listMilestones(owner: string, name: string): Promise<strin
   return response.data.milestones as string[];
 }
 
+// REQ-2-3: repository Manage access.
+export type RepoAccessGrant = { subject: string; kind: 'user' | 'team'; permission: string };
+
+export async function getRepoAccess(
+  owner: string,
+  name: string,
+): Promise<{
+  canManage: boolean;
+  grants: RepoAccessGrant[];
+  members: string[];
+  teams: string[];
+}> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/access`,
+  );
+  return response.data;
+}
+
+export async function setRepoAccess(
+  owner: string,
+  name: string,
+  input: { subject: string; kind: 'user' | 'team'; permission: string },
+): Promise<RepoAccessGrant> {
+  const response = await client.post(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/access`,
+    input,
+  );
+  const grant = response.data.grant as AccessGrant;
+  return {
+    subject: grant.user || grant.team || '',
+    kind: grant.user ? 'user' : 'team',
+    permission: grant.permission,
+  };
+}
+
 export async function setIssueState(
   owner: string,
   name: string,

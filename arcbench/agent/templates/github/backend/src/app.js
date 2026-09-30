@@ -1026,6 +1026,74 @@ app.get('/api/repos/:owner/:name/milestones', (req, res) => {
   res.json({ milestones: repo.milestones || [] });
 });
 
+// REQ-2-3: Manage access lives under repository Settings.
+app.get('/api/repos/:owner/:name/access', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  const user = store.userByToken(authToken(req));
+  const isOrgRepo = repo.ownerType === 'organization';
+  const grants = isOrgRepo
+    ? store.grantsFor(repo.owner, repo.name).map((grant) => ({
+        subject: grant.user || grant.team,
+        kind: grant.user ? 'user' : 'team',
+        permission: grant.permission,
+      }))
+    : [];
+  res.json({
+    canManage: store.canAdmin(repo, user && user.username),
+    grants,
+    // Candidates come from the owning organization, never from another one.
+    members: isOrgRepo ? store.orgMembers(repo.owner).map((member) => member.username) : [],
+    teams: isOrgRepo ? store.orgTeams(repo.owner).map((team) => team.name) : [],
+  });
+});
+
+app.post('/api/repos/:owner/:name/access', requireUser, (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  if (!store.canAdmin(repo, req.user.username)) {
+    return res.status(403).json({ error: 'Only a repository admin can manage access.' });
+  }
+  if (repo.ownerType !== 'organization') {
+    return res.status(400).json({ error: 'Access grants apply to organization repositories.' });
+  }
+  const body = req.body || {};
+  const subject = String(body.subject || '').trim();
+  const kind = String(body.kind || 'team').trim() === 'user' ? 'user' : 'team';
+  const permission = String(body.permission || 'Read').trim();
+  if (!subject) return res.status(400).json({ error: 'Choose a member or a team.' });
+  if (!['Read', 'Triage', 'Write', 'Maintain', 'Admin'].includes(permission)) {
+    return res.status(400).json({ error: 'Unsupported repository permission.' });
+  }
+  if (kind === 'team') {
+    if (!store.findTeam(repo.owner, subject)) {
+      return res.status(404).json({ error: 'Team not found.' });
+    }
+  } else if (!store.membership(repo.owner, subject.toLowerCase())) {
+    return res.status(400).json({ error: 'That account is not a member of this organization.' });
+  }
+  // Exactly one grant per subject: an existing grant is replaced, not duplicated.
+  store.state.accessGrants = store.state.accessGrants.filter(
+    (grant) =>
+      !(
+        grant.org === repo.owner &&
+        grant.repo === repo.name &&
+        (kind === 'user'
+          ? String(grant.user || '').toLowerCase() === subject.toLowerCase()
+          : String(grant.team || '') === subject)
+      ),
+  );
+  const grant = {
+    org: repo.owner,
+    repo: repo.name,
+    team: kind === 'team' ? subject : null,
+    user: kind === 'user' ? subject.toLowerCase() : null,
+    permission,
+  };
+  store.state.accessGrants.push(grant);
+  return res.status(201).json({ grant });
+});
+
 app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, res) => {
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });

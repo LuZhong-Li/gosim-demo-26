@@ -146,6 +146,10 @@ function App() {
               path="/:owner/:name/settings/branches"
               element={<RepoSettingsPage section="branches" />}
             />
+            <Route
+              path="/:owner/:name/settings/access"
+              element={<RepoSettingsPage section="access" />}
+            />
             <Route path="/:owner/:name" element={<RepoPage />} />
           </Routes>
         </main>
