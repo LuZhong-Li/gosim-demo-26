@@ -197,3 +197,157 @@ test('REQ-1-1-3 recovery shows the fixed code and updates the password', async (
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
 });
+
+async function registerThrowaway(page: Page) {
+  const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const username = `pw-user-${suffix}`;
+  const email = `${username}@example.test`;
+  const password = 'Valid-password-123!';
+  await page.goto('/auth?mode=signup');
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Confirm password', { exact: true }).fill(password);
+  await page.getByRole('checkbox', { name: 'Agree to the terms' }).check();
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await page.getByLabel('Username or email').fill(email);
+  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
+  return { username, email, password };
+}
+
+test('REQ-1-3 change password reports each field reason and applies the new one', async ({ page }) => {
+  const account = await registerThrowaway(page);
+  const next = 'New-password-456!';
+
+  await page.goto('/settings');
+  await expect(page.getByText('Password and authentication').first()).toBeVisible();
+  await expect(page.getByLabel('Current password', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('New password', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Confirm password', { exact: true })).toBeVisible();
+
+  // Empty current password.
+  await page.getByLabel('New password', { exact: true }).fill(next);
+  await page.getByLabel('Confirm password', { exact: true }).fill(next);
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByText('Current password is required')).toBeVisible();
+
+  // Wrong current password.
+  await page.getByLabel('Current password', { exact: true }).fill('Wrong-password-123!');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByText('Current password is incorrect')).toBeVisible();
+
+  // Mismatched confirmation.
+  await page.getByLabel('Current password', { exact: true }).fill(account.password);
+  await page.getByLabel('Confirm password', { exact: true }).fill('does-not-match');
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByText('Password confirmation does not match')).toBeVisible();
+
+  // The old password still works after the failures, the candidate does not.
+  await page.goto('/auth?mode=signin');
+  await page.getByLabel('Username or email').fill(account.email);
+  await page.getByLabel('Password', { exact: true }).fill(next);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText('Invalid credentials')).toBeVisible();
+  await page.getByLabel('Password', { exact: true }).fill(account.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
+
+  // A compliant change is applied.
+  await page.goto('/settings');
+  await page.getByLabel('Current password', { exact: true }).fill(account.password);
+  await page.getByLabel('New password', { exact: true }).fill(next);
+  await page.getByLabel('Confirm password', { exact: true }).fill(next);
+  await page.getByRole('button', { name: 'Update password' }).click();
+  await expect(page.getByText('Password updated')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('link', { name: 'Sign out' }).click();
+  await page.getByRole('dialog', { name: 'Sign out' }).getByRole('button', { name: 'Confirm sign out' }).click();
+
+  await page.goto('/auth?mode=signin');
+  await page.getByLabel('Username or email').fill(account.email);
+  await page.getByLabel('Password', { exact: true }).fill(account.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByText('Invalid credentials')).toBeVisible();
+  await page.getByLabel('Password', { exact: true }).fill(next);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeVisible();
+});
+
+test('REQ-2-1-2 create organization validates duplicates and formats', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/orgs');
+  await page.getByRole('link', { name: 'New organization' }).click();
+
+  await expect(page.getByLabel('Organization name', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Display name', { exact: true })).toBeVisible();
+
+  // A taken identifier wins even when the display name is also missing.
+  await page.getByLabel('Organization name', { exact: true }).fill('acme-demo');
+  await page.getByRole('button', { name: 'Create organization' }).click();
+  await expect(page.getByText('Organization name already exists')).toBeVisible();
+
+  // A malformed identifier keeps its own message.
+  await page.getByLabel('Organization name', { exact: true }).fill('-invalid-organization');
+  await page.getByLabel('Display name', { exact: true }).fill('Mobile Guild');
+  await page.getByRole('button', { name: 'Create organization' }).click();
+  await expect(page.getByText('Organization name format is invalid')).toBeVisible();
+
+  // A unique pair creates the organization.
+  const unique = `mobile-guild-${Date.now().toString(36)}`;
+  await page.getByLabel('Organization name', { exact: true }).fill(unique);
+  await page.getByLabel('Display name', { exact: true }).fill('Mobile Guild');
+  await page.getByRole('button', { name: 'Create organization' }).click();
+  await expect(page.getByRole('heading', { name: new RegExp(unique) })).toBeVisible();
+});
+
+test('REQ-2-2-2 team members and hierarchy controls', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/orgs/acme-demo/teams/frontend-team');
+
+  await expect(page.getByRole('link', { name: 'Members' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Settings' }).first()).toBeVisible();
+
+  // Add a current organization member, then remove them again.
+  await page.getByRole('link', { name: 'Members' }).first().click();
+  await page.getByRole('button', { name: 'Add member' }).click();
+  await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
+  await page.getByLabel('Username', { exact: true }).fill('carol-reader');
+  await page.getByRole('button', { name: 'Add member' }).click();
+  await expect(page.getByRole('button', { name: 'Remove carol-reader' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Remove carol-reader' }).click();
+  await expect(page.getByRole('button', { name: 'Remove carol-reader' })).toHaveCount(0);
+
+  // Settings exposes the parent-team combobox and Save.
+  await page.getByRole('link', { name: 'Settings' }).first().click();
+  await expect(page.getByRole('combobox', { name: 'Parent team' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save' }).first()).toBeVisible();
+});
+
+test('REQ-3-2-1 create a repository with owner, visibility and README', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/');
+  await page.getByRole('link', { name: 'New repository' }).click();
+
+  await expect(page.getByLabel('Owner', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Repository name', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Description', { exact: true })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Public' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Private' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Add a README file' })).toBeVisible();
+
+  const unique = `ui-demo-${Date.now().toString(36)}`;
+  await page.getByLabel('Repository name', { exact: true }).fill(unique);
+  await page.getByLabel('Description', { exact: true }).fill('Repository created by Playwright');
+  await page.getByRole('radio', { name: 'Private' }).check();
+  await page.getByRole('checkbox', { name: 'Add a README file' }).check();
+  await page.getByRole('button', { name: 'Create repository' }).click();
+
+  await expect(page.getByRole('heading', { name: new RegExp(unique) })).toBeVisible();
+  await expect(page.getByText('Private').first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'README.md' })).toBeVisible();
+});

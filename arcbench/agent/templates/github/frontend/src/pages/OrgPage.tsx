@@ -81,7 +81,9 @@ export default function OrgPage() {
 
   return (
     <section className="panel">
-      <h1>{org.displayName || org.name}</h1>
+      {/* REQ-2-1 / REQ-2-1-2: the overview heading is the organization name. */}
+      <h1>{org.name}</h1>
+      {org.displayName && <p className="muted">{org.displayName}</p>}
       {role && <p className="muted">Your role: {role}</p>}
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import type { Org } from '../api';
 import * as api from '../api';
 
 export default function OrgsPage() {
+  const navigate = useNavigate();
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -28,12 +29,14 @@ export default function OrgsPage() {
     setError('');
     setInfo('');
     try {
-      await api.createOrg({ name, displayName });
+      const created = await api.createOrg({ name, displayName });
       setName('');
       setDisplayName('');
       setShowForm(false);
       setInfo('Organization created.');
       await refresh();
+      // REQ-2-1-2: success redirects to the new organization overview page.
+      navigate(`/orgs/${created.name}`);
     } catch (caught) {
       setError(api.errorMessage(caught));
     }

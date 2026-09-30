@@ -54,7 +54,9 @@ describe('organization people list', () => {
     mockOrg('Member');
     renderOrg();
 
-    await screen.findByRole('heading', { name: 'Acme Demo' });
+    // REQ-2-1: the overview heading is the organization name (the identifier);
+    // the display name is shown separately.
+    await screen.findByRole('heading', { name: 'acme-demo' });
     expect(screen.queryByRole('button', { name: 'Member menu bob-reviewer' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Remove from organization' })).not.toBeInTheDocument();
   });
