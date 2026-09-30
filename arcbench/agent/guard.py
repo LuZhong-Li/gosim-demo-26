@@ -20,6 +20,7 @@ PROTECTED = (
     "frontend/package.json",
     "frontend/vite.config.js",
     "frontend/index.html",
+    "frontend/src/main.tsx",
     "backend/package.json",
     "backend/src/index.js",
     "backend/src/app.js",
