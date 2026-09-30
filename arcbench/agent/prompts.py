@@ -81,6 +81,77 @@ so provisioning the seed is as important as the UI itself.
 """.strip()
 
 
+WORKED_EXAMPLE = """
+WORKED EXAMPLE - the shape every page must take. Complete code, exact labels,
+ONE inline error element, a real route. Copy the PATTERN, not the text.
+
+frontend/src/pages/SignIn.tsx
+```tsx
+import { useState } from 'react';
+import { client, errorMessage } from '../api';
+
+export default function SignIn() {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!username.trim() || !password) {
+      setError('Username or email and password are required');
+      return;
+    }
+    try {
+      const { data } = await client.post('/auth/sign-in', { username, password });
+      localStorage.setItem('arc-token', data.token);
+      window.location.href = '/';
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  };
+  return (
+    <form onSubmit={submit}>
+      <label htmlFor="f-user">Username or email</label>
+      <input id="f-user" type="text" value={username} onChange={(e) => setUsername(e.target.value)} />
+      <label htmlFor="f-pass">Password</label>
+      <input id="f-pass" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      {error && <p role="alert">{error}</p>}
+      <button type="submit">Sign in</button>
+    </form>
+  );
+}
+```
+
+backend/src/auth.js
+```js
+const express = require('express');
+const store = require('./store');
+const router = express.Router();
+
+router.post('/auth/sign-in', (req, res) => {
+  const accounts = store.collection('accounts', { users: {} });
+  const user = Object.values(accounts.users).find(
+    (u) => u.username === req.body.username || u.email === req.body.username
+  );
+  if (!user) return res.status(401).json({ message: 'Username or password is incorrect' });
+  res.json({ token: user.id });
+});
+
+module.exports = router;
+```
+
+The pattern the example demonstrates:
+- ``type="text"`` for free-text fields, ``type="password"`` only for secrets.
+- A visible ``<label>`` with ``htmlFor`` for EVERY input, matched by ``id``.
+- EXACTLY ONE inline error element (``role="alert"``); never a per-field error
+  plus a form-level summary.
+- A real ``<button>`` whose visible text is the requirement's exact action name.
+- Collections come from ``store.collection('name', default)`` - never read
+  ``store.state.x.y`` directly.
+- The router is mounted in ``app.js`` and the page calls it through ``client``
+  (baseURL ``/api``).
+""".strip()
+
+
 PERFORMANCE_CONTRACT = """
 Performance contract — one test that exceeds its 10-second budget fails, and a
 test that waits on a hung resource fails with it:

@@ -49,6 +49,7 @@ from prompts import (
     STACK_RULES,
     UI_CONTRACT,
     UNUSABLE_REPLY_NUDGE,
+    WORKED_EXAMPLE,
 )
 from selfcheck import main as run_selfcheck
 from selfcheck import report as selfcheck_report
@@ -82,7 +83,13 @@ WEB_FALLBACK_TEMPLATE = "scaffold"
 # Wall-clock budget for the whole generation flow. Past it we stop starting new
 # model calls and go straight to the rehearsal and the closing checks: a partial
 # application that exits cleanly scores better than a SIGTERM mid-turn.
-DEFAULT_TIME_BUDGET = 3600
+# Wall-clock budget for the whole generation flow. Splitting a large folder into
+# several calls costs more round trips, so the default is wider than r39's.
+DEFAULT_TIME_BUDGET = 5400
+
+#: Atomic requirements per model call. A larger REQ-<n> folder is chunked into
+#: several calls so no single reply has to carry a whole large module.
+MAX_ATOMS_PER_CALL = int(os.environ.get("ARC_MAX_ATOMS_PER_CALL", "6"))
 
 
 # --------------------------------------------------------------- inputs
@@ -244,7 +251,13 @@ def write_manifest(project_dir: Path, slug: str, tree: dict, task_map: dict | No
 
 
 def build_module_plan(task_map, coverage):
-    """Derive a per-module plan from the requirement map (REQ-<n> folders)."""
+    """Derive a per-module plan from the requirement map (REQ-<n> folders).
+
+    A REQ-<n> folder with many atomic requirements is split into chunks so one
+    model call never has to emit the whole module at once: r39 came back with a
+    three-file "identity" module, i.e. the model simply stopped early. Smaller
+    calls cannot be truncated that way and each chunk is judged on its own.
+    """
     if not task_map:
         return []
     nodes = list(iter_nodes({"children": task_map.get("nodes", [])}))
@@ -258,13 +271,29 @@ def build_module_plan(task_map, coverage):
             if str(n.get("id", "")).startswith(prefix) and n.get("type") == "ATOMIC"
         ]
         req_ids = [a["id"] for a in atoms]
-        modules.append({
-            "id": node["id"],
-            "name": node.get("title", node["id"]),
-            "description": (node.get("description") or "")[:240],
-            "requirement_ids": req_ids,
-            "implemented": [rid for rid in req_ids if rid in coverage],
-        })
+        limit = max(1, MAX_ATOMS_PER_CALL)
+        if len(req_ids) <= limit:
+            chunks = [req_ids]
+        else:
+            # Balance the chunks instead of leaving a one-requirement tail.
+            count = (len(req_ids) + limit - 1) // limit
+            size = (len(req_ids) + count - 1) // count
+            chunks = [req_ids[i:i + size] for i in range(0, len(req_ids), size)]
+        if not chunks:
+            chunks = [[]]
+        for index, chunk in enumerate(chunks, 1):
+            suffix = "" if len(chunks) == 1 else f".{index}"
+            title = node.get("title", node["id"])
+            if len(chunks) > 1:
+                title = f"{title} (part {index}/{len(chunks)})"
+            modules.append({
+                "id": node["id"] + suffix,
+                "parent_id": node["id"],
+                "name": title,
+                "description": (node.get("description") or "")[:240],
+                "requirement_ids": chunk,
+                "implemented": [rid for rid in chunk if rid in coverage],
+            })
     return modules
 
 
@@ -405,6 +434,8 @@ def build_module_prompt(
         SEED_CONTRACT,
         "",
         PERFORMANCE_CONTRACT,
+        "",
+        WORKED_EXAMPLE,
     ]
     if ports:
         lines.extend(["", ports])
@@ -446,7 +477,8 @@ def build_module_prompt(
     # apply to the whole module, so inject them once instead of repeating them
     # under every atomic requirement - and never lose them just because they are
     # not ATOMIC nodes.
-    module_node = next((n for n in nodes if n.get("id") == module["id"]), None)
+    parent_id = module.get("parent_id") or module["id"]
+    module_node = next((n for n in nodes if n.get("id") == parent_id), None)
     if module_node:
         module_checklist = module_node.get("checklist")
         if isinstance(module_checklist, list) and module_checklist:
