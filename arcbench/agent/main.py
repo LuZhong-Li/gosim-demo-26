@@ -194,31 +194,85 @@ GENERATION_SYSTEM = (
     "You are a senior full-stack engineer inside a requirement-to-application "
     "factory. You receive a requirement document and must emit the application "
     "source that satisfies it. Reply with JSON only, shaped "
-    '{"files":[{"path":"relative/path","content":"file body"}]}. '
+    '{"files":[{"path":"relative/path","content":"file body"}],"covered":["REQ-..."]}. '
     "Paths are relative to the project root and must stay inside it."
 )
 
+STACK_RULES = """
+Stack contract (already present in the project; build on it, do not replace it):
+- frontend/ is Vite + React, built to frontend/dist and served by the backend.
+- backend/ is Express and MUST listen on process.env.PORT || 3000.
+- backend/src/app.js exports the Express app; mount your routes there.
+- frontend/src/api/index.ts already exports `client` (axios, baseURL /api),
+  `tokenStore` (localStorage) and `errorMessage(caught)`. Reuse them.
 
-def build_generation_prompt(tree: dict, modules: list[dict]) -> str:
-    """Requirements in, task-specific application source out."""
+Rules that decide the score:
+- Every quoted phrase in a requirement is the exact English accessible name of a
+  control. Use exactly that text as the label, aria-label or visible name.
+- The scenarios carry the seed data the tests expect. Provision that seed data in
+  the generated code at start-up, with exactly those names and relationships.
+- Every write must be persisted on the server, permission-checked against the
+  current session and the target object, and applied atomically.
+- Emit complete files, never fragments: the project must build and run as-is.
+""".strip()
+
+
+def load_live_delta(task: str) -> dict[str, list[str]]:
+    """Live-only normative sentences per requirement id (absent file -> empty)."""
+    path = ROOT.parent / "notes" / "requirements-live" / f"{task}-delta.md"
+    if not path.exists():
+        return {}
+    sections: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            parts = line[3:].split()
+            current = parts[0] if parts else None
+        elif line.startswith("- ") and current:
+            sections.setdefault(current, []).append(line[2:].strip())
+    return sections
+
+
+def build_module_prompt(
+    tree: dict, module: dict, nodes: list[dict], delta: dict[str, list[str]]
+) -> str:
+    """One module's requirement text, plus the clarifications the live page added."""
+    wanted = set(module["requirement_ids"])
     lines = [
         f"Product: {tree.get('name')}",
+        f"Module under construction: {module['id']} {module['name']}",
         "",
-        "Modules and their requirement ids:",
+        STACK_RULES,
+        "",
+        "Requirements to implement in this step:",
     ]
-    for module in modules:
-        lines.append(f"- {module['id']} {module['name']} ({len(module['requirement_ids'])} requirements)")
-        description = (module.get("description") or "").strip()
+    for node in nodes:
+        if node.get("id") not in wanted or node.get("type") != "ATOMIC":
+            continue
+        lines.append("")
+        lines.append(f"[{node['id']}] {node.get('title')}")
+        description = (node.get("description") or "").strip()
         if description:
-            lines.append(f"  {description}")
+            lines.append(description[:4000])
+        seed_hint = (node.get("seed_hint") or "").strip()
+        if seed_hint:
+            lines.append(f"Seed data: {seed_hint[:800]}")
+        for index, scenario in enumerate((node.get("scenarios") or [])[:3], 1):
+            text = (
+                scenario
+                if isinstance(scenario, str)
+                else json.dumps(scenario, ensure_ascii=False)
+            )
+            lines.append(f"Scenario {index}: {text[:1500]}")
+    additions = [sentence for rid in wanted for sentence in delta.get(rid, [])]
+    if additions:
+        lines.extend(["", "Late clarifications from the current task page (authoritative):"])
+        lines.extend(f"- {sentence[:400]}" for sentence in additions[:40])
     lines.extend(
         [
             "",
-            "The project already contains a generic React + Express scaffold "
-            "(frontend/ and backend/). Emit the task-specific route handlers, "
-            "React pages and state that the requirements above describe, "
-            "replacing the scaffold's placeholder modules where needed. "
-            "Keep every write server-persisted, permission-checked and atomic.",
+            f"Emit the files that implement module {module['id']} and list the",
+            "requirement ids you actually covered in `covered`.",
         ]
     )
     return "\n".join(lines)
@@ -265,29 +319,55 @@ def parse_generation(content: str) -> tuple[dict[str, str], list[str]]:
 
 
 def generate_task_modules(
-    project_dir: Path, tree: dict, modules: list[dict], llm: LlmClient
+    project_dir: Path,
+    tree: dict,
+    modules: list[dict],
+    nodes: list[dict],
+    task: str,
+    llm: LlmClient,
 ) -> tuple[dict[str, str], list[str]]:
-    """Ask the model for the task-specific source and write it into the project."""
+    """Generate one module per model call and write the result into the project.
+
+    One call per module keeps each response small enough to stay coherent, and
+    lets the prompt carry that module's full requirement text plus the
+    clarifications the live task page added on top of the local snapshot.
+    """
     if not llm.available:
         print("[arc-agent] no model configured; skipping model generation", flush=True)
         return {}, []
-    content = llm.chat(
-        [
-            {"role": "system", "content": GENERATION_SYSTEM},
-            {"role": "user", "content": build_generation_prompt(tree, modules)},
-        ]
-    )
-    files, covered = parse_generation(content or "")
-    for relative, body in files.items():
-        target = project_dir / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
+
+    delta = load_live_delta(task)
+    files: dict[str, str] = {}
+    covered: list[str] = []
+    for module in modules:
+        content = llm.chat(
+            [
+                {"role": "system", "content": GENERATION_SYSTEM},
+                {
+                    "role": "user",
+                    "content": build_module_prompt(tree, module, nodes, delta),
+                },
+            ]
+        )
+        module_files, module_covered = parse_generation(content or "")
+        for relative, body in module_files.items():
+            target = project_dir / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+        files.update(module_files)
+        covered.extend(module_covered)
+        print(
+            f"[arc-agent] {module['id']}: files={len(module_files)} "
+            f"covered={len(module_covered)} tokens={llm.usage.total_tokens}",
+            flush=True,
+        )
     print(
-        f"[arc-agent] model generation: files={len(files)} covered={len(covered)} "
+        f"[arc-agent] model generation done: files={len(files)} "
+        f"covered={len(set(covered))} calls={llm.usage.calls} "
         f"tokens={llm.usage.total_tokens}",
         flush=True,
     )
-    return files, covered
+    return files, sorted(set(covered))
 
 
 def write_generation_report(project_dir: Path, llm: LlmClient, files: dict[str, str]) -> None:
@@ -405,7 +485,14 @@ def main(argv: list[str] | None = None) -> int:
         # shipping task-specific implementations inside the template. The model
         # writes the task-specific source on top of the generic scaffold.
         llm = LlmClient()
-        generated, covered = generate_task_modules(project_dir, tree, modules, llm)
+        generated, covered = generate_task_modules(
+            project_dir,
+            tree,
+            modules,
+            list((task_map or {}).get("nodes") or []),
+            asset_slug,
+            llm,
+        )
         coverage = coverage | set(covered)
         write_generation_report(project_dir, llm, generated)
         # Module notes reflect what the model reported as implemented.
