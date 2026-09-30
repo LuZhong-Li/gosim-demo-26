@@ -75,6 +75,10 @@ export default function RepoPage() {
   const [assigneeQuery, setAssigneeQuery] = useState('');
   const [assigneeCandidates, setAssigneeCandidates] = useState<string[]>([]);
   const [labels, setLabels] = useState('');
+  const [labelCatalog, setLabelCatalog] = useState<string[]>([]);
+  const [detailAssigneePanel, setDetailAssigneePanel] = useState(false);
+  const [detailAssigneeQuery, setDetailAssigneeQuery] = useState('');
+  const [detailLabelPanel, setDetailLabelPanel] = useState(false);
   const [milestone, setMilestone] = useState('');
   const [issueTitleError, setIssueTitleError] = useState('');
   const [selected, setSelected] = useState<Issue | null>(null);
@@ -101,6 +105,16 @@ export default function RepoPage() {
         .listMilestones(owner, name)
         .then(setMilestones)
         .catch(() => setMilestones([]));
+      // REQ-5-3-2: the label selector offers only this repository's labels.
+      void api
+        .listLabels(owner, name)
+        .then(setLabelCatalog)
+        .catch(() => setLabelCatalog([]));
+      // REQ-5-3-1: assignable members are the accounts with triage-or-higher.
+      void api
+        .listRepoMembers(owner, name)
+        .then(setAssigneeCandidates)
+        .catch(() => setAssigneeCandidates([]));
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
@@ -143,15 +157,6 @@ export default function RepoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeView]);
 
-  // REQ-5-3-1: assignable members come from the owning organization.
-  useEffect(() => {
-    if (!repo || repo.ownerType !== 'organization') return;
-    api
-      .getOrg(repo.owner)
-      .then((detail) => setAssigneeCandidates(detail.members.map((member) => member.username)))
-      .catch(() => undefined);
-  }, [repo]);
-
   async function run(action: () => Promise<unknown>, successMessage: string) {
     setError('');
     setInfo('');
@@ -191,6 +196,33 @@ export default function RepoPage() {
     } catch (caught) {
       setError(api.errorMessage(caught));
     }
+  }
+
+  // REQ-5-3-1: the assignee area shows the saved set, falling back to the
+  // single-assignee field used by older records.
+  const currentAssignees: string[] = selected
+    ? selected.assignees?.length
+      ? selected.assignees
+      : selected.assignee
+        ? [selected.assignee]
+        : []
+    : [];
+  const currentLabels: string[] = selected?.labels || [];
+
+  async function saveAssignees(next: string[]) {
+    if (!selected) return;
+    await run(
+      () => api.updateIssue(owner, name, selected.number, { assignees: next }),
+      'Assignees updated.',
+    ).then(() => openIssue(selected.number));
+  }
+
+  async function saveLabels(next: string[]) {
+    if (!selected) return;
+    await run(
+      () => api.updateIssue(owner, name, selected.number, { labels: next }),
+      'Labels updated.',
+    ).then(() => openIssue(selected.number));
   }
 
   if (!repo) {
@@ -770,18 +802,96 @@ export default function RepoPage() {
               {/* REQ-5-2-1 / REQ-5-2-2: the heading carries the exact issue title. */}
               <h3>{selected.title}</h3>
               <p className="muted">
-                # {selected.number} · {stateLabel(selected.state)} · opened by {selected.author} ·
-                assignees:{' '}
-                {(selected.assignees && selected.assignees.length
-                  ? selected.assignees
-                  : selected.assignee
-                    ? [selected.assignee]
-                    : []
-                ).join(', ') || 'none'}{' '}
-                ·
-                milestone: {selected.milestone || 'none'} · labels:{' '}
-                {selected.labels && selected.labels.length ? selected.labels.join(', ') : 'none'}
+                # {selected.number} · {stateLabel(selected.state)} · opened by {selected.author}
               </p>
+              {/* REQ-5-1-2: the right side lists Assignees, Labels and Milestone. */}
+              <div className="issue-meta">
+                <section>
+                  <h4>Assignees</h4>
+                  <button
+                    type="button"
+                    aria-label="Assignees"
+                    aria-expanded={detailAssigneePanel}
+                    onClick={() => setDetailAssigneePanel((open) => !open)}
+                  >
+                    ⚙
+                  </button>
+                  <p>{currentAssignees.length ? currentAssignees.join(', ') : 'No one — assign yourself'}</p>
+                  {detailAssigneePanel && (
+                    <div className="assignee-panel">
+                      <input
+                        aria-label="Search assignees"
+                        type="search"
+                        placeholder="Search members"
+                        value={detailAssigneeQuery}
+                        onChange={(event) => setDetailAssigneeQuery(event.target.value)}
+                      />
+                      <ul className="repo-list">
+                        {assigneeCandidates
+                          .filter((candidate) =>
+                            candidate
+                              .toLowerCase()
+                              .includes(detailAssigneeQuery.trim().toLowerCase()),
+                          )
+                          .map((candidate) => (
+                            <li key={candidate}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  aria-label={candidate}
+                                  checked={currentAssignees.includes(candidate)}
+                                  onChange={(event) => {
+                                    void saveAssignees(
+                                      event.target.checked
+                                        ? [...currentAssignees, candidate]
+                                        : currentAssignees.filter((entry) => entry !== candidate),
+                                    );
+                                  }}
+                                />
+                                {candidate}
+                              </label>
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  )}
+                </section>
+                <section>
+                  <h4>Labels</h4>
+                  <button
+                    type="button"
+                    aria-label="Labels"
+                    aria-expanded={detailLabelPanel}
+                    onClick={() => setDetailLabelPanel((open) => !open)}
+                  >
+                    ⚙
+                  </button>
+                  <p>{currentLabels.length ? currentLabels.join(', ') : 'None yet'}</p>
+                  {detailLabelPanel && (
+                    <ul className="repo-list">
+                      {labelCatalog.map((labelName) => (
+                        <li key={labelName}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              aria-label={labelName}
+                              checked={currentLabels.includes(labelName)}
+                              onChange={(event) => {
+                                void saveLabels(
+                                  event.target.checked
+                                    ? [...currentLabels, labelName]
+                                    : currentLabels.filter((entry) => entry !== labelName),
+                                );
+                              }}
+                            />
+                            {labelName}
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </div>
               {/* REQ-5-3-3: milestone selection lives on the right of the detail view. */}
               <MilestonePicker
                 current={selected.milestone || null}
@@ -994,6 +1104,8 @@ export default function RepoPage() {
                         <span className="muted">
                           {` · ${activity.actor} · ${new Date(activity.at).toLocaleString()}`}
                         </span>
+                        {/* REQ-5-2-3: a comment activity carries its body. */}
+                        {activity.body && <p>{activity.body}</p>}
                       </li>
                     ))}
                   </ul>
@@ -1124,13 +1236,34 @@ export default function RepoPage() {
               </div>
             )}
             <div className="field">
-              <label htmlFor="issue-labels">Labels (comma separated)</label>
-              <input
-                id="issue-labels"
-                type="text"
-                value={labels}
-                onChange={(event) => setLabels(event.target.value)}
-              />
+              <span>Labels</span>
+              {/* REQ-5-3-2: only labels that already exist in this repository. */}
+              <ul className="repo-list">
+                {labelCatalog.map((labelName) => {
+                  const chosen = labels
+                    .split(',')
+                    .map((entry) => entry.trim())
+                    .filter(Boolean);
+                  return (
+                    <li key={labelName}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={labelName}
+                          checked={chosen.includes(labelName)}
+                          onChange={(event) => {
+                            const next = event.target.checked
+                              ? [...chosen, labelName]
+                              : chosen.filter((entry) => entry !== labelName);
+                            setLabels(next.join(', '));
+                          }}
+                        />
+                        {labelName}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
             <div className="field">
               <label htmlFor="issue-milestone">Milestone</label>

@@ -893,6 +893,26 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
   if (!store.canWrite(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have write permission to create issues.' });
   }
+  // REQ-5-3-1 / 5-3-2 / 5-3-3: metadata must already exist on this repository,
+  // and validation runs before a number is allocated so failures leave no trace.
+  const labelNames = Array.isArray((req.body || {}).labels)
+    ? (req.body.labels || []).map((label) => String(label).trim()).filter(Boolean)
+    : [];
+  const missingLabels = unknownLabels(repo, labelNames);
+  if (missingLabels.length) {
+    return res.status(422).json({ error: `Label not found: ${missingLabels.join(', ')}` });
+  }
+  const assigneeNames = Array.isArray((req.body || {}).assignees)
+    ? (req.body.assignees || []).map((entry) => String(entry).trim()).filter(Boolean)
+    : [];
+  const notAssignable = nonAssignableUsers(repo, assigneeNames);
+  if (notAssignable.length) {
+    return res.status(422).json({ error: `Users not in organization: ${notAssignable.join(', ')}` });
+  }
+  const milestoneName = String((req.body || {}).milestone || '').trim() || null;
+  if (milestoneName && !(repo.milestones || []).includes(milestoneName)) {
+    return res.status(422).json({ error: 'Milestone not found' });
+  }
   const number = store.nextIssueNumber(repo.owner, repo.name);
   const issue = {
     key: `${repo.owner}/${repo.name}`.toLowerCase(),
@@ -904,15 +924,11 @@ app.post('/api/repos/:owner/:name/issues', requireUser, (req, res) => {
     author: req.user.username,
     state: 'open',
     // REQ-5-3-1: issues may be assigned to several participants.
-    assignees: Array.isArray((req.body || {}).assignees)
-      ? (req.body.assignees || []).map((entry) => String(entry).trim()).filter(Boolean)
-      : [],
+    assignees: assigneeNames,
     createdAt: new Date().toISOString(),
-    assignee: String((req.body || {}).assignee || '').trim() || null,
-    labels: Array.isArray((req.body || {}).labels)
-      ? (req.body || {}).labels.map((label) => String(label).trim()).filter(Boolean)
-      : [],
-    milestone: String((req.body || {}).milestone || '').trim() || null,
+    assignee: assigneeNames[0] || String((req.body || {}).assignee || '').trim() || null,
+    labels: labelNames,
+    milestone: milestoneName,
     // REQ-5-2-1: creation is recorded in the activity timeline.
     activities: [
       { type: 'Created issue', actor: req.user.username, at: new Date().toISOString() },
@@ -944,6 +960,39 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   if (Object.prototype.hasOwnProperty.call(body, 'milestone') && !canTriage(repo, req.user.username)) {
     return res.status(403).json({ error: 'You do not have permission to change the milestone.' });
   }
+  // REQ-5-3-1: assignee changes need Triage, Maintain or Admin.
+  if (Array.isArray(body.assignees) && !canTriage(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to change assignees.' });
+  }
+  // REQ-5-3-2: label changes need Triage, Maintain or Admin.
+  if (Array.isArray(body.labels) && !canTriage(repo, req.user.username)) {
+    return res.status(403).json({ error: 'You do not have permission to change labels.' });
+  }
+  // REQ-5-3-1: only accounts with triage-or-higher are assignable.
+  if (Array.isArray(body.assignees)) {
+    const names = body.assignees.map((name) => String(name).trim()).filter(Boolean);
+    const notAssignable = nonAssignableUsers(repo, names);
+    if (notAssignable.length) {
+      return res
+        .status(422)
+        .json({ error: `Users not in organization: ${notAssignable.join(', ')}` });
+    }
+  }
+  // REQ-5-3-2: labels come from the repository catalog only.
+  if (Array.isArray(body.labels)) {
+    const names = body.labels.map((label) => String(label).trim()).filter(Boolean);
+    const missing = unknownLabels(repo, names);
+    if (missing.length) {
+      return res.status(422).json({ error: `Label not found: ${missing.join(', ')}` });
+    }
+  }
+  // REQ-5-3-3: a milestone must exist in the same repository.
+  if (body.milestone !== undefined) {
+    const name = String(body.milestone || '').trim();
+    if (name && !(repo.milestones || []).includes(name)) {
+      return res.status(422).json({ error: 'Milestone not found' });
+    }
+  }
   // REQ-5-2-2: editing an issue title rejects a whitespace-only value.
   if (Object.prototype.hasOwnProperty.call(body, 'title')) {
     const title = String(body.title || '').trim();
@@ -951,9 +1000,18 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
     if (title.length > 256) {
       return res.status(400).json({ error: 'Issue title must be 256 characters or fewer.' });
     }
+    if (title !== issue.title) {
+      pushActivity(issue, 'Edited the issue title', req.user.username, {
+        from: issue.title,
+        to: title,
+      });
+    }
     issue.title = title;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'body')) {
+    if (String(body.body || '') !== String(issue.body || '')) {
+      pushActivity(issue, 'Edited the issue description', req.user.username);
+    }
     issue.body = String(body.body || '');
   }
   if (body.state) {
@@ -966,12 +1024,7 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
       issue.stateChangedBy = req.user.username;
       issue.stateChangedAt = new Date().toISOString();
       // REQ-5-4: the transition is recorded in the activity timeline.
-      issue.activities = issue.activities || [];
-      issue.activities.push({
-        type: state === 'closed' ? 'Closed issue' : 'Reopened issue',
-        actor: req.user.username,
-        at: issue.stateChangedAt,
-      });
+      pushActivity(issue, state === 'closed' ? 'Closed issue' : 'Reopened issue', req.user.username);
     }
   }
   if (Object.prototype.hasOwnProperty.call(body, 'assignee')) {
@@ -979,14 +1032,32 @@ app.patch('/api/repos/:owner/:name/issues/:number', requireUser, (req, res) => {
   }
   // REQ-5-3-1: an issue may carry several assignees.
   if (Array.isArray(body.assignees)) {
-    issue.assignees = body.assignees.map((name) => String(name).trim()).filter(Boolean);
+    const next = body.assignees.map((name) => String(name).trim()).filter(Boolean);
+    const { added, removed } = addedAndRemoved(issue.assignees, next);
+    issue.assignees = next;
     issue.assignee = issue.assignees[0] || null;
+    if (added.length) pushActivity(issue, `Assigned ${added.join(', ')}`, req.user.username);
+    if (removed.length) pushActivity(issue, `Unassigned ${removed.join(', ')}`, req.user.username);
   }
   if (body.milestone !== undefined) {
-    issue.milestone = String(body.milestone || '').trim() || null;
+    const next = String(body.milestone || '').trim() || null;
+    if (next !== (issue.milestone || null)) {
+      pushActivity(
+        issue,
+        next ? `Set milestone to ${next}` : 'Removed the milestone',
+        req.user.username,
+      );
+    }
+    issue.milestone = next;
   }
   if (Array.isArray(body.labels)) {
-    issue.labels = body.labels.map((label) => String(label).trim()).filter(Boolean);
+    const next = body.labels.map((label) => String(label).trim()).filter(Boolean);
+    const { added, removed } = addedAndRemoved(issue.labels, next);
+    issue.labels = next;
+    if (added.length) pushActivity(issue, `Added the ${added.join(', ')} label`, req.user.username);
+    if (removed.length) {
+      pushActivity(issue, `Removed the ${removed.join(', ')} label`, req.user.username);
+    }
   }
   return res.json({ issue });
 });
@@ -1035,6 +1106,20 @@ app.get('/api/repos/:owner/:name/milestones', (req, res) => {
   const repo = store.findRepo(req.params.owner, req.params.name);
   if (!repo) return res.status(404).json({ error: 'Repository not found.' });
   res.json({ milestones: repo.milestones || [] });
+});
+
+// REQ-5-3-2: the issue label selector only offers labels defined in this repository.
+app.get('/api/repos/:owner/:name/labels', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({ labels: labelCatalog(repo) });
+});
+
+// REQ-5-3-1: assignable participants are the accounts with triage-or-higher.
+app.get('/api/repos/:owner/:name/members', (req, res) => {
+  const repo = store.findRepo(req.params.owner, req.params.name);
+  if (!repo) return res.status(404).json({ error: 'Repository not found.' });
+  res.json({ members: assignableMembers(repo) });
 });
 
 // REQ-2-3: Manage access lives under repository Settings.
@@ -1119,6 +1204,8 @@ app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, r
     createdAt: new Date().toISOString(),
   };
   issue.comments.push(comment);
+  // REQ-5-2-3: the comment is appended to the activity timeline as its own record.
+  pushActivity(issue, 'Commented', req.user.username, { body, commentId: comment.id });
   return res.status(201).json({ comment });
 });
 
@@ -1246,6 +1333,50 @@ function canTriage(repo, username) {
   if (grant === 'Triage') return true;
   const member = store.membership(repo.owner, username);
   return (member && member.role) === 'Triage';
+}
+
+// REQ-5-1-2 / REQ-5-2 / REQ-5-3 / REQ-5-4: every issue/PR mutation appends an
+// activity record so the timeline shows creation, edits, comments, assignment,
+// labels, milestones and status changes.
+function pushActivity(subject, type, actor, extra = {}) {
+  subject.activities = subject.activities || [];
+  subject.activities.push({ type, actor, at: new Date().toISOString(), ...extra });
+  subject.updatedAt = new Date().toISOString();
+}
+
+function addedAndRemoved(before, after) {
+  const previous = new Set(before || []);
+  const next = new Set(after || []);
+  return {
+    added: [...next].filter((value) => !previous.has(value)),
+    removed: [...previous].filter((value) => !next.has(value)),
+  };
+}
+
+// REQ-5-3-2: a label must already exist in this repository; the selector never
+// creates labels and never reaches across repositories.
+function labelCatalog(repo) {
+  return (repo.labels || []).map((label) => (typeof label === 'string' ? label : label.name));
+}
+
+function unknownLabels(repo, names) {
+  const catalog = new Set(labelCatalog(repo));
+  return names.filter((name) => !catalog.has(name));
+}
+
+// REQ-5-3-1: assignable members are accounts with at least Triage on the repo.
+function assignableMembers(repo) {
+  if (repo.ownerType === 'user') return [repo.owner];
+  return store
+    .orgMembers(repo.owner)
+    .map((member) => member.username)
+    .filter((username) => canTriage(repo, username));
+}
+
+function nonAssignableUsers(repo, names) {
+  const allowed = new Set(assignableMembers(repo).map((name) => String(name).toLowerCase()));
+  if (store.findUserByUsername(repo.owner)) allowed.add(String(repo.owner).toLowerCase());
+  return names.filter((name) => !allowed.has(String(name).toLowerCase()));
 }
 
 app.get('/api/repos/:owner/:name/pulls', (req, res) => {

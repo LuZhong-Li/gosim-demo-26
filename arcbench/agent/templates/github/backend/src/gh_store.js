@@ -217,6 +217,15 @@ function nextPullNumber(repo) {
 function initializeRepoContent(repo, author, options = {}) {
   // REQ-3-2-1: "Add a README file" is optional; the default keeps the seeded shape.
   const withReadme = options.readme === undefined ? true : Boolean(options.readme);
+  // REQ-5-3-2: label creation is out of scope, so every initial repository ships
+  // with a selectable label catalog.
+  if (!repo.labels || repo.labels.length === 0) {
+    repo.labels = [
+      { name: 'bug', color: 'd73a4a' },
+      { name: 'documentation', color: '0075ca' },
+      { name: 'enhancement', color: 'a2eeef' },
+    ];
+  }
   const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   repo.files = withReadme ? [{ path: 'README.md', content: `# ${repo.name}\n` }] : [];
   repo.branches = [{ name: 'main', head: sha }];

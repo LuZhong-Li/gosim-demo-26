@@ -341,6 +341,14 @@ function seed(store) {
   if (docs && (!docs.milestones || docs.milestones.length === 0)) {
     docs.milestones = ['Q3 launch', 'v1.0'];
   }
+  // ----- repository label catalog (REQ-5-3-2 seed) -----
+  if (docs && (!docs.labels || docs.labels.length === 0)) {
+    docs.labels = [
+      { name: 'bug', color: 'd73a4a' },
+      { name: 'documentation', color: '0075ca' },
+      { name: 'enhancement', color: 'a2eeef' },
+    ];
+  }
 
   // ----- seed issues (REQ-5-1-1 / REQ-5-2-2 / REQ-5-4 seeds) -----
   if (docs && store.listIssues(orgName, 'acme-docs').length === 0) {

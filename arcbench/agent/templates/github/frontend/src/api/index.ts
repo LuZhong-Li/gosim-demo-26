@@ -37,7 +37,7 @@ export type Issue = {
   milestone?: string | null;
   reactions?: Reaction[];
   updatedAt?: string;
-  activities?: { type: string; actor: string; at: string }[];
+  activities?: { type: string; actor: string; at: string; body?: string }[];
   /** REQ-5-2-2 / REQ-5-4: permission flags for the issue detail view. */
   canEdit?: boolean;
   canClose?: boolean;
@@ -708,6 +708,22 @@ export async function listMilestones(owner: string, name: string): Promise<strin
     `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/milestones`,
   );
   return response.data.milestones as string[];
+}
+
+// REQ-5-3-2: the label catalog of the current repository only.
+export async function listLabels(owner: string, name: string): Promise<string[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/labels`,
+  );
+  return response.data.labels as string[];
+}
+
+// REQ-5-3-1: accounts that may be assigned to an issue (triage or higher).
+export async function listRepoMembers(owner: string, name: string): Promise<string[]> {
+  const response = await client.get(
+    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/members`,
+  );
+  return response.data.members as string[];
 }
 
 // REQ-2-3: repository Manage access.
