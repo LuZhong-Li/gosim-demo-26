@@ -95,19 +95,46 @@ function refsBetween(startRef: string, endRef: string): string[] {
   return refs;
 }
 
+// REQ-4-1-2: relative references move with the target offset, absolute
+// references ($A$1) stay put, and an offset that leaves the sheet becomes #REF!.
 function shiftFormula(formula: string, rowDelta: number, colDelta: number): string {
-  return formula.replace(/([A-Z]+)(\d+)/g, (match, letters: string, digits: string) => {
-    const col = colIndex(letters) + colDelta;
-    const row = Number(digits) + rowDelta;
-    if (col < 1 || row < 1) return '#REF!';
-    return refOf(col, row);
-  });
+  return formula.replace(
+    /(\$?)([A-Za-z]+)(\$?)(\d+)/g,
+    (match, colAnchor: string, letters: string, rowAnchor: string, digits: string) => {
+      const col = colAnchor ? colIndex(letters) : colIndex(letters) + colDelta;
+      const row = rowAnchor ? Number(digits) : Number(digits) + rowDelta;
+      if (col < 1 || row < 1) return '#REF!';
+      return `${colAnchor}${colLetter(col)}${rowAnchor}${row}`;
+    },
+  );
+}
+
+// REQ-3-1-2 / REQ-3-2-1: clipboard payloads are tab/newline separated text.
+function parseTsv(text: string): string[][] {
+  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = normalized.split('\n');
+  if (rows.length && rows[rows.length - 1] === '') rows.pop();
+  return rows.map((row) => row.split('\t'));
+}
+
+function toTsv(rows: string[][]): string {
+  return rows.map((row) => row.join('\t')).join('\n');
 }
 
 type Clipboard = {
   mode: 'copy' | 'cut';
   start: { col: number; row: number };
   cells: Record<string, Cell>;
+} | null;
+
+// REQ-2-2-1 / REQ-2-2-2 / REQ-3-1-2: the grid and the row/column headers each
+// open a context menu whose commands use the ARIA menuitem role.
+type ContextMenu = {
+  kind: 'cell' | 'row' | 'col';
+  row: number;
+  col: number;
+  x: number;
+  y: number;
 } | null;
 
 export default function SheetPage() {
@@ -122,6 +149,8 @@ export default function SheetPage() {
   const [formulaValue, setFormulaValue] = useState('');
   const [editingRef, setEditingRef] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<Clipboard>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const [filterColumn, setFilterColumn] = useState('');
   const [filterOp, setFilterOp] = useState<FilterConfig['op']>('contains');
   const [filterValue, setFilterValue] = useState('');
@@ -172,6 +201,13 @@ export default function SheetPage() {
   const dragFocusRef = useRef('A1');
   const inlineCancelledRef = useRef(false);
   const undoRedoRef = useRef({ undo: () => undefined, redo: () => undefined });
+  const clipboardActionsRef = useRef({
+    copy: () => undefined as void,
+    cut: () => undefined as void,
+    paste: () => undefined as void,
+    hasInternal: () => false,
+  });
+  const pasteTextRef = useRef<(text: string) => void>(() => undefined);
   const undoRedoQueueRef = useRef(Promise.resolve());
   const pendingWritesRef = useRef(Promise.resolve());
   const latestCellsRef = useRef<Record<string, Cell>>({});
@@ -307,6 +343,8 @@ export default function SheetPage() {
     if (!snapshot) return;
     undoStack.current.push({ sheet: snapshot.name, worksheet: cloneWorksheet(snapshot) });
     redoStack.current = [];
+    // REQ-3-2-2: the toolbar buttons reflect whether an undo/redo is available.
+    setHistoryVersion((version) => version + 1);
   }
 
   async function run(action: () => Promise<Worksheet | void>, successMessage?: string) {
@@ -368,6 +406,45 @@ export default function SheetPage() {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     persistSelection(dragAnchorRef.current, dragFocusRef.current);
+  }
+
+  // REQ-2-2-1 / REQ-2-2-2 / REQ-3-1-2: right clicking a cell, a row number or
+  // a column header opens the matching menu of ARIA menuitems.
+  function openContextMenu(
+    event: React.MouseEvent,
+    kind: 'cell' | 'row' | 'col',
+    row: number,
+    col: number,
+  ) {
+    event.preventDefault();
+    setContextMenu({ kind, row, col, x: event.clientX, y: event.clientY });
+  }
+
+  function rowMenuAction(action: 'insert-above' | 'insert-below' | 'delete', row: number) {
+    if (!sheet) return;
+    setContextMenu(null);
+    pushHistory();
+    if (action === 'delete') {
+      void run(() => api.insertRows(id, sheet.name, row, 1, 'delete'), 'Row deleted.');
+      return;
+    }
+    const target = action === 'insert-above' ? row : row + 1;
+    void run(() => api.insertRows(id, sheet.name, target, 1, 'insert'), 'Row inserted.');
+  }
+
+  function columnMenuAction(
+    action: 'insert-left' | 'insert-right' | 'delete',
+    col: number,
+  ) {
+    if (!sheet) return;
+    setContextMenu(null);
+    pushHistory();
+    if (action === 'delete') {
+      void run(() => api.insertColumns(id, sheet.name, col, 1, 'delete'), 'Column deleted.');
+      return;
+    }
+    const target = action === 'insert-left' ? col : col + 1;
+    void run(() => api.insertColumns(id, sheet.name, target, 1, 'insert'), 'Column inserted.');
   }
 
   function openInlineEdit(ref: string) {
@@ -432,46 +509,172 @@ export default function SheetPage() {
 
   function copySelection(mode: 'copy' | 'cut') {
     if (!sheet) return;
+    const bounds = selectionBounds();
+    const start = parseRef(bounds.start) || { col: 1, row: 1 };
     const cells: Record<string, Cell> = {};
     for (const ref of selection) {
       const cell = sheet.cells[ref];
       if (cell) cells[ref] = JSON.parse(JSON.stringify(cell));
     }
-    const start = parseRef(selection[0] || selected) || { col: 1, row: 1 };
     setClipboard({ mode, start, cells });
+    setContextMenu(null);
+    // REQ-3-2-1: also publish the rectangle as TSV so it can round-trip
+    // through the system clipboard. jsdom and insecure origins reject this.
+    publishToSystemClipboard(toTsv(selectionMatrixText()));
     setInfo(mode === 'copy' ? 'Copied selection.' : 'Cut selection.');
+  }
+
+  function publishToSystemClipboard(text: string) {
+    try {
+      const write = navigator.clipboard?.writeText;
+      if (typeof write === 'function') {
+        void Promise.resolve(navigator.clipboard.writeText(text)).catch(() => undefined);
+      }
+    } catch {
+      // Clipboard access is optional; the internal clipboard still works.
+    }
+  }
+
+  // The currently selected rectangle rendered as the text a user would copy.
+  function selectionMatrixText(): string[][] {
+    const bounds = selectionBounds();
+    const start = parseRef(bounds.start);
+    const end = parseRef(bounds.end);
+    if (!start || !end) return [[]];
+    const rows: string[][] = [];
+    for (let row = start.row; row <= end.row; row += 1) {
+      const rowValues: string[] = [];
+      for (let col = start.col; col <= end.col; col += 1) {
+        const cell = sheet?.cells[refOf(col, row)];
+        rowValues.push(cell?.formula || displayValue(cell));
+      }
+      rows.push(rowValues);
+    }
+    return rows;
+  }
+
+  // The last copied/cut rectangle, rebuilt from the internal clipboard when the
+  // system clipboard is unavailable (jsdom, denied permission, http origin).
+  function internalClipboardRows(): string[][] {
+    if (!clipboard) return [];
+    const parsed = Object.keys(clipboard.cells)
+      .map((ref) => parseRef(ref))
+      .filter((item): item is { col: number; row: number } => Boolean(item));
+    if (!parsed.length) return [];
+    const lastRow = Math.max(...parsed.map((item) => item.row));
+    const lastCol = Math.max(...parsed.map((item) => item.col));
+    const rows: string[][] = [];
+    for (let row = clipboard.start.row; row <= lastRow; row += 1) {
+      const rowValues: string[] = [];
+      for (let col = clipboard.start.col; col <= lastCol; col += 1) {
+        const cell = clipboard.cells[refOf(col, row)];
+        rowValues.push(cell?.formula || displayValue(cell));
+      }
+      rows.push(rowValues);
+    }
+    return rows;
+  }
+
+  // REQ-3-1-2 / REQ-3-2-1: plan one rectangle write. Every target is validated
+  // up front so a single invalid cell rejects the whole operation.
+  function planRectangle(
+    targetRef: string,
+    rows: string[][],
+    formulaDelta: { row: number; col: number } = { row: 0, col: 0 },
+  ): { updates: Record<string, Cell | null>; error: string | null } {
+    const updates: Record<string, Cell | null> = {};
+    const target = parseRef(targetRef);
+    if (!target) return { updates, error: null };
+    for (let rowOffset = 0; rowOffset < rows.length; rowOffset += 1) {
+      const rowValues = rows[rowOffset];
+      for (let colOffset = 0; colOffset < rowValues.length; colOffset += 1) {
+        const value = rowValues[colOffset];
+        const ref = refOf(target.col + colOffset, target.row + rowOffset);
+        const invalid = validationError(validationFor(ref), value);
+        if (invalid) return { updates, error: invalid };
+        if (value === '') {
+          updates[ref] = null;
+        } else if (value.startsWith('=')) {
+          updates[ref] = {
+            value: 0,
+            formula: shiftFormula(value, formulaDelta.row, formulaDelta.col),
+          };
+        } else {
+          const numeric = Number(value);
+          updates[ref] = { value: Number.isNaN(numeric) ? value : numeric };
+        }
+      }
+    }
+    return { updates, error: null };
+  }
+
+  async function commitUpdates(updates: Record<string, Cell | null>, message: string) {
+    if (!sheet || !Object.keys(updates).length) return;
+    pushHistory();
+    setContextMenu(null);
+    setError('');
+    await run(() => api.updateCells(id, sheet.name, updates), message);
+  }
+
+  // REQ-3-1-2: paste external tab/newline separated text from the active cell.
+  async function pasteText(text: string) {
+    if (!sheet || !text) return;
+    const rows = parseTsv(text);
+    if (!rows.length) return;
+    const { updates, error: validationFailure } = planRectangle(selected, rows);
+    if (validationFailure) {
+      setError(validationFailure);
+      return;
+    }
+    await commitUpdates(updates, 'Pasted.');
   }
 
   async function pasteSelection() {
     if (!sheet || !clipboard) return;
     const target = parseRef(selected);
     if (!target) return;
-    const updates: Record<string, Cell | null> = {};
-    for (const [ref, cell] of Object.entries(clipboard.cells)) {
-      const source = parseRef(ref);
-      if (!source) continue;
-      const rowDelta = target.row - clipboard.start.row;
-      const colDelta = target.col - clipboard.start.col;
-      const dest = refOf(source.col + colDelta, source.row + rowDelta);
-      const next: Cell = { ...cell };
-      if (cell.formula) next.formula = shiftFormula(cell.formula, rowDelta, colDelta);
-      updates[dest] = next;
+    const rows = internalClipboardRows();
+    if (!rows.length) return;
+    const delta = { row: target.row - clipboard.start.row, col: target.col - clipboard.start.col };
+    const { updates: writes, error: validationFailure } = planRectangle(selected, rows, delta);
+    if (validationFailure) {
+      setError(validationFailure);
+      return;
     }
-    for (const [ref, cell] of Object.entries(updates)) {
-      if (!cell) continue;
-      const invalid = validationError(validationFor(ref), displayValue(cell));
-      if (invalid) {
-        setError(invalid);
-        return;
+    const mode = clipboard.mode;
+    const sourceRefs = Object.keys(clipboard.cells);
+    const updates: Record<string, Cell | null> = { ...writes };
+    if (mode === 'cut') {
+      // REQ-3-2-1: the source is cleared in the same atomic write as the target.
+      for (const ref of sourceRefs) {
+        if (!Object.prototype.hasOwnProperty.call(writes, ref)) updates[ref] = null;
       }
-    }
-    if (clipboard.mode === 'cut') {
-      for (const ref of Object.keys(clipboard.cells)) updates[ref] = null;
       setClipboard(null);
     }
-    pushHistory();
-    await run(() => api.updateCells(id, sheet.name, updates), 'Pasted.');
+    await commitUpdates(updates, 'Pasted.');
   }
+
+  // Ctrl+V first tries the system clipboard; the browser paste event is the
+  // fallback for environments that block programmatic reads.
+  async function pasteFromSystemClipboard() {
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      if (text) await pasteText(text);
+    } catch {
+      // Ignore: the paste event handler still receives the payload.
+    }
+  }
+
+  clipboardActionsRef.current = {
+    copy: () => copySelection('copy'),
+    cut: () => copySelection('cut'),
+    paste: () => {
+      if (clipboard) void pasteSelection();
+      else void pasteFromSystemClipboard();
+    },
+    hasInternal: () => Boolean(clipboard),
+  };
+  pasteTextRef.current = (text: string) => void pasteText(text);
 
   function validationRange() {
     return selection.length > 1
@@ -715,6 +918,7 @@ export default function SheetPage() {
       }
       await run(() => api.replaceWorksheet(id, snapshot.sheet, snapshot.worksheet), 'Undo.');
       setActive(snapshot.sheet);
+      setHistoryVersion((version) => version + 1);
     });
   }
 
@@ -733,15 +937,23 @@ export default function SheetPage() {
       }
       await run(() => api.replaceWorksheet(id, snapshot.sheet, snapshot.worksheet), 'Redo.');
       setActive(snapshot.sheet);
+      setHistoryVersion((version) => version + 1);
     });
   }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setContextMenu(null);
+        return;
+      }
       if (!(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       const target = event.target as HTMLElement | null;
       const label = target?.getAttribute('aria-label') || '';
+      const tag = target?.tagName;
+      const inTextField =
+        tag === 'INPUT' || tag === 'TEXTAREA' || Boolean(target?.isContentEditable);
       if (label === 'Formula bar' || label.startsWith('Edit ')) return;
       if (key === 'z') {
         event.preventDefault();
@@ -749,13 +961,51 @@ export default function SheetPage() {
       } else if (key === 'y') {
         event.preventDefault();
         undoRedoRef.current.redo();
+      } else if (!inTextField && (key === 'c' || key === 'x')) {
+        // REQ-3-2-1: the grid owns copy/cut while a cell, not a text field,
+        // has focus.
+        event.preventDefault();
+        if (key === 'c') clipboardActionsRef.current.copy();
+        else clipboardActionsRef.current.cut();
+      } else if (!inTextField && key === 'v' && clipboardActionsRef.current.hasInternal()) {
+        // An in-app copy keeps the source origin so relative references can be
+        // adjusted (REQ-4-1-2); external text falls through to the paste event.
+        event.preventDefault();
+        clipboardActionsRef.current.paste();
       }
     }
+    // REQ-3-1-2: Ctrl+V with no focused text field is delivered as a paste
+    // event on the document, so listen there and fall back to its payload.
+    function onPaste(event: ClipboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      const text = event.clipboardData?.getData('text/plain') ?? '';
+      if (!text) return;
+      event.preventDefault();
+      pasteTextRef.current(text);
+    }
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('paste', onPaste);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('paste', onPaste);
+    };
   }, []);
 
   undoRedoRef.current = { undo: () => void handleUndo(), redo: () => void handleRedo() };
+  // REQ-3-2-2: the stacks live in refs, so this counter re-renders the toolbar
+  // (and its disabled state) whenever a snapshot is pushed or consumed.
+  const canUndo = useMemo(() => undoStack.current.length > 0, [historyVersion]);
+  const canRedo = useMemo(() => redoStack.current.length > 0, [historyVersion]);
+  useEffect(() => {
+    if (!contextMenu) return undefined;
+    function closeMenu() {
+      setContextMenu(null);
+    }
+    window.addEventListener('mousedown', closeMenu);
+    return () => window.removeEventListener('mousedown', closeMenu);
+  }, [contextMenu]);
   const sortBounds = selectionBounds();
   const sortColumns: { column: string; label: string }[] = [];
   if (sheet) {
@@ -846,6 +1096,13 @@ export default function SheetPage() {
       {error && <p className="error">{error}</p>}
       {info && <p className="success">{info}</p>}
       <div className="toolbar">
+        {/* REQ-3-2-2: the toolbar exposes Undo and Redo alongside Ctrl+Z / Ctrl+Y. */}
+        <button type="button" aria-label="Undo" disabled={!canUndo} onClick={() => void handleUndo()}>
+          ↶ Undo
+        </button>
+        <button type="button" aria-label="Redo" disabled={!canRedo} onClick={() => void handleRedo()}>
+          ↷ Redo
+        </button>
         <button
           type="button"
           onClick={() => { pushHistory(); void run(() => api.insertRows(id, sheet.name, selectedParsed.row, 1, 'insert'), 'Row inserted.'); }}
@@ -952,7 +1209,15 @@ export default function SheetPage() {
             <tr>
               <th />
               {columnHeaders.map((header) => (
-                <th key={header.column}>
+                <th
+                  key={header.column}
+                  scope="col"
+                  role="columnheader"
+                  aria-label={header.column}
+                  onContextMenu={(event) =>
+                    openContextMenu(event, 'col', 1, colIndex(header.column))
+                  }
+                >
                   {header.column}
                   <button
                     type="button"
@@ -983,7 +1248,16 @@ export default function SheetPage() {
           <tbody>
             {visibleRows.map((rowNumber) => (
               <tr key={rowNumber}>
-                <th>{rowNumber}</th>
+                <th
+                  scope="row"
+                  role="rowheader"
+                  aria-label={String(rowNumber)}
+                  onContextMenu={(event) =>
+                    openContextMenu(event, 'row', rowNumber, parseRef(selected)?.col || 1)
+                  }
+                >
+                  {rowNumber}
+                </th>
                 {Array.from({ length: COLS }, (_, colIndexValue) => {
                   const ref = refOf(colIndexValue + 1, rowNumber);
                   const cell = sheet.cells[ref];
@@ -998,6 +1272,12 @@ export default function SheetPage() {
                     onMouseEnter: () => extendDrag(ref),
                     onMouseUp: endDrag,
                     onDoubleClick: () => openInlineEdit(ref),
+                    onContextMenu: (event: React.MouseEvent) => {
+                      setAnchor(ref);
+                      setSelection([ref]);
+                      setSelected(ref);
+                      openContextMenu(event, 'cell', rowNumber, colIndexValue + 1);
+                    },
                   };
                   if (inlineEdit?.ref === ref) {
                     return (
@@ -1654,6 +1934,99 @@ export default function SheetPage() {
               Cancel
             </button>
           </div>
+        </div>
+      )}
+
+      {/* REQ-2-2-1 / REQ-2-2-2 / REQ-3-1-2: context menus for the grid, the row
+          numbers and the column headers. */}
+      {contextMenu && (
+        <div
+          className="menu"
+          role="menu"
+          style={{
+            position: 'fixed',
+            top: contextMenu.y,
+            left: contextMenu.x,
+            zIndex: 40,
+          }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {contextMenu.kind === 'cell' && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => copySelection('cut')}
+              >
+                Cut
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => copySelection('copy')}
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!clipboard}
+                onClick={() => void pasteSelection()}
+              >
+                Paste
+              </button>
+            </>
+          )}
+          {contextMenu.kind === 'row' && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => rowMenuAction('insert-above', contextMenu.row)}
+              >
+                Insert 1 row above
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => rowMenuAction('insert-below', contextMenu.row)}
+              >
+                Insert 1 row below
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => rowMenuAction('delete', contextMenu.row)}
+              >
+                Delete row
+              </button>
+            </>
+          )}
+          {contextMenu.kind === 'col' && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => columnMenuAction('insert-left', contextMenu.col)}
+              >
+                Insert 1 column left
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => columnMenuAction('insert-right', contextMenu.col)}
+              >
+                Insert 1 column right
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => columnMenuAction('delete', contextMenu.col)}
+              >
+                Delete column
+              </button>
+            </>
+          )}
         </div>
       )}
     </section>

@@ -425,9 +425,7 @@ module.exports = {
 };
 
 
-function seed() {
-  if (state.workbooks.some((workbook) => workbook.name === 'Q3 Sales')) return;
-
+function seedQ3Sales() {
   const workbook = createWorkbook('Q3 Sales');
   const sheet1 = workbook.worksheets[0];
   const table = [
@@ -448,6 +446,37 @@ function seed() {
   sheet2.cells['A2'] = { value: 'North' };
   sheet2.cells['B2'] = { value: 800 };
   workbook.worksheets.push(sheet2);
+}
+
+// REQ-3-1-2 / REQ-3-2-1: the fixture also describes a two column Item/Qty table
+// whose range A1:B2 has an empty D1:E2 target beside it.
+function seedInventory() {
+  const workbook = createWorkbook('Inventory');
+  const sheet = workbook.worksheets[0];
+  sheet.cells['A1'] = { value: 'Item' };
+  sheet.cells['B1'] = { value: 'Qty' };
+  sheet.cells['A2'] = { value: 'Pen' };
+  sheet.cells['B2'] = { value: 4 };
+}
+
+// REQ-3-1-1 / REQ-4-1-1: a preconfigured sheet with a literal formula chain so
+// the calculation scenarios have their source data on arrival.
+function seedFormulaExamples() {
+  const workbook = createWorkbook('Formula examples');
+  const sheet = workbook.worksheets[0];
+  sheet.cells['A1'] = { value: 2 };
+  sheet.cells['B1'] = { value: 3 };
+  sheet.cells['C1'] = { value: 0, formula: '=A1+B1' };
+  sheet.cells['D1'] = { value: 0, formula: '=C1*2' };
+  recompute(sheet);
+}
+
+function seed() {
+  if (!state.workbooks.some((workbook) => workbook.name === 'Q3 Sales')) seedQ3Sales();
+  if (!state.workbooks.some((workbook) => workbook.name === 'Inventory')) seedInventory();
+  if (!state.workbooks.some((workbook) => workbook.name === 'Formula examples')) {
+    seedFormulaExamples();
+  }
 }
 
 seed();
