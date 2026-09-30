@@ -133,3 +133,54 @@ test('a line-level review comment still requires a non-author reviewer', async (
   });
   assert.equal(selfReview.response.status, 403);
 });
+
+test('status transitions and reviews land in the pull request timeline', async () => {
+  const alice = await login('alice-dev');
+  const bob = await login('bob-reviewer');
+
+  // Self-contained: the seeded repositories already own some pull numbers.
+  await json(`${REPO}/branches`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({ name: 'timeline-branch' }),
+  });
+  const created = await json(`${REPO}/pulls`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({
+      title: 'Timeline transitions',
+      baseBranch: 'main',
+      headBranch: 'timeline-branch',
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  const number = created.payload.pull.number;
+
+  const closed = await json(`${REPO}/pulls/${number}`, {
+    method: 'PATCH',
+    headers: auth(alice),
+    body: JSON.stringify({ state: 'closed' }),
+  });
+  assert.equal(closed.response.status, 200);
+
+  const reopened = await json(`${REPO}/pulls/${number}`, {
+    method: 'PATCH',
+    headers: auth(alice),
+    body: JSON.stringify({ state: 'open' }),
+  });
+  assert.equal(reopened.response.status, 200);
+
+  const review = await json(`${REPO}/pulls/${number}/reviews`, {
+    method: 'POST',
+    headers: auth(bob),
+    body: JSON.stringify({ state: 'APPROVED', body: 'Ship it.' }),
+  });
+  assert.equal(review.response.status, 201);
+
+  const detail = await json(`${REPO}/pulls/${number}`, { headers: auth(alice) });
+  const types = detail.payload.pull.activities.map((activity) => activity.type);
+  assert.ok(types.includes('Opened this pull request'));
+  assert.ok(types.includes('Closed this pull request'));
+  assert.ok(types.includes('Reopened this pull request'));
+  assert.ok(types.includes('Approved this pull request'));
+});

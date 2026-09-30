@@ -53,11 +53,41 @@ def iter_nodes(node: dict):
         yield from iter_nodes(child)
 
 
+def copy_excludes(slug: str) -> set[str]:
+    """Paths the generated project must not inherit from the template.
+
+    ``template.yaml`` declares ``copy.exclude`` and the platform's own copier
+    honours it; the agent has to as well, otherwise a local ``node_modules`` is
+    copied as a half-broken tree and the generated project balloons.
+    """
+    defaults = {"node_modules", "dist", ".git", "__pycache__", ".arc-test-db", "template.yaml"}
+    manifest = TEMPLATES / slug / "template.yaml"
+    if not manifest.exists():
+        return defaults
+    try:
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8")) or {}
+        declared = (data.get("copy") or {}).get("exclude") or []
+    except Exception:
+        declared = []
+    for entry in declared:
+        name = str(entry).replace("\\", "/").rstrip("/")
+        # Patterns are directory names ("node_modules") or relative paths
+        # ("frontend/node_modules"); the trailing segment covers both.
+        defaults.add(name.split("/")[-1])
+    return defaults
+
+
 def copy_template(slug: str, project_dir: Path) -> bool:
     src_dir = TEMPLATES / slug
     project_dir.mkdir(parents=True, exist_ok=True)
     if src_dir.is_dir():
-        shutil.copytree(src_dir, project_dir, dirs_exist_ok=True)
+        excludes = copy_excludes(slug)
+        shutil.copytree(
+            src_dir,
+            project_dir,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(*sorted(excludes)),
+        )
         return True
     (project_dir / "index.html").write_text(
         "<!doctype html><meta charset=utf-8><title>{}</title><h1>{}</h1>".format(slug, slug),

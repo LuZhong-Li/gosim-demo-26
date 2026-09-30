@@ -1540,6 +1540,8 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
     }
     pull.state = 'open';
     pull.readyAt = new Date().toISOString();
+    // REQ-6-2-4: the transition is recorded in the Conversation timeline.
+    pushActivity(pull, 'Marked this pull request ready for review', req.user.username);
     return res.json({ pull });
   }
   const hasState = body.state !== undefined;
@@ -1561,6 +1563,14 @@ app.patch('/api/repos/:owner/:name/pulls/:number', requireUser, (req, res) => {
     }
     if (!canManagePull(repo, req.user.username, pull)) {
       return res.status(403).json({ error: 'You cannot change this pull request.' });
+    }
+    if (state !== pull.state) {
+      // REQ-6-6: closing and reopening are recorded in the timeline.
+      pushActivity(
+        pull,
+        state === 'closed' ? 'Closed this pull request' : 'Reopened this pull request',
+        req.user.username,
+      );
     }
     pull.state = state;
   }
@@ -1738,6 +1748,16 @@ app.post('/api/repos/:owner/:name/pulls/:number/reviews', requireUser, (req, res
   };
   pull.reviews = pull.reviews || [];
   pull.reviews.push(review);
+  // REQ-6-3-1: Conversation carries the review summaries as well.
+  pushActivity(
+    pull,
+    state === 'APPROVED'
+      ? 'Approved this pull request'
+      : state === 'CHANGES_REQUESTED'
+        ? 'Requested changes on this pull request'
+        : 'Left a review comment',
+    req.user.username,
+  );
   return res.status(201).json({ review, approvals: approvalCount(pull, repo) });
 });
 
@@ -1848,6 +1868,8 @@ app.post('/api/repos/:owner/:name/pulls/:number/merge', requireUser, (req, res) 
   pull.state = 'merged';
   pull.mergedAt = new Date().toISOString();
   pull.mergedBy = req.user.username;
+  // REQ-6-5: the merge is part of the pull request timeline.
+  pushActivity(pull, 'Merged this pull request', req.user.username);
   // REQ-6-5: the sole supported method is a merge commit with both heads as parents.
   const mergeResult = store.mergeBranches(repo, {
     baseBranch: pull.baseBranch,
