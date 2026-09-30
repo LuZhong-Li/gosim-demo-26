@@ -479,10 +479,18 @@ def build_module_prompt(
     if clarifications:
         lines.extend(["", "Late clarifications from the current task page (authoritative):"])
         lines.extend(f"- {sentence}" for sentence in clarifications)
+    wanted_ids = sorted(wanted)
     lines.extend([
         "",
-        f"Emit the files that implement module {module['id']} and list the",
-        "requirement ids you actually covered in `covered`.",
+        "COVERAGE - implement EVERY atomic requirement listed above, no exceptions:",
+        f"  {', '.join(wanted_ids)}",
+        "Each one must ship at least one page or route whose rendered DOM contains",
+        "the exact accessible names listed for it. A requirement you skip is a",
+        "guaranteed zero for every test that touches it - so do not stop early and",
+        "do not emit placeholder stubs; wire the real flow.",
+        "",
+        f"Emit the complete files that implement module {module['id']} and list every",
+        "requirement id you covered in `covered`.",
     ])
     return "\n".join(lines)
 
@@ -1098,11 +1106,28 @@ def main(argv: list[str] | None = None) -> int:
         try:
             run_selfcheck(project_dir, nodes_payload)
             missing_names = selfcheck_report(project_dir, nodes_payload).get("missing") or []
-            if missing_names and time.time() < deadline:
+            # Repeat the patch while each round keeps shrinking the missing set.
+            # One round leaves most of the holes (r39 still had 49 missing on
+            # GitHub); the tests cannot find a name the source never mentions.
+            previous = None
+            for round_no in range(1, 4):
+                if not missing_names or time.time() >= deadline:
+                    break
+                if previous is not None and len(missing_names) >= previous:
+                    log(f"[selfcheck] missing-name repair stalled at {len(missing_names)}")
+                    break
+                previous = len(missing_names)
+                log(f"[selfcheck] missing-name repair round {round_no}: "
+                    f"{len(missing_names)} missing")
                 patched = repair_missing_names(project_dir, llm, missing_names, deadline)
-                if patched:
-                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
-                    fix_build_scripts(project_dir, TEMPLATES / slug)
+                if not patched:
+                    break
+                guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                fix_build_scripts(project_dir, TEMPLATES / slug)
+                missing_names = selfcheck_report(project_dir, nodes_payload).get("missing") or []
+            if missing_names:
+                log(f"[selfcheck] {len(missing_names)} accessible names still missing "
+                    "after repair")
         except Exception as exc:  # noqa: BLE001 - never fail the run for this
             log(f"[selfcheck] skipped: {exc}")
 
