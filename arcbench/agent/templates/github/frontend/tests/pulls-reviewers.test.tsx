@@ -75,8 +75,14 @@ describe('Pull request reviewer picker', () => {
         name: 'alice-dev',
       }),
     ).not.toBeInTheDocument();
-    // The candidate is exposed as an option, and selecting it saves immediately.
-    await user.click(await screen.findByRole('option', { name: 'bob-reviewer' }));
+    // The candidate is an option wrapping a button, so both a direct option
+    // query and a button-first lookup find it; selecting saves immediately.
+    expect(
+      within(screen.getByRole('listbox', { name: 'Reviewers' })).getByRole('option', {
+        name: 'bob-reviewer',
+      }),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'bob-reviewer' }));
 
     await waitFor(() =>
       expect(api.requestPullReviewer).toHaveBeenCalledWith('acme-demo', 'acme-docs', 5, 'bob-reviewer'),

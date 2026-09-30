@@ -212,9 +212,16 @@ export default function OrgPage() {
       {/* REQ-2-2-1: an Owner opens the team creation form from the New team link. */}
       {role === 'Owner' && !newTeamOpen && (
         <p>
-          <button type="button" className="link-button" onClick={() => setNewTeamOpen(true)}>
+          {/* REQ-2-2-1: the team creation entry is a link. */}
+          <a
+            href="#new-team"
+            onClick={(event) => {
+              event.preventDefault();
+              setNewTeamOpen(true);
+            }}
+          >
             New team
-          </button>
+          </a>
         </p>
       )}
       {role === 'Owner' && newTeamOpen && (

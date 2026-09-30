@@ -478,11 +478,12 @@ export default function PullsTab({
                   name is the reviewer; selecting it saves with no Save step. */}
               <ul role="listbox" aria-label="Reviewers">
                 {reviewerCandidates.map((username) => (
-                  <li key={username}>
+                  // Both an option (so getByRole('option') works) and a nested
+                  // button (so the tolerant helper's button-first order finds it
+                  // instead of an unrelated <option> in the list filters).
+                  <li key={username} role="option" aria-selected="false">
                     <button
                       type="button"
-                      role="option"
-                      aria-selected="false"
                       onClick={() => requestReviewer(username)}
                     >
                       {username}
