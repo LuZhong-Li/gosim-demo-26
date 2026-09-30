@@ -64,14 +64,25 @@ Violating a clause here scores zero on the requirements that touch it, silently.
   case-insensitive and trim surrounding whitespace. Concrete example values in
   the requirement (account names, column headers, option values) are fixture
   data too and must appear verbatim as <option>/radio/label text.
-- ERROR STATES: a failed validation stays on the same page, shows an inline
-  message naming the problem (tests match words like required/invalid/match/
-  duplicate), keeps the anonymous header and creates no records. Render EXACTLY
-  ONE error element at a time — a per-field error plus a form-level summary
-  makes two elements match and fails the assertion.
-- SESSIONS: after registering or signing in, redirect to the home page, show the
-  exact username plus a "Sign out" link in the header, and keep the session
-  across a page reload (persist a token and restore it on boot).
+- ERROR STATES: a failed validation stays on the same page, keeps the anonymous
+  header and creates no records. Render each message BESIDE THE FIELD it is
+  about, as its own inline DOM text, using the requirement's exact wording
+  ("Username already exists", "Username format is invalid", "Email format is
+  invalid", "Password requirements are not satisfied", "Agree to terms is
+  required", "Current password is required", "Verification code is invalid").
+  Several fields can be invalid at once and the requirements demand that ALL of
+  their messages appear TOGETHER: on submit validate every field and render one
+  message per invalid field in the same response. Do NOT collapse them into a
+  single form-level summary, and do NOT reveal them one submission at a time —
+  the submit button stays enabled afterwards so the messages can be read. What
+  must stay unique is each STRING: never print the same sentence in two
+  elements, and never repeat a field's message as a summary elsewhere.
+- SESSIONS: after SIGNING IN, go to the workspace (home), show the exact
+  username plus a "Sign out" entry in the header, and keep the session across a
+  page reload (persist a token and restore it on boot). REGISTRATION is
+  different: store the account, show a success message and return to the
+  SIGN-IN page — never straight into the app — so the new email can be used to
+  sign in (REQ-1-1-1).
 - UNLISTED CONTROL VALUES: when the requirement says a value must be "one of the
   values offered by the control" without listing them, offer a broad standard
   set (for nationalities at least China, Vietnam, United States, Japan, South
@@ -110,8 +121,13 @@ if sign-in fails the whole task scores zero. Get these EXACTLY right:
   a reload: username ``alice-dev``, email ``alice.dev@example.test``, password
   ``Valid-password-123!``, credential status active. Verify the password with a
   cheap hash (scrypt/pbkdf2) and never echo it back on any page.
-- The account-access page is reached from the home page by the links
-  ``Sign in`` and ``Create an account``. It shows one form at a time.
+- The HOME page is public: an unauthenticated visitor who opens ``/`` must see
+  the links ``Sign up``, ``Sign in`` and ``Forgot password``. Never redirect
+  ``/`` to the sign-in form - every unauthenticated scenario starts there and
+  then clicks one of those names. Clicking ``Sign in`` (or ``Sign up``) opens
+  the account-access page, which shows one form at a time; the sign-in form
+  carries the unique link ``Create an account`` that opens the registration
+  form, plus the link ``Forgot password`` that opens recovery.
 - Sign-in form: a textbox labelled EXACTLY ``Username or email``, a password
   input labelled EXACTLY ``Password``, a button whose text is EXACTLY
   ``Sign in``. It accepts the username OR the email. Wrong credentials show ONE
