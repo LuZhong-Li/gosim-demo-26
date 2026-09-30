@@ -81,6 +81,44 @@ so provisioning the seed is as important as the UI itself.
 """.strip()
 
 
+AUTH_CONTRACT = """
+Authentication contract — every authenticated scenario starts by signing in, so
+if sign-in fails the whole task scores zero. Get these EXACTLY right:
+
+- Seed ONE account at backend start-up, persisted into the store so it survives
+  a reload: username ``alice-dev``, email ``alice.dev@example.test``, password
+  ``Valid-password-123!``, credential status active. Verify the password with a
+  cheap hash (scrypt/pbkdf2) and never echo it back on any page.
+- The account-access page is reached from the home page by the links
+  ``Sign in`` and ``Create an account``. It shows one form at a time.
+- Sign-in form: a textbox labelled EXACTLY ``Username or email``, a password
+  input labelled EXACTLY ``Password``, a button whose text is EXACTLY
+  ``Sign in``. It accepts the username OR the email. Wrong credentials show ONE
+  inline error containing ``incorrect`` and create no session; a missing field
+  shows ONE inline error containing ``required``.
+- Registration form: fields labelled EXACTLY ``Username``, ``Email``,
+  ``Password``, ``Confirm password``, an initially unchecked checkbox
+  ``Agree to the terms``, and a button ``Create account``. Duplicate username
+  shows ``Username already exists``; a bad email shows ``Email format is
+  invalid``.
+- Password recovery: the ``Forgot password`` link opens a form that displays the
+  fixed code ``123456`` as its own visible text and has fields ``Email``,
+  ``Verification code``, ``New password``, ``Confirm password`` plus buttons
+  ``Send reset link`` and ``Reset password``; a wrong code shows
+  ``Verification code is invalid`` and success shows ``Password updated``.
+- Sign-out: one button ``Account menu`` whose menu contains one link
+  ``Sign out``; it opens a dialog titled ``Sign out`` with buttons
+  ``Confirm sign out`` and ``Cancel``. After confirming, any protected page
+  reload shows the unauthenticated header again.
+- Password change: fields ``Current password``, ``New password``,
+  ``Confirm password`` and a button ``Update password``; an empty current
+  password shows ``Current password is required``.
+- After ANY successful sign-in or registration the header shows the exact
+  username plus a ``Sign out`` link, and a reload keeps the session (persist a
+  token and restore it on boot). Use ``tokenStore`` from ``frontend/src/api``.
+""".strip()
+
+
 WORKED_EXAMPLE = """
 WORKED EXAMPLE - the shape every page must take. Complete code, exact labels,
 ONE inline error element, a real route. Copy the PATTERN, not the text.
@@ -179,6 +217,14 @@ replace it:
 - ``frontend/src/api/index.ts`` already exports ``client`` (axios, baseURL
   ``/api``), ``tokenStore`` (localStorage) and ``errorMessage(caught)``. Reuse
   them instead of writing your own fetch layer.
+- ``frontend/src/components/Form.tsx`` already exports the generic form
+  primitives ``Field``, ``TextArea``, ``SelectField``, ``CheckboxField``,
+  ``RadioGroup``, ``FormError`` and ``Button``; ``frontend/src/components/
+  Layout.tsx`` exports ``Page``, ``TabLinks`` and ``Section``. BUILD EVERY PAGE
+  FROM THESE - never hand-write a bare ``<input>``/``<label>``/``<select>``.
+  The primitives already associate a visible ``<label>`` with every control (so
+  ``getByLabel``/``getByRole`` match the exact text) and render at most one
+  inline ``role="alert"`` error, which is exactly what the suite checks.
 - ``backend/`` is Express and MUST listen on ``process.env.PORT || 3000``.
   ``backend/src/app.js`` exports the app; mount your routers there.
 - Express here is version 5: a bare ``'*'`` route path THROWS at startup

@@ -42,6 +42,7 @@ from guard import fix_wildcard_routes
 from guard import guard as guard_generated
 from llm import LlmClient
 from prompts import (
+    AUTH_CONTRACT,
     GENERATION_SYSTEM,
     PERFORMANCE_CONTRACT,
     REPAIR_SYSTEM,
@@ -432,6 +433,8 @@ def build_module_prompt(
         UI_CONTRACT,
         "",
         SEED_CONTRACT,
+        "",
+        AUTH_CONTRACT,
         "",
         PERFORMANCE_CONTRACT,
         "",
