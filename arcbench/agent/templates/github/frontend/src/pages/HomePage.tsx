@@ -1,17 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Org, Repo, User } from '../api';
 import * as api from '../api';
 
 export default function HomePage({ user }: { user: User | null }) {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [orgs, setOrgs] = useState<Org[]>([]);
+  const [myOrgs, setMyOrgs] = useState<Org[]>([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const [newRepoName, setNewRepoName] = useState('');
-  const [newRepoVisibility, setNewRepoVisibility] = useState('public');
+  const [newRepoOwner, setNewRepoOwner] = useState('');
+  const [newRepoDescription, setNewRepoDescription] = useState('');
+  const [newRepoVisibility, setNewRepoVisibility] = useState('private');
+  const [newRepoReadme, setNewRepoReadme] = useState(false);
   const [notice, setNotice] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // REQ-3-2-1: the "New repository" link opens the creation form.
+  const showCreate = searchParams.get('new') === '1';
 
   useEffect(() => {
     api
@@ -22,6 +29,16 @@ export default function HomePage({ user }: { user: User | null }) {
       })
       .catch((caught) => setError(api.errorMessage(caught)));
   }, []);
+
+  // The owner list is the personal account plus the organizations the user belongs to.
+  useEffect(() => {
+    if (!user) return;
+    setNewRepoOwner((current) => current || user.username);
+    api
+      .listOrgs()
+      .then((result) => setMyOrgs(result))
+      .catch(() => undefined);
+  }, [user]);
 
   async function handleSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -53,6 +70,11 @@ export default function HomePage({ user }: { user: User | null }) {
       )}
       {user && (
         <>
+          <p>
+            <Link to="/?new=1">New repository</Link>
+          </p>
+          {showCreate && (
+          <>
           <h2>New repository</h2>
           {notice && <p className="success">{notice}</p>}
           <form
@@ -62,38 +84,89 @@ export default function HomePage({ user }: { user: User | null }) {
               setError('');
               setNotice('');
               api
-                .createPersonalRepo({ name: newRepoName, visibility: newRepoVisibility })
+                .createPersonalRepo({
+                  owner: newRepoOwner,
+                  name: newRepoName,
+                  visibility: newRepoVisibility,
+                  description: newRepoDescription,
+                  readme: newRepoReadme,
+                })
                 .then((repo) => {
                   setNewRepoName('');
+                  setNewRepoDescription('');
                   navigate(`/${repo.owner}/${repo.name}`);
                 })
                 .catch((caught) => setError(api.errorMessage(caught)));
             }}
           >
             <div className="field">
+              <label htmlFor="new-repo-owner">Owner</label>
+              <select
+                id="new-repo-owner"
+                value={newRepoOwner}
+                onChange={(event) => setNewRepoOwner(event.target.value)}
+              >
+                <option value={user.username}>{user.username}</option>
+                {myOrgs.map((org) => (
+                  <option key={org.name} value={org.name}>
+                    {org.displayName || org.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
               <label htmlFor="personal-repo-name">Repository name</label>
               <input
                 id="personal-repo-name"
-                aria-label="Personal repository name"
                 type="text"
                 value={newRepoName}
                 onChange={(event) => setNewRepoName(event.target.value)}
               />
             </div>
             <div className="field">
-              <label htmlFor="personal-repo-visibility">Visibility</label>
-              <select
-                id="personal-repo-visibility"
-                aria-label="Personal repository visibility"
-                value={newRepoVisibility}
-                onChange={(event) => setNewRepoVisibility(event.target.value)}
-              >
-                <option value="public">Public</option>
-                <option value="private">Private</option>
-              </select>
+              <label htmlFor="new-repo-description">Description</label>
+              <input
+                id="new-repo-description"
+                type="text"
+                value={newRepoDescription}
+                onChange={(event) => setNewRepoDescription(event.target.value)}
+              />
             </div>
+            <fieldset>
+              <legend>Visibility</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="new-repo-visibility"
+                  value="public"
+                  checked={newRepoVisibility === 'public'}
+                  onChange={() => setNewRepoVisibility('public')}
+                />
+                Public
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="new-repo-visibility"
+                  value="private"
+                  checked={newRepoVisibility === 'private'}
+                  onChange={() => setNewRepoVisibility('private')}
+                />
+                Private
+              </label>
+            </fieldset>
+            <label>
+              <input
+                type="checkbox"
+                checked={newRepoReadme}
+                onChange={(event) => setNewRepoReadme(event.target.checked)}
+              />
+              Add a README file
+            </label>
             <button type="submit">Create repository</button>
           </form>
+          </>
+          )}
         </>
       )}
 

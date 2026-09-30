@@ -214,9 +214,11 @@ function nextPullNumber(repo) {
   return next;
 }
 
-function initializeRepoContent(repo, author) {
+function initializeRepoContent(repo, author, options = {}) {
+  // REQ-3-2-1: "Add a README file" is optional; the default keeps the seeded shape.
+  const withReadme = options.readme === undefined ? true : Boolean(options.readme);
   const sha = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  repo.files = [{ path: 'README.md', content: `# ${repo.name}\n` }];
+  repo.files = withReadme ? [{ path: 'README.md', content: `# ${repo.name}\n` }] : [];
   repo.branches = [{ name: 'main', head: sha }];
   repo.commits = [
     {
@@ -225,7 +227,7 @@ function initializeRepoContent(repo, author) {
       author,
       parents: [],
       timestamp: new Date().toISOString(),
-      changed: ['README.md'],
+      changed: repo.files.map((file) => file.path),
       snapshot: repo.files.map((file) => ({ ...file })),
     },
   ];

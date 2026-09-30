@@ -417,27 +417,40 @@ app.get('/api/orgs/:name/access', (req, res) => {
 app.post('/api/repos', requireUser, (req, res) => {
   const repoName = String((req.body || {}).name || '').trim().toLowerCase();
   const visibility = String((req.body || {}).visibility || 'private').trim().toLowerCase();
+  // REQ-3-2-1: the owner may be the personal account or an organization of the user.
+  const owner = String((req.body || {}).owner || req.user.username).trim().toLowerCase();
+  const ownerOrg = owner === req.user.username.toLowerCase() ? null : store.findOrg(owner);
+  if (ownerOrg && !store.membership(ownerOrg.name, req.user.username)) {
+    return res.status(403).json({ error: 'You are not a member of this organization.' });
+  }
+  if (!ownerOrg && owner !== req.user.username.toLowerCase()) {
+    return res.status(404).json({ error: 'Owner not found.' });
+  }
   if (!/^[a-z0-9._-]{1,100}$/.test(repoName)) {
     return res.status(400).json({ error: 'Repository name may only contain letters, digits, dots, underscores, and hyphens.' });
   }
   if (!['public', 'private'].includes(visibility)) {
     return res.status(400).json({ error: 'Visibility must be public or private.' });
   }
-  if (store.findRepo(req.user.username, repoName)) {
+  const ownerName = ownerOrg ? ownerOrg.name : req.user.username;
+  if (store.findRepo(ownerName, repoName)) {
     return res.status(409).json({ error: 'A repository with that name already exists.' });
   }
+  // REQ-3-2-1: "Add a README file" controls whether the repository is initialized with one.
+  const readme = (req.body || {}).readme === undefined ? true : Boolean(req.body.readme);
   const repo = {
-    owner: req.user.username,
-    ownerType: 'user',
+    owner: ownerName,
+    ownerType: ownerOrg ? 'organization' : 'user',
     name: repoName,
     visibility,
     description: String((req.body || {}).description || '').trim(),
     defaultBranch: 'main',
+    creator: req.user.username,
     createdBy: req.user.username,
     createdAt: new Date().toISOString(),
   };
   store.state.repos.push(repo);
-  store.initializeRepoContent(repo, req.user.username);
+  store.initializeRepoContent(repo, req.user.username, { readme });
   return res.status(201).json({ repo });
 });
 
