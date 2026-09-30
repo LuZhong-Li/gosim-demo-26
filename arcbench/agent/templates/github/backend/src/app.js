@@ -1030,7 +1030,8 @@ app.post('/api/repos/:owner/:name/issues/:number/comments', requireUser, (req, r
   const issue = store.findIssue(req.params.owner, req.params.name, req.params.number);
   if (!issue) return res.status(404).json({ error: 'Issue not found.' });
   const body = String((req.body || {}).body || '').trim();
-  if (!body) return res.status(400).json({ error: 'Comment body is required.' });
+  // REQ-5-2-3: the official message for a whitespace-only comment.
+  if (!body) return res.status(400).json({ error: 'Comment is required' });
   issue.comments = issue.comments || [];
   const comment = {
     id: `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,

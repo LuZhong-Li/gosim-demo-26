@@ -5,7 +5,7 @@ import type { CommitDiff } from '../api';
 import * as api from '../api';
 import BranchSelector from '../components/BranchSelector';
 import MilestonePicker from '../components/MilestonePicker';
-import { stateLabel } from '../labels';
+import { relativeTime, stateLabel } from '../labels';
 import PullsTab from './PullsTab';
 
 type Commit = {
@@ -28,6 +28,7 @@ export default function RepoPage() {
     requestedTab === 'issues' || requestedTab === 'pulls' ? requestedTab : 'code';
   const requestedPull = Number(searchParams.get('pull')) || null;
   const requestedFile = searchParams.get('file');
+  const codeView = searchParams.get('view') || '';
   const requestedBranch = searchParams.get('branch') || '';
   const requestedPath = searchParams.get('path') || '';
   const [currentBranch, setCurrentBranch] = useState('');
@@ -72,6 +73,7 @@ export default function RepoPage() {
   const [issueTitleError, setIssueTitleError] = useState('');
   const [selected, setSelected] = useState<Issue | null>(null);
   const [commentText, setCommentText] = useState('');
+  const [commentError, setCommentError] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -119,6 +121,13 @@ export default function RepoPage() {
     void openFile(requestedFile);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedFile, files.length]);
+
+  // REQ-4-2-1: the "Commits" link opens the branch history in place.
+  useEffect(() => {
+    if (codeView !== 'commits') return;
+    void loadCommits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeView]);
 
   // REQ-5-3-1: assignable members come from the owning organization.
   useEffect(() => {
@@ -410,7 +419,16 @@ export default function RepoPage() {
           {fileContent && (
             <div className="issue-detail">
               <h3>{fileContent.path}</h3>
+              {/* REQ-4-1: the file page shows the current branch as well as the path. */}
+              <p className="muted">{`Branch ${currentBranch || requestedBranch || 'main'}`}</p>
               <pre>{fileContent.content}</pre>
+              <p>
+                <Link
+                  to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&path=${encodeURIComponent(requestedPath)}&file=${encodeURIComponent(fileContent.path)}&view=commits`}
+                >
+                  Commits
+                </Link>
+              </p>
             </div>
           )}
 
@@ -499,7 +517,14 @@ export default function RepoPage() {
           </form>
           )}
 
-      <h2>Commits</h2>
+      {/* REQ-4-2-1: the repository and file pages each expose one history link named "Commits". */}
+      {!fileContent && (
+        <p>
+          <Link to={`/${owner}/${name}?tab=code&branch=${encodeURIComponent(currentBranch)}&view=commits`}>
+            Commits
+          </Link>
+        </p>
+      )}
       {/* REQ-4-2-2: inspect the difference introduced by a revision */}
       <button
         type="button"
@@ -551,8 +576,7 @@ export default function RepoPage() {
                   <strong>{commit.message}</strong>
                   <span className="muted">
                     {' '}
-                    · {commit.sha.slice(0, 7)} · {commit.author} ·{' '}
-                    {new Date(commit.timestamp).toLocaleString()}
+                    · {commit.sha.slice(0, 7)} · {commit.author} · {relativeTime(commit.timestamp)}
                   </span>
                 </li>
               ))}
@@ -647,6 +671,8 @@ export default function RepoPage() {
                       # {issue.number} · {stateLabel(issue.state)} · opened by {issue.author}
                       {(issue.labels || []).length > 0 && ` · ${issue.labels?.join(', ')}`}
                       {issue.milestone ? ` · milestone ${issue.milestone}` : ''}
+                      {/* REQ-5-1-1: each row also shows the update time. */}
+                      {` · updated ${relativeTime(issue.updatedAt || issue.createdAt)}`}
                     </span>
                   </li>
                 ))}
@@ -811,8 +837,11 @@ export default function RepoPage() {
                 <ul className="repo-list">
                   {(selected.comments || []).map((comment) => (
                     <li key={comment.id}>
-                      <strong>{comment.author}</strong>
-                      <p>{comment.body}</p>
+                      {/* REQ-5-2-3: discussion entries use article semantics. */}
+                      <article>
+                        <strong>{comment.author}</strong>
+                        <p>{comment.body}</p>
+                      </article>
                       <button
                         type="button"
                         className="link-button"
@@ -843,21 +872,31 @@ export default function RepoPage() {
                 className="inline-form"
                 onSubmit={(event) => {
                   event.preventDefault();
+                  // REQ-5-2-3: whitespace-only comments are rejected with the official message.
+                  if (!commentText.trim()) {
+                    setCommentError('Comment is required');
+                    return;
+                  }
+                  setCommentError('');
                   run(
-                    () => api.addIssueComment(owner, name, selected.number, commentText),
+                    () => api.addIssueComment(owner, name, selected.number, commentText.trim()),
                     'Comment added.',
                   ).then(() => openIssue(selected.number));
                   setCommentText('');
                 }}
               >
                 <input
-                  aria-label="Comment body"
+                  aria-label="Comment"
                   type="text"
                   value={commentText}
                   placeholder="Write a comment"
-                  onChange={(event) => setCommentText(event.target.value)}
+                  onChange={(event) => {
+                    setCommentText(event.target.value);
+                    if (commentError) setCommentError('');
+                  }}
                 />
                 <button type="submit">Comment</button>
+                {commentError && <p className="error">{commentError}</p>}
               </form>
               {/* REQ-5-4: status transitions appear in the activity timeline. */}
               {(selected.activities || []).length > 0 && (

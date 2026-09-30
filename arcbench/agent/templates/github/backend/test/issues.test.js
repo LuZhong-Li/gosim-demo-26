@@ -186,3 +186,22 @@ test('assigning a milestone needs triage-or-higher on issues and pull requests',
     body: JSON.stringify({ milestone: null }),
   });
 });
+
+test('a whitespace-only comment uses the official message', async () => {
+  const alice = await login('alice-dev');
+
+  const empty = await json(`${REPO}/issues/1/comments`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({ body: '   ' }),
+  });
+  assert.equal(empty.response.status, 400);
+  assert.equal(empty.payload.error, 'Comment is required');
+
+  const saved = await json(`${REPO}/issues/1/comments`, {
+    method: 'POST',
+    headers: auth(alice),
+    body: JSON.stringify({ body: 'Looks good' }),
+  });
+  assert.equal(saved.response.status, 201);
+});

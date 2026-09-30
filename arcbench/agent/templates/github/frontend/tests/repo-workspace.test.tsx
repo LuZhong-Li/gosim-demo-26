@@ -11,6 +11,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   getRepo: vi.fn(),
   getTree: vi.fn(),
   listIssues: vi.fn(),
+  listCommits: vi.fn(),
 }));
 
 function mockRepoApi() {
@@ -25,6 +26,15 @@ function mockRepoApi() {
     },
   });
   vi.mocked(api.listIssues).mockResolvedValue([]);
+  vi.mocked(api.listCommits).mockResolvedValue([
+    {
+      sha: 'abcdef1234',
+      message: 'Document search flow',
+      author: 'alice-dev',
+      timestamp: new Date(Date.now() - 3600 * 1000).toISOString(),
+      changed: ['src/search.ts'],
+    },
+  ]);
   vi.mocked(api.getTree).mockResolvedValue({
     branch: 'main',
     defaultBranch: 'main',
@@ -33,9 +43,9 @@ function mockRepoApi() {
   });
 }
 
-function renderRepo() {
+function renderRepo(url = '/acme-demo/acme-docs?tab=code') {
   render(
-    <MemoryRouter initialEntries={['/acme-demo/acme-docs?tab=code']}>
+    <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route path="/:owner/:name" element={<RepoPage />} />
         <Route path="/:owner/:name/search" element={<p>search page</p>} />
@@ -103,5 +113,18 @@ describe('repository workspace controls', () => {
     await user.type(search, 'search{Enter}');
 
     expect(await screen.findByText('search page')).toBeInTheDocument();
+  });
+
+  it('exposes exactly one Commits link and shows relative history times', async () => {
+    mockRepoApi();
+    renderRepo();
+
+    const commitsLinks = await screen.findAllByRole('link', { name: 'Commits' });
+    expect(commitsLinks).toHaveLength(1);
+
+    renderRepo('/acme-demo/acme-docs?tab=code&view=commits');
+
+    expect(await screen.findByText('Document search flow')).toBeInTheDocument();
+    expect(screen.getByText(/ago/)).toBeInTheDocument();
   });
 });

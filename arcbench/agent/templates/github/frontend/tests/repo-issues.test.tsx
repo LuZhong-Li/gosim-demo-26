@@ -7,6 +7,7 @@ import RepoPage from '../src/pages/RepoPage';
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
+  addIssueComment: vi.fn(),
   createIssue: vi.fn(),
   getIssue: vi.fn(),
   getRepo: vi.fn(),
@@ -26,8 +27,9 @@ const openIssue = {
   labels: ['bug', 'documentation'],
   milestone: 'Q3 launch',
   assignees: ['bob-reviewer'],
-  comments: [],
+  comments: [{ id: 'c1', author: 'bob-reviewer', body: 'Confirmed.' }],
   reactions: [],
+  updatedAt: '2026-09-29T12:00:00.000Z',
 };
 
 const closedIssue = {
@@ -154,6 +156,33 @@ describe('repository issues workspace', () => {
       expect(api.updateIssue).toHaveBeenCalledWith('acme-demo', 'acme-docs', 1, {
         milestone: 'v1.0',
       }),
+    );
+  });
+
+  it('shows the update time on each issue row', async () => {
+    mockIssuesApi({ canEdit: true, canClose: true });
+    renderIssues('/acme-demo/acme-docs?tab=issues');
+
+    expect(await screen.findByText(/updated .* ago/)).toBeInTheDocument();
+  });
+
+  it('labels the comment editor Comment and rejects an empty comment', async () => {
+    mockIssuesApi({ canEdit: true, canClose: true });
+    vi.mocked(api.addIssueComment).mockResolvedValue(openIssue);
+    const user = userEvent.setup();
+    renderIssues('/acme-demo/acme-docs?tab=issues&issue=1');
+
+    const editor = await screen.findByRole('textbox', { name: 'Comment' });
+    expect(screen.getByText('Confirmed.').closest('article')).not.toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+    expect(await screen.findByText('Comment is required')).toBeInTheDocument();
+    expect(api.addIssueComment).not.toHaveBeenCalled();
+
+    await user.type(editor, 'Looks good');
+    await user.click(screen.getByRole('button', { name: 'Comment' }));
+    await waitFor(() =>
+      expect(api.addIssueComment).toHaveBeenCalledWith('acme-demo', 'acme-docs', 1, 'Looks good'),
     );
   });
 });
