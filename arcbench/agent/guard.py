@@ -895,6 +895,10 @@ def ensure_named_exports(project_dir: Path) -> list[str]:
                 continue
             if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
                 continue
+            if target.name.endswith(".d.ts"):
+                # Declaration files hold types only; appending code would break
+                # them far worse than the import that prompted this.
+                continue
             body = _source_text(target)
             if not body:
                 continue
@@ -955,6 +959,8 @@ def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
             continue
         if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
             continue
+            if target.name.endswith(".d.ts"):
+                continue
         body = _source_text(target)
         if not body:
             continue
