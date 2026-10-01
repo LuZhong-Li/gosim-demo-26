@@ -42,6 +42,7 @@ from guard import fix_wildcard_routes
 from guard import guard as guard_generated
 from guard import drop_shadow_entry_files
 from guard import check_local_imports
+from guard import stub_missing_modules
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1167,8 +1168,8 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
     if os.environ.get("ARC_SKIP_REHEARSAL") == "1":
         log("[rehearsal] skipped (ARC_SKIP_REHEARSAL=1)")
         return "rehearsal skipped (ARC_SKIP_REHEARSAL=1)"
-    for attempt in range(1, 3):
-        log(f"[rehearsal] startup rehearsal {attempt}/2 (smoke port {smoke_port})")
+    for attempt in range(1, 4):
+        log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {smoke_port})")
         started = time.time()
         error = rehearse_startup(project_dir, smoke_port)
         if error is None:
@@ -1179,7 +1180,15 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
             return error
         log(f"[rehearsal] FAILED in {time.time() - started:.0f}s: "
             f"{error.splitlines()[0][:200]}")
-        if attempt == 2:
+        # An unresolvable import is the one build failure we can always fix
+        # without the model (r49 never recovered from it and scored zero), so
+        # pay that cost first and retry before spending a repair turn.
+        stubs = stub_missing_modules(project_dir, error)
+        if stubs:
+            log(f"[rehearsal] created {len(stubs)} placeholder module(s) for "
+                f"unresolved imports: {stubs}")
+            continue
+        if attempt >= 3:
             log("[rehearsal] giving up; submitting as-is")
             return f"rehearsal failed: {error.splitlines()[0][:160]}"
         repaired = repair_from_rehearsal(project_dir, llm, error, deadline)
@@ -1435,6 +1444,26 @@ def main(argv: list[str] | None = None) -> int:
                     "after repair")
         except Exception as exc:  # noqa: BLE001 - never fail the run for this
             log(f"[selfcheck] skipped: {exc}")
+
+        # Final sweep. Every repair turn above can leave a NEW dangling import
+        # behind - that is exactly how r49 shipped an App.tsx importing
+        # "./pages/RegisterPage" that no module ever wrote, so `vite build`
+        # failed at grading time and none of the 100 tests could run. The
+        # rehearsal is the last line of defence, but it cannot see an import
+        # that only the bundler resolves, so re-run the static check here.
+        for _sweep in range(2):
+            if time.time() >= deadline:
+                break
+            dangling = check_local_imports(project_dir)
+            if not dangling:
+                break
+            log(f"[arc-agent] final import sweep {_sweep + 1}: {len(dangling)} "
+                f"dangling import(s), e.g. {dangling[:6]}")
+            patched = repair_unresolved_imports(project_dir, llm, dangling, deadline)
+            if not patched:
+                break
+            guard_generated(project_dir, TEMPLATES / slug, set(patched))
+            fix_build_scripts(project_dir, TEMPLATES / slug)
 
         smoke_port = int(os.environ.get("ARC_SMOKE_PORT", "3100"))
         if smoke_port == args.web_port:

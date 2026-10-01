@@ -309,6 +309,73 @@ def check_local_imports(project_dir: Path) -> list[str]:
     return missing
 
 
+#: Rollup/Vite's wording for an import it cannot resolve, as it appears in the
+#: rehearsal's captured build output.
+UNRESOLVED_IMPORT = re.compile(r'Could not resolve "([^"]+)" from "([^"]+)"')
+
+
+def _stub_path(project_dir: Path, importer: str, specifier: str) -> Path | None:
+    """Where a missing module imported by ``importer`` has to be created."""
+    candidates = [project_dir / importer, project_dir / "frontend" / importer]
+    importer_path = Path(importer)
+    if importer_path.is_absolute():
+        candidates.insert(0, importer_path)
+    base = next((path for path in candidates if path.exists()), None)
+    if base is None:
+        base = project_dir / "frontend" / importer
+    raw = base.parent / specifier
+    target = raw if raw.suffix else Path(f"{raw}.tsx")
+    try:
+        target.relative_to(project_dir)
+    except ValueError:
+        return None
+    return target
+
+
+def stub_missing_modules(project_dir: Path, error_text: str) -> list[str]:
+    """Write a placeholder for every module the bundle cannot resolve.
+
+    r49 scored zero for exactly this: App.tsx imported ``./pages/RegisterPage``,
+    no module ever wrote that file, ``vite build`` failed, and the grader could
+    not build the app at all - so not one of the 100 tests ran. The model repair
+    turn was tried once and did not fix it either. Creating the missing file is
+    mechanical, cannot be worse than a build that fails outright, and costs no
+    tokens, so it happens before another model turn is spent.
+    """
+    created: list[str] = []
+    for specifier, importer in UNRESOLVED_IMPORT.findall(error_text or ""):
+        if not specifier.startswith("."):
+            continue
+        target = _stub_path(project_dir, importer, specifier)
+        if target is None or target.exists():
+            continue
+        name = re.sub(r"[^A-Za-z0-9_]", "", target.stem) or "Placeholder"
+        if target.suffix in (".tsx", ".jsx"):
+            body = (
+                "// Placeholder written by the ARC agent: this module was imported\n"
+                "// by another file but never generated. A visible heading keeps the\n"
+                "// bundle resolvable so the app can still be graded.\n"
+                f"export default function {name}() {{\n"
+                f"  return <section><h1>{name}</h1></section>;\n"
+                "}\n"
+                f"export {{ {name} }};\n"
+            )
+        else:
+            body = (
+                "// Placeholder written by the ARC agent for a module that was\n"
+                "// imported but never generated.\n"
+                f"export default function {name}() {{ return null; }}\n"
+                f"export {{ {name} }};\n"
+            )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+        except OSError:
+            continue
+        created.append(str(target.relative_to(project_dir)).replace("\\", "/"))
+    return created
+
+
 def _load_package(path: Path) -> dict | None:
     """Parse a package.json, returning ``None`` when it is unusable."""
     try:
