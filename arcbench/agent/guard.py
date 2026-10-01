@@ -189,6 +189,14 @@ def drop_shadow_entry_files(project_dir: Path) -> list[str]:
 #: Modules each generated file may import with a relative path.
 SOURCE_SUFFIXES = (".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".json", ".css")
 
+#: Longest relative specifier worth resolving. Real module paths in this
+#: workspace are far shorter; anything past this is a model repetition artefact
+#: and only exists to blow up path handling.
+MAX_SPECIFIER = 160
+
+#: An import/require binding whose target string is absurdly long.
+SPECIFIER_TAIL = re.compile(r"""(\bfrom\s*|\bimport\s+|\brequire\(\s*)['"]([^'"]+)['"]""")
+
 FROM_RE = re.compile(r"""\bfrom\s*['"]([^'"]+)['"]""")
 SIDE_EFFECT_IMPORT_RE = re.compile(r"""(?m)^\s*import\s*['"]([^'"]+)['"]""")
 REQUIRE_RE = re.compile(r"""\brequire\(\s*['"]([^'"]+)['"]\s*\)""")
@@ -199,14 +207,26 @@ def _resolve_target(base: Path, specifier: str) -> Path | None:
     if not specifier.startswith("."):
         # Bare specifier, node builtin or a bundler alias: not ours to resolve.
         return None
+    # A model that falls into a repetition loop can emit an import specifier
+    # thousands of characters long (r50: "../pages/" repeated 448 times).
+    # Building a path from it and calling ``exists()`` raises
+    # OSError(36, "File name too long"), which used to escape this function and
+    # kill the whole generation run. A specifier that long cannot name a file
+    # this project has.
+    if len(specifier) > MAX_SPECIFIER:
+        return None
     target = base.parent / specifier
     candidates = [target]
     if not target.suffix:
         candidates.extend(Path(f"{target}{suffix}") for suffix in SOURCE_SUFFIXES)
         candidates.extend(target / f"index{suffix}" for suffix in SOURCE_SUFFIXES)
     for candidate in candidates:
-        if candidate.exists() and candidate.is_file():
-            return candidate
+        try:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        except OSError:
+            # ENAMETOOLONG and friends: not a file we can use either way.
+            continue
     return None
 
 
@@ -317,6 +337,8 @@ UNRESOLVED_IMPORT = re.compile(r'Could not resolve "([^"]+)" from "([^"]+)"')
 
 def _stub_path(project_dir: Path, importer: str, specifier: str) -> Path | None:
     """Where a missing module imported by ``importer`` has to be created."""
+    if len(specifier) > MAX_SPECIFIER:
+        return None
     candidates = [project_dir / importer, project_dir / "frontend" / importer]
     importer_path = Path(importer)
     if importer_path.is_absolute():
@@ -871,9 +893,79 @@ def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
     return added
 
 
+DEGENERATE_SHIM = "degenerate"
+
+
+def sanitize_long_specifiers(project_dir: Path) -> list[str]:
+    """Point pathologically long import specifiers at an inert local module.
+
+    A model that falls into a repetition loop can emit a specifier thousands of
+    characters long (r50: ``"../pages/"`` repeated 448 times, 4197 characters).
+    Nothing can resolve it, and merely building the path to ask whether it
+    exists raises ``OSError(36, "File name too long")`` on Linux - which used to
+    escape the whole generation run and end it with exit status 1, so the
+    grader saw an incomplete template and every test of the task scored zero.
+    Keep the binding, replace the target.
+    """
+    fixed: list[str] = []
+    for root, suffixes, shim_name in (
+        (project_dir / "frontend" / "src", (".ts", ".tsx", ".js", ".jsx"), ".tsx"),
+        (project_dir / "backend", (".js", ".mjs", ".cjs"), ".js"),
+    ):
+        if not root.is_dir():
+            continue
+        sources = [
+            path
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+            and path.suffix in suffixes
+            and "node_modules" not in path.parts
+            and SHIM_DIR not in path.parts
+        ]
+        if not sources:
+            continue
+        shim = root / SHIM_DIR / f"{DEGENERATE_SHIM}{shim_name}"
+        for path in sources:
+            text = _source_text(path)
+            if not text:
+                continue
+            relative = _relative_specifier(path, shim)
+            seen = False
+
+            def replace(match: re.Match, relative: str = relative) -> str:
+                nonlocal seen
+                if len(match.group(2)) <= MAX_SPECIFIER:
+                    return match.group(0)
+                seen = True
+                return f'{match.group(1)}"{relative}"'
+
+            patched = SPECIFIER_TAIL.sub(replace, text)
+            if not seen:
+                continue
+            if not shim.exists():
+                note = "an import specifier the generating model repeated"
+                body = (
+                    SHIM_COMPONENT.replace("__SPEC__", note)
+                    + "export const Placeholder = placeholder('Placeholder');\n"
+                    + "export default placeholder('default');\n"
+                    if shim.suffix == ".tsx"
+                    else BACKEND_SHIM.replace("__SPEC__", note)
+                )
+                try:
+                    shim.parent.mkdir(parents=True, exist_ok=True)
+                    shim.write_text(body, encoding="utf-8")
+                except OSError:
+                    continue
+            if _write_text(path, patched):
+                fixed.append(str(path.relative_to(project_dir)).replace("\\", "/"))
+    return fixed
+
+
 def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
     """Every build failure that can be repaired without spending a model turn."""
     repairs: list[str] = []
+    for sanitised in sanitize_long_specifiers(project_dir):
+        repairs.append(f"rewrote a degenerate import specifier in {sanitised}")
     for stub in stub_missing_modules(project_dir, error_text):
         repairs.append(f"placeholder module {stub}")
     for shim in shim_unresolved_packages(project_dir, error_text):

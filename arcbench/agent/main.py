@@ -45,6 +45,7 @@ from guard import check_local_imports
 from guard import stub_missing_modules
 from guard import deterministic_build_repair
 from guard import ensure_default_exports
+from guard import sanitize_long_specifiers
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -665,7 +666,9 @@ def normalize_generated_path(raw: object) -> str | None:
             path = path[index + 1 :]
             break
     path = path.lstrip("/")
-    if not path or path.endswith("/") or ".." in path.split("/"):
+    if not path or path.endswith("/") or ".." in path.split("/") or len(path) > 200:
+        # The length cap is a last line of defence against a path a repetition
+        # loop built: writing it fails, and on Linux even stat-ing it raises.
         return None
     if any(part in ("", ".") for part in path.split("/")):
         return None
@@ -823,8 +826,14 @@ def parse_generation(content: str) -> tuple[dict[str, str], list[str], str]:
 def write_generated(project_dir: Path, files: dict[str, str]) -> None:
     for relative, body in files.items():
         target = project_dir / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(body, encoding="utf-8")
+        except OSError as exc:
+            # One unwritable path must not end the run: the other 44 files are
+            # still worth grading, and the rehearsal repairs what is missing.
+            log(f"[arc-agent] could not write {relative}: "
+                f"{type(exc).__name__}: {exc}")
 
 
 # --------------------------------------------------------------- generation
@@ -1372,6 +1381,10 @@ def main(argv: list[str] | None = None) -> int:
 
         # A module that imports a file nobody wrote is fatal in both halves: the
         # bundle throws while loading and the backend dies before it binds.
+        degenerate = sanitize_long_specifiers(project_dir)
+        if degenerate:
+            log(f"[arc-agent] rewrote a runaway import specifier in "
+                f"{len(degenerate)} file(s): {degenerate[:6]}")
         missing_imports = check_local_imports(project_dir)
         if missing_imports:
             log(f"[arc-agent] unresolved local imports ({len(missing_imports)}): "
