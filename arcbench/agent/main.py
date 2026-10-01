@@ -492,10 +492,22 @@ def _is_seed_sentence(sentence: str) -> bool:
     return any(marker in low for marker in ("seed", "seeded", "fixture", "pre-seed"))
 
 
-#: "The seeded data is account `alice-dev`, email `alice.dev@example.test`,
-#: password `Valid-password-123!`." - the sentence ends at a period followed by
-#: whitespace, so the dots inside the email address do not end it early.
-SEEDED_DATA_RE = re.compile(r"seeded data is(.{0,220}?)(?:\.(?:\s|$)|\n)", re.S)
+#: The two phrasings the bundles actually use:
+#:   GitHub - "The seeded data is account `alice-dev`, email ... `Valid-password-123!`."
+#:   Sheet  - "The evaluation seed contains the seeded workbook `Q3 Sales`,
+#:             worksheet `Sheet1`, and cell A1 value `Region`."
+#: Each ends at a period followed by whitespace, so the dots inside an email or
+#: a filename do not end the sentence early.
+SEED_SENTENCE_RES = (
+    # The sentence ends at a period that is followed by whitespace, the end of
+    # the text, or the quote/bracket that closes the JSON string it came from -
+    # the bundles store scenarios as JSON, so "`Region`." is followed by '"}'.
+    re.compile(r"(?:the\s+)?seeded data is.{0,220}?\.(?=\s|$|[\"'\\)\]},])", re.S),
+    re.compile(
+        r"(?:the\s+)?(?:evaluation\s+)?seed contains.{0,260}?\.(?=\s|$|[\"'\\)\]},])",
+        re.S,
+    ),
+)
 
 #: Values the suite *types* rather than reads: an email address, a slug such as
 #: ``alice-dev``, or a password with a lower-case letter, an upper-case letter
@@ -527,10 +539,11 @@ def node_seed_sentences(nodes: list[dict], wanted: set[str]) -> list[str]:
                 " ".join(str(item) for item in (node.get("checklist") or [])),
             ]
         )
-        for match in SEEDED_DATA_RE.findall(text):
-            sentence = " ".join(match.split())
-            if sentence and sentence not in found:
-                found.append(sentence)
+        for pattern in SEED_SENTENCE_RES:
+            for match in pattern.findall(text):
+                sentence = " ".join(match.split())
+                if sentence and sentence not in found:
+                    found.append(sentence)
     return found
 
 
@@ -671,12 +684,13 @@ def build_module_prompt(
             "SEED DATA - create these records in the backend at start-up, before "
             "the first request, using these exact values:",
         ])
-        lines.extend(f"- the seeded data is{sentence}" for sentence in seed_lines)
+        lines.extend(f"- {sentence}" for sentence in seed_lines)
         lines.extend([
-            "The Playwright suite signs in with these credentials as the first step "
-            "of almost every scenario. If the account does not exist when the app "
-            "starts, every one of them fails - provision it in the same store the "
-            "sign-in route reads, not as text on a page.",
+            "The Playwright suite starts from this exact state: its first step is to "
+            "sign in with these credentials and open these named records. If they do "
+            "not exist when the app starts, EVERY scenario fails at that first step "
+            "- so create them in the same store the routes read, at start-up, not as "
+            "text on a page.",
         ])
     clarifications = [sentence for sentence in additions if not _is_seed_sentence(sentence)]
     if clarifications:
