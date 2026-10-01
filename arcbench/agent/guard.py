@@ -694,6 +694,10 @@ def stub_unparseable_sources(project_dir: Path, error_text: str) -> list[str]:
         relative = str(path.relative_to(project_dir)).replace("\\", "/")
         if relative.lower() in protected or SHIM_DIR in path.parts:
             continue
+        if "node_modules" in path.parts or "dist" in path.parts:
+            # A parser complaint about a dependency is not ours to edit, and
+            # the grading container installs its own tree.
+            continue
         if path.suffix not in (".ts", ".tsx", ".js", ".jsx"):
             continue
         name = re.sub(r"[^A-Za-z0-9_]", "", path.stem) or "Placeholder"
