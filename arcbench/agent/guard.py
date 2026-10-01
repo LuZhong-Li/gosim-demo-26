@@ -1289,6 +1289,148 @@ def ensure_startup_seed(
     return [f"{str(entry.relative_to(project_dir)).replace(chr(92), '/')} -> {route}"]
 
 
+#: The collection a sign-in route reads, e.g. ``store.collection('users', [])``.
+#: The default literal (``[]`` vs ``{}``) tells us the shape the route expects.
+SIGNIN_COLLECTION = re.compile(
+    r"""store\.collection\(\s*['"]([^'"]+)['"]\s*,\s*(\[[^\]]*\]|\{[^}]*\})"""
+)
+
+#: Route literals that mark a file as containing the sign-in endpoint.
+SIGNIN_ROUTE = re.compile(
+    r"""\.(post|get|use)\(\s*['"](/[A-Za-z0-9_\-/]*(?:login|sign-?in|auth)[A-Za-z0-9_\-/]*)['"]""",
+    re.IGNORECASE,
+)
+
+#: The sign-in handler verifies the password through a hash helper instead of a
+#: direct comparison. A plaintext record written into that store would only
+#: pre-empt the registration hook with a row the route cannot verify, so those
+#: files are left to the startup self-registration.
+HASHED_PASSWORD = re.compile(
+    r"""bcrypt|argon2|scrypt|pbkdf2|hashSync|compareSync|verifyPassword|password_?hash|createHash""",
+    re.IGNORECASE,
+)
+
+#: Collection keys that plausibly hold account records.
+ACCOUNT_KEYS = ("user", "users", "account", "accounts")
+
+
+def _signin_collections(project_dir: Path) -> list[tuple[str, bool]]:
+    """``(collection key, is_array)`` pairs the sign-in routes read."""
+    backend = project_dir / "backend"
+    if not backend.is_dir():
+        return []
+    found: list[tuple[str, bool]] = []
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        text = _source_text(path)
+        if not SIGNIN_ROUTE.search(text):
+            continue
+        if HASHED_PASSWORD.search(text):
+            continue
+        for match in SIGNIN_COLLECTION.finditer(text):
+            key = match.group(1)
+            if key.lower() not in ACCOUNT_KEYS:
+                continue
+            pair = (key, match.group(2).strip().startswith("["))
+            if pair not in found:
+                found.append(pair)
+    return found
+
+
+def _store_data_file(project_dir: Path) -> Path:
+    """The JSON file the generated store loads, defaulting to backend/data.json."""
+    backend = project_dir / "backend"
+    conventional = backend / "data.json"
+    if conventional.is_file():
+        return conventional
+    for store in (backend / "src" / "store.js", backend / "store.js"):
+        if not store.is_file():
+            continue
+        for name in re.findall(r"""['"]([^'"]*\.json)['"]""", _source_text(store)):
+            candidate = (store.parent / name).resolve()
+            if candidate.is_file():
+                return candidate
+    return conventional
+
+
+def ensure_signin_seed(project_dir: Path, seed: dict | None) -> list[str]:
+    """Write the seeded account into the store in the sign-in route's own shape.
+
+    The startup hook registers the account through the app's registration route,
+    but when the model writes ``register`` and ``sign-in`` against two different
+    store collections or password formats the probe still answers 401 (r57: the
+    account was found but the password was rejected). Reading the sign-in route
+    and writing the record into exactly the collection it reads - with a
+    plaintext ``password`` - repairs that case deterministically before a model
+    turn is spent.
+    """
+    if not seed or not seed.get("username") or not seed.get("password"):
+        return []
+    collections = _signin_collections(project_dir)
+    if not collections:
+        # Nothing to read the shape from; leave the self-registration hook and
+        # the rehearsal probe as the fallback rather than guessing a shape.
+        return []
+    username = str(seed["username"])
+    email = str(seed.get("email") or f"{username}@example.test")
+    password = str(seed["password"])
+    data_file = _store_data_file(project_dir)
+
+    data: dict = {}
+    if data_file.is_file():
+        try:
+            parsed = json.loads(_source_text(data_file))
+            if isinstance(parsed, dict):
+                data = parsed
+        except Exception:  # noqa: BLE001 - a corrupt seed file starts over
+            data = {}
+
+    account = {
+        "id": f"seed-{username}",
+        "username": username,
+        "email": email,
+        "usernameOrEmail": username,
+        "password": password,
+    }
+
+    def _present(items: list | dict) -> bool:
+        values = items if isinstance(items, list) else items.values()
+        for item in values:
+            if not isinstance(item, dict):
+                continue
+            if (item.get("username") == username or item.get("email") == email
+                    or item.get("usernameOrEmail") == username):
+                return True
+        return False
+
+    wrote: list[str] = []
+    for key, is_array in collections:
+        coll = data.get(key)
+        if is_array:
+            if not isinstance(coll, list):
+                coll = []
+            if not _present(coll):
+                coll.append(account)
+                wrote.append(f"{key}[]")
+        else:
+            if not isinstance(coll, dict):
+                coll = {}
+            if not _present(coll):
+                coll[f"seed-{username}"] = account
+                wrote.append(f"{key}{{}}")
+        data[key] = coll
+
+    if not wrote:
+        return []
+    try:
+        data_file.parent.mkdir(parents=True, exist_ok=True)
+        data_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        return []
+    return [f"{str(data_file.relative_to(project_dir)).replace(chr(92), '/')} -> {', '.join(wrote)}"]
+
+
 def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     """Define the store methods the backend calls but the store never exported.
 

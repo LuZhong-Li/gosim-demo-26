@@ -50,6 +50,7 @@ from guard import sanitize_long_specifiers
 from guard import repair_wrong_relative_imports
 from guard import complete_store_methods
 from guard import ensure_startup_seed
+from guard import ensure_signin_seed
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1758,6 +1759,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 log("[arc-agent] no registration route found to seed the account "
                     "with; the rehearsal probe will report whether it exists")
+            stored = ensure_signin_seed(project_dir, credentials)
+            if stored:
+                log(f"[arc-agent] wrote the seeded account into the sign-in store: {stored}")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials)
 
