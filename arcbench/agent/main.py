@@ -1174,7 +1174,10 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
     for attempt in range(1, 9):
         log(f"[rehearsal] startup rehearsal {attempt} (smoke port {smoke_port})")
         started = time.time()
-        error = rehearse_startup(project_dir, smoke_port)
+        # Only the first attempt pays for `npm install`; retries reuse the
+        # installed tree so the repair loop cannot spend the run's time budget
+        # on repeated installs of the same dependencies.
+        error = rehearse_startup(project_dir, smoke_port, install=(attempt == 1))
         if error is None:
             log(f"[rehearsal] app builds and starts cleanly in {time.time() - started:.0f}s")
             return "build and start-up rehearsal passed"
@@ -1183,6 +1186,12 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
             return error
         log(f"[rehearsal] FAILED in {time.time() - started:.0f}s: "
             f"{error.splitlines()[0][:200]}")
+        # Keep a reserve: closing the run, the traceability report and the
+        # commit all still need to happen, and an unfinished run is worse than a
+        # repaired-but-unverified one.
+        if time.time() > deadline - 300:
+            log("[rehearsal] out of time budget; submitting as-is")
+            return f"rehearsal failed: {error.splitlines()[0][:160]}"
         # Every build failure with a mechanical fix - a module the bundle cannot
         # resolve, a package that is not installed, a file the parser rejected -
         # is repaired here, with the rehearsal retried, before a model turn is

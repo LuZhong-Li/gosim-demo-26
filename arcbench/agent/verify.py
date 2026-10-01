@@ -316,13 +316,19 @@ def _spawn_server(backend: Path, port: int, log_file: Path) -> subprocess.Popen:
     )
 
 
-def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -> str | None:
+def rehearse_startup(
+    output_dir: Path, smoke_port: int, *, timeout: int = 600, install: bool = True
+) -> str | None:
     """Run the grading sequence ourselves, on the smoke port.
 
     Returns ``None`` when the app builds and comes up, otherwise a short error
     description suitable for feeding back into a repair turn. Returns a
     ``SKIP:`` string when the toolchain is unavailable, which the caller must
     treat as "not verified" rather than "failed".
+
+    ``install=False`` skips ``npm install`` on a retry. The repair loop can run
+    the rehearsal several times in a row, and each install costs more than the
+    build it guards; the first attempt has already installed for this run.
     """
     frontend = output_dir / "frontend"
     backend = output_dir / "backend"
@@ -334,7 +340,10 @@ def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -
         return "SKIP: npm is not on PATH in this container"
 
     if (frontend / "package.json").exists():
-        rc, out = _run([npm, *NPM_INSTALL[1:]], frontend, timeout)
+        if install or not (frontend / "node_modules").is_dir():
+            rc, out = _run([npm, *NPM_INSTALL[1:]], frontend, timeout)
+        else:
+            rc, out = 0, ""
         if rc != 0 and not (frontend / "node_modules").is_dir():
             if _is_environment_failure(out):
                 return ("SKIP: `npm install` cannot reach a registry from this container "
@@ -346,7 +355,10 @@ def rehearse_startup(output_dir: Path, smoke_port: int, *, timeout: int = 600) -
 
     if not (backend / "package.json").exists():
         return "backend/package.json missing"
-    rc, out = _run([npm, *NPM_INSTALL[1:]], backend, timeout)
+    if install or not (backend / "node_modules").is_dir():
+        rc, out = _run([npm, *NPM_INSTALL[1:]], backend, timeout)
+    else:
+        rc, out = 0, ""
     if rc != 0 and not (backend / "node_modules").is_dir():
         if _is_environment_failure(out):
             return ("SKIP: `npm install` cannot reach a registry from this container "
