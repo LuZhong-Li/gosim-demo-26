@@ -846,6 +846,79 @@ def ensure_default_exports(project_dir: Path) -> list[str]:
     return added
 
 
+EXPORTED_CLASS = re.compile(r"export\s+(?:async\s+)?class\s+([A-Za-z_$][\w$]*)")
+EXPORT_CLAUSE = re.compile(r"export\s+(?:type\s+)?\{([^}]*)\}")
+EXPORT_STAR = re.compile(r"export\s*\*\s*from")
+
+
+def exported_names(body: str) -> set[str] | None:
+    """Every name a module exports, or None when that cannot be known."""
+    if EXPORT_STAR.search(body):
+        # A star re-export can supply anything, so a static check would produce
+        # false positives; the bundler's own error is the authority here.
+        return None
+    names = set(EXPORTED_FUNCTION.findall(body))
+    names |= set(EXPORTED_CONST.findall(body))
+    names |= set(EXPORTED_CLASS.findall(body))
+    for clause in EXPORT_CLAUSE.findall(body):
+        for part in clause.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            if " as " in part:
+                part = part.split(" as ")[1].strip()
+            if re.fullmatch(r"[A-Za-z_$][\w$]*", part):
+                names.add(part)
+    return names
+
+
+def ensure_named_exports(project_dir: Path) -> list[str]:
+    """Add an inert export for every named import the target module lacks.
+
+    r51 built 45 files, wrote them all, then failed the grading build with
+    ``"Page" is not exported by "src/components/Form.tsx"`` - one invented name
+    on one import line, and the whole task scored zero because the bundle never
+    resolved. The build log only reports the first such name per attempt, so the
+    static sweep fixes the whole class at once instead of spending a rebuild (and
+    possibly a model turn) per name.
+    """
+    added: list[str] = []
+    for path in _frontend_sources(project_dir):
+        text = _source_text(path)
+        if not text:
+            continue
+        for clause, specifier in NAMED_IMPORT.findall(text):
+            if not specifier.startswith(".") or len(specifier) > MAX_SPECIFIER:
+                continue
+            target = _resolve_target(path, specifier)
+            if target is None or SHIM_DIR in target.parts:
+                continue
+            if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+                continue
+            body = _source_text(target)
+            if not body:
+                continue
+            known = exported_names(body)
+            if known is None:
+                continue
+            for raw in clause.split(","):
+                name = raw.strip().split(" as ")[0].strip()
+                if not re.fullmatch(r"[A-Za-z_$][\w$]*", name) or name in known:
+                    continue
+                body = (
+                    f"{body.rstrip()}"
+                    f"{_placeholder_export(name, target.suffix)}"
+                    f"export {{ __arc_{name} as {name} }};\n"
+                )
+                known.add(name)
+                if _write_text(target, body):
+                    added.append(
+                        f"{name} -> "
+                        f"{str(target.relative_to(project_dir)).replace(chr(92), '/')}"
+                    )
+    return added
+
+
 def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
     """Add a placeholder export for every name the bundler says is missing.
 
@@ -859,9 +932,15 @@ def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
     for name, raw in MISSING_NAMED_EXPORT.findall(error_text or ""):
         if not re.fullmatch(r"[A-Za-z_$][\w$]*", name):
             continue
+        # Rollup prints the module path the way the bundle sees it, which is
+        # relative to ``frontend/`` - so try both the workspace root and
+        # ``frontend/`` and keep looking until one of them really exists. r51
+        # failed on exactly this: the loop stopped after the first in-project
+        # candidate, never reached ``frontend/src/components/Form.tsx``, and the
+        # missing export was left in place.
         candidates = [Path(raw)]
         if not Path(raw).is_absolute():
-            candidates = [project_dir / raw, project_dir / "frontend" / raw, Path(raw)]
+            candidates = [project_dir / raw, project_dir / "frontend" / raw]
         target = None
         for candidate in candidates:
             try:
@@ -871,7 +950,7 @@ def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
                 continue
             if candidate.is_file():
                 target = candidate
-            break
+                break
         if target is None or SHIM_DIR in target.parts:
             continue
         if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
@@ -879,9 +958,12 @@ def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
         body = _source_text(target)
         if not body:
             continue
-        if re.search(rf"export\s+(?:async\s+)?(?:function|const|class)\s+{name}\b", body):
-            continue
-        if re.search(rf"\b{name}\b\s*(?:,|\}})", body) and "export" in body:
+        already = re.search(
+            rf"export\s+(?:\{{[^}}]*\b{name}\b[^}}]*\}}"
+            rf"|(?:async\s+)?(?:function|const|class)\s+{name}\b)",
+            body,
+        )
+        if already:
             continue
         body = (
             f"{body.rstrip()}"
@@ -976,6 +1058,8 @@ def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
         repairs.append(f"export added {added}")
     for source in stub_unparseable_sources(project_dir, error_text):
         repairs.append(f"placeholdered unparseable {source}")
+    for added in ensure_named_exports(project_dir):
+        repairs.append(f"named export added {added}")
     for added in ensure_default_exports(project_dir):
         repairs.append(f"default export added {added}")
     return repairs

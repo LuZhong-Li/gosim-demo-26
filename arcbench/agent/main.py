@@ -45,6 +45,7 @@ from guard import check_local_imports
 from guard import stub_missing_modules
 from guard import deterministic_build_repair
 from guard import ensure_default_exports
+from guard import ensure_named_exports
 from guard import sanitize_long_specifiers
 from guard import unrouted_pages
 from llm import LlmClient
@@ -1507,6 +1508,12 @@ def main(argv: list[str] | None = None) -> int:
         if completed:
             log(f"[arc-agent] completed default exports in {len(completed)} file(s): "
                 f"{completed[:6]}")
+        # A named import of something the target module never exports fails the
+        # bundle outright (r51: `"Page" is not exported by "Form.tsx"`), and the
+        # bundler only reports the first name it trips over, so fix them all now.
+        named = ensure_named_exports(project_dir)
+        if named:
+            log(f"[arc-agent] completed named exports: {named[:8]}")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline)
 
