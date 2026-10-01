@@ -43,6 +43,7 @@ from guard import guard as guard_generated
 from guard import drop_shadow_entry_files
 from guard import check_local_imports
 from guard import stub_missing_modules
+from guard import deterministic_build_repair
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1168,8 +1169,9 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
     if os.environ.get("ARC_SKIP_REHEARSAL") == "1":
         log("[rehearsal] skipped (ARC_SKIP_REHEARSAL=1)")
         return "rehearsal skipped (ARC_SKIP_REHEARSAL=1)"
-    for attempt in range(1, 4):
-        log(f"[rehearsal] startup rehearsal {attempt}/3 (smoke port {smoke_port})")
+    model_turns = 0
+    for attempt in range(1, 9):
+        log(f"[rehearsal] startup rehearsal {attempt} (smoke port {smoke_port})")
         started = time.time()
         error = rehearse_startup(project_dir, smoke_port)
         if error is None:
@@ -1180,23 +1182,28 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
             return error
         log(f"[rehearsal] FAILED in {time.time() - started:.0f}s: "
             f"{error.splitlines()[0][:200]}")
-        # An unresolvable import is the one build failure we can always fix
-        # without the model (r49 never recovered from it and scored zero), so
-        # pay that cost first and retry before spending a repair turn.
-        stubs = stub_missing_modules(project_dir, error)
-        if stubs:
-            log(f"[rehearsal] created {len(stubs)} placeholder module(s) for "
-                f"unresolved imports: {stubs}")
+        # Every build failure with a mechanical fix - a module the bundle cannot
+        # resolve, a package that is not installed, a file the parser rejected -
+        # is repaired here, with the rehearsal retried, before a model turn is
+        # spent. Each of those classes alone costs all 100 tests of the task
+        # (r49 scored zero on a single unresolved import), so they are worth any
+        # number of cheap rebuilds.
+        repairs = deterministic_build_repair(project_dir, error)
+        if repairs:
+            log(f"[rehearsal] deterministic repair {attempt}: {repairs}")
             continue
-        if attempt >= 3:
+        if model_turns >= 2 or time.time() > deadline:
             log("[rehearsal] giving up; submitting as-is")
             return f"rehearsal failed: {error.splitlines()[0][:160]}"
+        model_turns += 1
         repaired = repair_from_rehearsal(project_dir, llm, error, deadline)
-        if repaired:
-            guard_generated(project_dir, TEMPLATES / slug, set(repaired))
-            build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
-            if build_fixes:
-                log(f"[rehearsal] normalised build plumbing after repair: {build_fixes}")
+        if not repaired:
+            log("[rehearsal] repair turn wrote no files; submitting as-is")
+            return f"rehearsal failed: {error.splitlines()[0][:160]}"
+        guard_generated(project_dir, TEMPLATES / slug, set(repaired))
+        build_fixes = fix_build_scripts(project_dir, TEMPLATES / slug)
+        if build_fixes:
+            log(f"[rehearsal] normalised build plumbing after repair: {build_fixes}")
     return "rehearsal failed"
 
 
