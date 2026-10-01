@@ -1590,7 +1590,7 @@ def main(argv: list[str] | None = None) -> int:
         # unbuildable project, so restore the scaffold copy of anything broken.
         wildcard_fixes = fix_wildcard_routes(project_dir)
         if wildcard_fixes:
-            log(f"[arc-agent] rewrote Express-5-incompatible '*' routes: {wildcard_fixes}")
+            log(f"[arc-agent] rewrote Express-5-incompatible routes: {wildcard_fixes}")
         shadow_drops = drop_shadow_entry_files(project_dir)
         if shadow_drops:
             log(f"[arc-agent] removed shadowed App/entry files: {shadow_drops}")

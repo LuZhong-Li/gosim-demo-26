@@ -25,6 +25,49 @@ from pathlib import Path
 WILDCARD_ROUTE = re.compile(r"""\.(get|use|all|options|head)\(\s*(['"])\*\2""")
 SAFE_FALLBACK = r".\1(/^(?!\/api(?:\/|$)).*/"
 
+#: Express 4 accepted an inline regex on a named route parameter, e.g.
+#:   app.get('/api/repos/:owner/:repo/file/:branch/:filePath(.*)', ...)
+#: Express 5 (path-to-regexp v8) throws ``PathError: Unexpected (`` on the
+#: ``(...)``. ``(.*)`` means "the rest of the path" and maps to the v8 named
+#: wildcard ``*filePath``; any other inline regex is dropped to a plain ``:name``
+#: (the route then matches one segment unconstrained - the behaviour the tests
+#: rely on). r56 GitHub crashed on exactly this before the sign-in probe ran.
+REGEX_PARAM = re.compile(r":([A-Za-z_][A-Za-z0-9_]*)(?:\(([^()]*)\))")
+
+#: The path string in a route registration, e.g. ``app.get('/api/...', h)``.
+#: Scoping the inline-regex rewrite to these literals keeps it away from strings
+#: that merely resemble a route.
+ROUTE_PATH_RE = re.compile(
+    r"\.(get|post|put|patch|delete|use|all|options|head)\s*\(\s*(['\"])(/.*?)\2"
+)
+
+
+def _regex_param_repl(match: re.Match) -> str:
+    name = match.group(1)
+    pattern = (match.group(2) or "").strip()
+    if pattern == ".*":
+        return f"*{name}"
+    return f":{name}"
+
+
+def _rewrite_express_routes(text: str) -> tuple[str, int, int]:
+    """Rewrite both Express-5-incompatible route idioms, returning change counts."""
+    out, wildcard = WILDCARD_ROUTE.subn(SAFE_FALLBACK, text)
+    regex_param = 0
+
+    def route_repl(match: re.Match) -> str:
+        nonlocal regex_param
+        verb = match.group(1)
+        quote = match.group(2)
+        path = match.group(3)
+        fixed, changed = REGEX_PARAM.subn(_regex_param_repl, path)
+        regex_param += changed
+        return f".{verb}({quote}{fixed}{quote}"
+
+    out = ROUTE_PATH_RE.sub(route_repl, out)
+    return out, wildcard, regex_param
+
+
 # Files whose content decides whether the project builds and starts.
 PROTECTED = (
     "frontend/package.json",
@@ -129,10 +172,13 @@ def guard(project_dir: Path, scaffold_dir: Path, generated: set[str]) -> list[st
 
 
 def fix_wildcard_routes(project_dir: Path) -> list[str]:
-    """Rewrite Express-5-incompatible ``'*'`` routes in the generated backend.
+    """Rewrite Express-5-incompatible route paths in the generated backend.
 
-    Returns the list of files changed. Only ``backend/**/*.js`` is touched, and
-    only the route path literal changes, so the model's own handlers survive.
+    Two Express-4 idioms crash the backend at startup on Express 5
+    (path-to-regexp v8): a bare ``'*'`` catch-all and an inline regex on a named
+    parameter (``:filePath(.*)``). Returns the list of files changed. Only
+    ``backend/**/*.js`` is touched, and only the route path literal changes, so
+    the model's own handlers survive.
     """
     fixes: list[str] = []
     backend = project_dir / "backend"
@@ -145,14 +191,17 @@ def fix_wildcard_routes(project_dir: Path) -> list[str]:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        patched, count = WILDCARD_ROUTE.subn(SAFE_FALLBACK, text)
-        if not count:
+        patched, wildcard, regex_param = _rewrite_express_routes(text)
+        if not wildcard and not regex_param:
             continue
         try:
             path.write_text(patched, encoding="utf-8")
         except OSError:
             continue
-        fixes.append(f"{path.relative_to(project_dir)} ({count} route(s))")
+        fixes.append(
+            f"{path.relative_to(project_dir)} "
+            f"({wildcard} wildcard, {regex_param} regex-param route(s))"
+        )
     return fixes
 
 
@@ -1276,6 +1325,8 @@ def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
 def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
     """Every build failure that can be repaired without spending a model turn."""
     repairs: list[str] = []
+    for routed in fix_wildcard_routes(project_dir):
+        repairs.append(f"express-5 route fixed in {routed}")
     for fixed in repair_wrong_relative_imports(project_dir):
         repairs.append(f"repointed import in {fixed}")
     for sanitised in sanitize_long_specifiers(project_dir):
