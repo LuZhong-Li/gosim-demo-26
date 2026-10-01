@@ -51,6 +51,7 @@ from guard import repair_wrong_relative_imports
 from guard import complete_store_methods
 from guard import ensure_startup_seed
 from guard import ensure_signin_seed
+from guard import static_list_issues
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1755,6 +1756,30 @@ def main(argv: list[str] | None = None) -> int:
         if completed:
             log(f"[arc-agent] completed default exports in {len(completed)} file(s): "
                 f"{completed[:6]}")
+        # A page can render the seeded collection from a literal and never call
+        # the backend: r58's Sheet app shipped `['Sample Workbook']` hard-coded,
+        # so the seeded workbook never reached the DOM and every scenario failed
+        # on its first click, while the HTTP API looked perfectly healthy.
+        list_issues = static_list_issues(project_dir)
+        if list_issues:
+            log(f"[arc-agent] data-source check: {list_issues}")
+            if llm.available and time.time() < deadline - 300:
+                patched = repair_from_rehearsal(
+                    project_dir, llm,
+                    "Static data-source check failed before the grader ever ran:\n"
+                    + "\n".join(list_issues)
+                    + "\n\nThe Playwright suite opens the seeded record by its exact "
+                      "name on the page that lists those records. Load that list "
+                      "from the backend route that serves it (do not keep a literal "
+                      "array), and emit the corrected files complete, in the JSON "
+                      "envelope.",
+                    deadline,
+                )
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    remaining = static_list_issues(project_dir)
+                    log(f"[arc-agent] data-source check after patch: "
+                        f"{remaining or 'clean'}")
         # A named import of something the target module never exports fails the
         # bundle outright (r51: `"Page" is not exported by "Form.tsx"`), and the
         # bundler only reports the first name it trips over, so fix them all now.

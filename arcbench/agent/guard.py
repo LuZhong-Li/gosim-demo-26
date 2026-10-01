@@ -1244,6 +1244,52 @@ def find_register_route(project_dir: Path) -> str | None:
     return None
 
 
+#: A page that renders one of the seeded collections.
+COLLECTION_PAGE = re.compile(r"workbook|spreadsheet|worksheet|document", re.IGNORECASE)
+
+#: Evidence the page actually loads its data.
+LOADS_DATA = re.compile(r"fetch\(|axios|client\.(?:get|post)|\bapi\s*\.", re.IGNORECASE)
+
+#: A literal array of strings - usually a stub list standing in for the backend.
+HARDCODED_LIST = re.compile(r"\[\s*(?:['\"][^'\"]{2,60}['\"]\s*,\s*)+")
+
+
+def static_list_issues(project_dir: Path) -> list[str]:
+    """Pages that render the seeded collection without loading it from the API.
+
+    r58's Sheet app kept the seeded workbook out of the UI because the page that
+    shows workbooks initialised its state with a literal ``['Sample Workbook']``
+    and never called the backend: the HTTP API was fine, the DOM was not, and
+    every scenario failed at its first click. The rehearsal only sees HTTP, so
+    this pass reports the page itself.
+    """
+    issues: list[str] = []
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return issues
+    for path in sorted(src.rglob("*")):
+        if not path.is_file() or path.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+            continue
+        text = _source_text(path)
+        if not text or not COLLECTION_PAGE.search(path.name + " " + text[:2000]):
+            continue
+        relative = str(path.relative_to(project_dir)).replace("\\", "/")
+        literal = HARDCODED_LIST.search(text)
+        if LOADS_DATA.search(text):
+            if literal:
+                issues.append(
+                    f"{relative} renders a hard-coded list "
+                    f"({literal.group(0)[:60].strip()}) instead of the records the "
+                    f"backend serves"
+                )
+            continue
+        issues.append(
+            f"{relative} renders the record collection but never calls the API, "
+            f"so a seeded record cannot appear on it"
+        )
+    return issues[:6]
+
+
 def ensure_startup_seed(
     project_dir: Path, seed: dict | None, port: int = 3000
 ) -> list[str]:
