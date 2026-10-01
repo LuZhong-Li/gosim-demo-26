@@ -319,6 +319,7 @@ def _spawn_server(backend: Path, port: int, log_file: Path) -> subprocess.Popen:
 def rehearse_startup(
     output_dir: Path, smoke_port: int, *, timeout: int = 600, install: bool = True,
     seed: dict | None = None,
+    record: str | None = None,
 ) -> str | None:
     """Run the grading sequence ourselves, on the smoke port.
 
@@ -405,6 +406,16 @@ def rehearse_startup(
                         ):
                             return (f"the seeded account cannot sign in, so every "
                                     f"scenario's first step fails: {login_error}")
+                    if record:
+                        record_error = probe_seeded_record(smoke_port, output_dir, record)
+                        log(f"[rehearsal] seeded record probe: "
+                            f"{record_error or f'`{record}` is served'}")
+                        if record_error and not record_error.startswith(
+                            "no workbook listing"
+                        ):
+                            return ("the seeded record is not served by the app's own "
+                                    f"listing route, so the first click of every "
+                                    f"scenario finds nothing: {record_error}")
                     return None
             out = log_file.read_text(encoding="utf-8", errors="replace")
             return f"backend did not bind port {smoke_port} within 45s:\n{out[-1500:]}"
@@ -680,6 +691,68 @@ def probe_seeded_login(
                 attempts.append(f"{route} {field} -> {type(exc).__name__}")
     return ("the seeded account `" + username + "` cannot sign in: "
             + "; ".join(attempts[:6]))
+
+
+#: A route literal that looks like it serves the domain's record collection.
+LIST_ROUTE = re.compile(
+    r"""\.(?:get|post)\(\s*['"](/[A-Za-z0-9_\-/]*"""
+    r"""(?:workbook|spreadsheet|document|worksheet)[A-Za-z0-9_\-/]*)['"]""",
+    re.IGNORECASE,
+)
+
+
+def find_list_routes(project_dir: Path, pattern: re.Pattern = LIST_ROUTE) -> list[str]:
+    """Route literals that would serve the seeded records back to the front end."""
+    found: list[str] = []
+    backend = project_dir / "backend"
+    if not backend.is_dir():
+        return found
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for match in pattern.finditer(text):
+            route = match.group(1)
+            if route not in found:
+                found.append(route)
+    return found[:6]
+
+
+def probe_seeded_record(
+    port: int, project_dir: Path, needle: str, timeout: float = 10.0
+) -> str | None:
+    """Ask the running app whether the seeded record is actually served.
+
+    The Spreadsheet task opens on "the seeded workbook `Q3 Sales`" the same way
+    the GitHub task opens on the seeded account: if the collection the front end
+    reads is empty, or the listing route does not include it, every scenario
+    fails at its first click. r57/r58 showed a Sheet app that builds, starts and
+    hydrates its store - and still scores zero - so the store having the record
+    is not the same as the API serving it.
+    """
+    routes = find_list_routes(project_dir)
+    if not routes:
+        return "no workbook listing route found in the generated backend"
+    import urllib.error
+    import urllib.request
+
+    attempts: list[str] = []
+    for route in routes:
+        request = urllib.request.Request(f"http://127.0.0.1:{port}{route}")
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read().decode("utf-8", errors="ignore")
+            if needle in body:
+                return None
+            attempts.append(f"{route} -> 200 without `{needle}`")
+        except urllib.error.HTTPError as exc:
+            attempts.append(f"{route} -> {exc.code}")
+        except Exception as exc:  # noqa: BLE001 - any failure is a failure
+            attempts.append(f"{route} -> {type(exc).__name__}")
+    return f"the seeded record `{needle}` is not served: " + "; ".join(attempts[:6])
 
 
 def probe_api(port: int, project_dir: Path, timeout: float = 15.0) -> str | None:
