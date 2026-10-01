@@ -47,6 +47,8 @@ from guard import deterministic_build_repair
 from guard import ensure_default_exports
 from guard import ensure_named_exports
 from guard import sanitize_long_specifiers
+from guard import repair_wrong_relative_imports
+from guard import complete_store_methods
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1386,6 +1388,10 @@ def main(argv: list[str] | None = None) -> int:
         if degenerate:
             log(f"[arc-agent] rewrote a runaway import specifier in "
                 f"{len(degenerate)} file(s): {degenerate[:6]}")
+        repointed = repair_wrong_relative_imports(project_dir)
+        if repointed:
+            log(f"[arc-agent] repointed {len(repointed)} misdirected import(s): "
+                f"{repointed[:6]}")
         missing_imports = check_local_imports(project_dir)
         if missing_imports:
             log(f"[arc-agent] unresolved local imports ({len(missing_imports)}): "
@@ -1426,7 +1432,13 @@ def main(argv: list[str] | None = None) -> int:
         contract_issues = backend_store_contract(project_dir)
         if contract_issues:
             log(f"[arc-agent] store contract issues: {contract_issues}")
-            if time.time() < deadline:
+            # Mechanical first: defining the missing method keeps the server up
+            # whether or not the model answers, and costs no tokens.
+            shimmed = complete_store_methods(project_dir, contract_issues)
+            if shimmed:
+                log(f"[arc-agent] added store compatibility methods: {shimmed}")
+                contract_issues = backend_store_contract(project_dir)
+            if contract_issues and time.time() < deadline:
                 patched = repair_from_rehearsal(
                     project_dir, llm,
                     "Static contract check failed before the grader ever ran:\n"
