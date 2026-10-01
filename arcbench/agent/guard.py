@@ -1812,6 +1812,47 @@ def ensure_signin_route(project_dir: Path, seed: dict | None) -> list[str]:
     return [f"{relative} (+backend/src/arc-seed-auth.js) -> {', '.join(ordered)}"]
 
 
+#: Store methods that produce or check a password digest. Filling those with an
+#: inert ``undefined`` makes registration and sign-in disagree forever.
+STORE_HASH_METHOD = re.compile(
+    r"^(?:hash|hashPassword|hashify|encrypt|encryptPassword|digest|makeHash|"
+    r"passwordHash)$",
+    re.IGNORECASE,
+)
+STORE_VERIFY_METHOD = re.compile(
+    r"^(?:verifyPassword|verifyHash|checkPassword|comparePassword|"
+    r"passwordMatches|matchPassword|validatePassword)$",
+    re.IGNORECASE,
+)
+
+
+def _store_filler(name: str) -> str:
+    """A placeholder definition that keeps a missing store method harmless."""
+    if STORE_HASH_METHOD.match(name):
+        return (
+            f"  if (typeof api.{name} !== 'function') api.{name} = function (value) {{\n"
+            f"    return require('crypto').createHash('sha256')"
+            f".update(String(value === undefined || value === null ? '' : value))"
+            f".digest('hex');\n"
+            f"  }};\n"
+        )
+    if STORE_VERIFY_METHOD.match(name):
+        return (
+            f"  if (typeof api.{name} !== 'function') api.{name} = function (plain, stored) {{\n"
+            f"    if (plain === stored) return true;\n"
+            f"    if (typeof api.hashPassword === 'function') {{\n"
+            f"      return api.hashPassword(plain) === stored || "
+            f"api.hashPassword(plain) === String(plain);\n"
+            f"    }}\n"
+            f"    return false;\n"
+            f"  }};\n"
+        )
+    return (
+        f"  if (typeof api.{name} !== 'function') "
+        f"api.{name} = function () {{ return undefined; }};\n"
+    )
+
+
 def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     """Define the store methods the backend calls but the store never exported.
 
@@ -1828,18 +1869,18 @@ def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     if not flagged:
         return []
     # ``collection``/``save``/``hydrate``/``reset`` always get a real
-    # implementation below; anything else the routes invented is defined as an
-    # inert function so the call cannot throw.
+    # implementation below. Everything else the routes invented is defined so
+    # the call cannot throw - but a *hash* helper stubbed to ``undefined`` is
+    # worse than a missing one: the registration route then stores ``undefined``
+    # as the password and the sign-in route can never match it. r53 shipped
+    # exactly that and the grader answered 401 to every sign-in, so those names
+    # get a deterministic digest instead.
     extra = [name for name in flagged if name not in ("collection", "save", "hydrate", "reset")]
     store = project_dir / "backend" / "src" / "store.js"
     body = _source_text(store)
     if not body or "added by the ARC agent" in body:
         return []
-    fillers = "".join(
-        f"  if (typeof api.{name} !== 'function') "
-        f"api.{name} = function () {{ return undefined; }};\n"
-        for name in extra
-    )
+    fillers = "".join(_store_filler(name) for name in extra)
     if not _write_text(store, body.rstrip() + STORE_COMPAT % fillers):
         return []
     return flagged
