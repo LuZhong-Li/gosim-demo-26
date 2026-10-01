@@ -401,21 +401,20 @@ def rehearse_startup(
                         )
                         log(f"[rehearsal] seeded sign-in probe: "
                             f"{login_error or 'the seeded account signs in'}")
-                        if login_error and not login_error.startswith(
-                            "no sign-in route"
-                        ):
+                        if login_error:
                             return (f"the seeded account cannot sign in, so every "
                                     f"scenario's first step fails: {login_error}")
                     if record:
                         record_error = probe_seeded_record(smoke_port, output_dir, record)
                         log(f"[rehearsal] seeded record probe: "
                             f"{record_error or f'`{record}` is served'}")
-                        if record_error and not record_error.startswith(
-                            "no workbook listing"
-                        ):
+                        if record_error:
                             return ("the seeded record is not served by the app's own "
                                     f"listing route, so the first click of every "
-                                    f"scenario finds nothing: {record_error}")
+                                    f"scenario finds nothing: {record_error}. Keep the "
+                                    f"listing route registered at the same path and "
+                                    f"make it return the seeded records; deleting or "
+                                    f"renaming it does not satisfy this check.")
                     return None
             out = log_file.read_text(encoding="utf-8", errors="replace")
             return f"backend did not bind port {smoke_port} within 45s:\n{out[-1500:]}"
@@ -735,7 +734,11 @@ def probe_seeded_record(
     """
     routes = find_list_routes(project_dir)
     if not routes:
-        return "no workbook listing route found in the generated backend"
+        # r59: a repair turn deleted the listing route instead of fixing it, and
+        # the escape hatch that ignored a missing route let the rehearsal report
+        # success while every scenario still had nothing to click.
+        return (f"the seeded record `{needle}` can never be served: the generated "
+                f"backend registers no listing route at all")
     import urllib.error
     import urllib.request
 

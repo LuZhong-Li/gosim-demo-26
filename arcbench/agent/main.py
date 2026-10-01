@@ -51,6 +51,7 @@ from guard import repair_wrong_relative_imports
 from guard import complete_store_methods
 from guard import ensure_startup_seed
 from guard import ensure_signin_seed
+from guard import ensure_signin_route
 from guard import static_list_issues
 from guard import unrouted_pages
 from llm import LlmClient
@@ -1800,6 +1801,10 @@ def main(argv: list[str] | None = None) -> int:
             stored = ensure_signin_seed(project_dir, credentials)
             if stored:
                 log(f"[arc-agent] wrote the seeded account into the sign-in store: {stored}")
+            routed = ensure_signin_route(project_dir, credentials)
+            if routed:
+                log(f"[arc-agent] the app had no sign-in route of its own; mounted a "
+                    f"seeded one in front of the generated routes: {routed}")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials,
                                        record=seed_record_literal(nodes_payload))
