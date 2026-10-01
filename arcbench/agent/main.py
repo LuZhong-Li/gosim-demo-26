@@ -1187,6 +1187,21 @@ def repair_missing_names(
             "than printing them on a page:\n\n"
             + "\n".join(f"- {name}" for name in data_like[:40])
         )
+    # Tell the model which files exist, so it edits a page instead of inventing a
+    # new one. r53's Sheet run finished with only 38 of 70 required names present
+    # (54%) - the suite locates every control by its exact accessible name, so
+    # each missing name is a test that cannot pass.
+    pages = [
+        str(path.relative_to(project_dir)).replace("\\", "/")
+        for path in sorted((project_dir / "frontend" / "src").rglob("*"))
+        if path.is_file() and path.suffix in (".tsx", ".ts", ".jsx", ".js")
+    ]
+    if pages:
+        prompt += (
+            "\n\nThe frontend files that already exist (put the missing names in "
+            "the right one of these; do not invent new files):\n"
+            + "\n".join(f"- {page}" for page in pages[:60])
+        )
     content = llm.chat([
         {"role": "system", "content": REPAIR_SYSTEM},
         {"role": "user", "content": prompt},
