@@ -573,6 +573,7 @@ def build_module_prompt(
     specs_text: str = "",
     ports: str = "",
     names: list[str] | None = None,
+    assertions: dict[str, list[str]] | None = None,
     existing_files: list[str] | None = None,
     key_files: dict[str, str] | None = None,
 ) -> str:
@@ -708,6 +709,20 @@ def build_module_prompt(
             "- so create them in the same store the routes read, at start-up, not as "
             "text on a page.",
         ])
+    if assertions:
+        checks = [
+            f"- [{rid}] {item}"
+            for rid in wanted
+            for item in assertions.get(rid, [])
+        ]
+        if checks:
+            lines.extend([
+                "",
+                "Checks this module must satisfy. They were compiled from the "
+                "scenarios above and are the contract your code is graded "
+                "against - implement each one literally:",
+            ])
+            lines.extend(checks)
     clarifications = [sentence for sentence in additions if not _is_seed_sentence(sentence)]
     if clarifications:
         lines.extend(["", "Late clarifications from the current task page (authoritative):"])
@@ -927,6 +942,84 @@ def write_generated(project_dir: Path, files: dict[str, str]) -> None:
 
 # --------------------------------------------------------------- generation
 
+ASSERTION_SYSTEM = (
+    "You compile requirement scenarios into executable assertions. You do not "
+    "write prose: every line you emit is a check a test could make against a "
+    "running web application, stated so precisely that a Playwright spec could "
+    "be written from it without looking at anything else. Answer with JSON only."
+)
+
+
+def compile_assertions(
+    llm: LlmClient, nodes: list[dict], deadline: float, limit: int = 6
+) -> dict[str, list[str]]:
+    """Turn each atomic requirement's scenarios into explicit assertions.
+
+    ARC - the reference agent this benchmark is built around - is
+    "test-first": it derives interfaces and tests from the scenarios before it
+    writes code. Our generator went straight from requirement prose to source,
+    which is why an implementation could build, start, and still pass nothing.
+    The assertions compiled here are fed back into every module prompt as the
+    contract the code has to satisfy.
+    """
+    if not llm.available or time.time() > deadline:
+        return {}
+    lines: list[str] = []
+    for node in nodes:
+        if node.get("type") != "ATOMIC":
+            continue
+        body = " ".join(
+            [
+                str(node.get("description") or "")[:600],
+                _scenario_text(node.get("scenarios"))[:900],
+            ]
+        ).strip()
+        if not body:
+            continue
+        lines.append(f"[{node.get('id')}] {node.get('title')}\n{body}")
+    if not lines:
+        return {}
+    prompt = (
+        "For each requirement below, write at most "
+        f"{limit} assertions that a Playwright test could make against the "
+        "running application. Rules:\n"
+        "- One assertion per line inside the JSON array for that requirement.\n"
+        "- Every assertion names the exact accessible name, text or value from "
+        "the requirement (quoted verbatim), and the exact state it must reach.\n"
+        "- Prefer the first step of the scenario (sign-in, opening the seeded "
+        "record) as its own assertion when the scenario depends on it.\n"
+        "- No prose, no numbering, no markdown.\n\n"
+        'Reply as {"REQ-1": ["...", "..."], "REQ-2.1": ["..."]}.\n\n'
+        "Requirements:\n\n" + "\n\n".join(lines)
+    )
+    content = llm.chat([
+        {"role": "system", "content": ASSERTION_SYSTEM},
+        {"role": "user", "content": prompt},
+    ])
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        log("[assertions] the model did not return a JSON object")
+        return {}
+    try:
+        payload = json.loads(text[start:end + 1])
+    except Exception as exc:  # noqa: BLE001 - assertions are an optimisation
+        log(f"[assertions] unusable reply ({type(exc).__name__}); continuing without")
+        return {}
+    compiled: dict[str, list[str]] = {}
+    for key, value in payload.items():
+        if not isinstance(value, list):
+            continue
+        items = [str(item).strip() for item in value if str(item).strip()]
+        if items:
+            compiled[str(key)] = items[:limit]
+    total = sum(len(items) for items in compiled.values())
+    log(f"[assertions] compiled {total} assertion(s) for {len(compiled)} requirement(s)")
+    return compiled
+
 def generate_task_modules(
     project_dir: Path,
     tree: dict,
@@ -939,6 +1032,7 @@ def generate_task_modules(
     specs_text: str,
     ports: str,
     deadline: float,
+    assertions: dict[str, list[str]] | None = None,
 ) -> tuple[dict[str, str], list[str]]:
     """Generate one module per model call and write the result into the project.
 
@@ -961,6 +1055,7 @@ def generate_task_modules(
             tree, module, nodes, delta,
             guidance=guidance, specs_text=specs_text, ports=ports,
             names=module_names(module, nodes),
+            assertions=assertions,
             existing_files=sorted(files),
             key_files=read_key_files(project_dir),
         )
@@ -1472,12 +1567,22 @@ def main(argv: list[str] | None = None) -> int:
             # signal that the whole run is about to generate nothing.
             log("[llm] the endpoint did not answer the start-up probe; generation "
                 "will still be attempted, but expect the per-call retries to matter")
+        checks = compile_assertions(llm, nodes_payload, deadline)
+        if checks:
+            try:
+                (project_dir / "assertions.json").write_text(
+                    json.dumps(checks, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                log(f"[assertions] could not write assertions.json: {exc}")
         generated, covered = generate_task_modules(
             project_dir, tree, modules, nodes_payload, asset_slug, llm,
             guidance=load_asset_guidance(asset_slug),
             specs_text=specs_text,
             ports=port_clause(args.web_port, extra_ports),
             deadline=deadline,
+            assertions=checks,
         )
 
         # A single broken build-critical file turns the whole submission into an
