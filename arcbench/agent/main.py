@@ -492,6 +492,48 @@ def _is_seed_sentence(sentence: str) -> bool:
     return any(marker in low for marker in ("seed", "seeded", "fixture", "pre-seed"))
 
 
+#: "The seeded data is account `alice-dev`, email `alice.dev@example.test`,
+#: password `Valid-password-123!`." - the sentence ends at a period followed by
+#: whitespace, so the dots inside the email address do not end it early.
+SEEDED_DATA_RE = re.compile(r"seeded data is(.{0,220}?)(?:\.(?:\s|$)|\n)", re.S)
+
+#: Values the suite *types* rather than reads: an email address, a slug such as
+#: ``alice-dev``, or a password with a lower-case letter, an upper-case letter
+#: and a digit. Everything else is a label to render.
+DATA_LIKE = re.compile(
+    r"@|^[a-z0-9]+(?:-[a-z0-9]+)+$|^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)\S{8,}$"
+)
+
+
+def node_seed_sentences(nodes: list[dict], wanted: set[str]) -> list[str]:
+    """Seed sentences taken straight from the requirement text.
+
+    The task bundle repeats "the seeded data is account `alice-dev` ... password
+    `Valid-password-123!`" in 124 places and states that the application must
+    provision those records before the corresponding scenario. The build only
+    ever forwarded those sentences when a *live delta* file was mounted, which it
+    is not on the platform, so they reached the model as one clause among
+    hundreds of words and the account was never seeded - the suite's very first
+    step signs in with it, which fails every scenario at once.
+    """
+    found: list[str] = []
+    for node in nodes:
+        if node.get("id") not in wanted:
+            continue
+        text = " ".join(
+            [
+                str(node.get("description") or ""),
+                _scenario_text(node.get("scenarios")),
+                " ".join(str(item) for item in (node.get("checklist") or [])),
+            ]
+        )
+        for match in SEEDED_DATA_RE.findall(text):
+            sentence = " ".join(match.split())
+            if sentence and sentence not in found:
+                found.append(sentence)
+    return found
+
+
 def build_module_prompt(
     tree: dict,
     module: dict,
@@ -619,9 +661,23 @@ def build_module_prompt(
             lines.append(f"Scenario {index}: {_scenario_text(scenario)}")
     additions = [sentence for rid in wanted for sentence in delta.get(rid, [])]
     seed_additions = [sentence for sentence in additions if _is_seed_sentence(sentence)]
-    if seed_additions:
-        lines.extend(["", "SEED DATA (provision verbatim at backend start-up, before any test runs):"])
-        lines.extend(f"- {sentence}" for sentence in seed_additions)
+    seed_lines = seed_additions + [
+        sentence for sentence in node_seed_sentences(nodes, wanted)
+        if sentence not in seed_additions
+    ]
+    if seed_lines:
+        lines.extend([
+            "",
+            "SEED DATA - create these records in the backend at start-up, before "
+            "the first request, using these exact values:",
+        ])
+        lines.extend(f"- the seeded data is{sentence}" for sentence in seed_lines)
+        lines.extend([
+            "The Playwright suite signs in with these credentials as the first step "
+            "of almost every scenario. If the account does not exist when the app "
+            "starts, every one of them fails - provision it in the same store the "
+            "sign-in route reads, not as text on a page.",
+        ])
     clarifications = [sentence for sentence in additions if not _is_seed_sentence(sentence)]
     if clarifications:
         lines.extend(["", "Late clarifications from the current task page (authoritative):"])
@@ -1094,16 +1150,29 @@ def repair_missing_names(
     """
     if not llm.available or not missing or time.time() > deadline:
         return {}
+    # A password, an email address or an account slug is data the test *types*,
+    # not a label it reads back. Asking for those as visible text is how the
+    # suite's own credentials ended up "added" to a page instead of seeded.
+    data_like = [name for name in missing if DATA_LIKE.search(name)]
+    label_like = [name for name in missing if name not in data_like]
     prompt = (
         "The generated application is missing the following EXACT accessible "
         "names, which the automated Playwright suite locates with "
         "getByLabel / getByRole / getByText in strict mode:\n\n"
-        + "\n".join(f'- "{name}"' for name in missing[:80])
+        + "\n".join(f'- "{name}"' for name in label_like[:80])
         + "\n\nAdd the buttons, links, labels, headings or option values that "
         "expose each missing name as visible text on the correct page, and emit "
         "the corrected files, complete, in the JSON envelope. Do not rewrite "
         "working code around them; only add what is missing."
     )
+    if data_like:
+        prompt += (
+            "\n\nThese values are NOT labels - they are fixtures and credentials "
+            "the suite types into the forms. Provision them in the backend at "
+            "start-up (the same store the sign-in and create routes read) rather "
+            "than printing them on a page:\n\n"
+            + "\n".join(f"- {name}" for name in data_like[:40])
+        )
     content = llm.chat([
         {"role": "system", "content": REPAIR_SYSTEM},
         {"role": "user", "content": prompt},
