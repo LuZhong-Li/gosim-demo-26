@@ -44,6 +44,7 @@ from guard import drop_shadow_entry_files
 from guard import check_local_imports
 from guard import stub_missing_modules
 from guard import deterministic_build_repair
+from guard import ensure_default_exports
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1475,6 +1476,15 @@ def main(argv: list[str] | None = None) -> int:
         smoke_port = int(os.environ.get("ARC_SMOKE_PORT", "3100"))
         if smoke_port == args.web_port:
             smoke_port += 1
+        # A default import of a file that never default-exports anything still
+        # builds: React just receives an undefined element type and every route
+        # renders blank. That failure is invisible to `npm run build` and to the
+        # start-up rehearsal, and it costs every test of the task, so the export
+        # is completed before the rehearsal rather than after a failed run.
+        completed = ensure_default_exports(project_dir)
+        if completed:
+            log(f"[arc-agent] completed default exports in {len(completed)} file(s): "
+                f"{completed[:6]}")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline)
 

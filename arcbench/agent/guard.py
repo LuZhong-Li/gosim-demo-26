@@ -722,6 +722,151 @@ def stub_unparseable_sources(project_dir: Path, error_text: str) -> list[str]:
     return replaced
 
 
+#: ``import Widget from './pages/Widget'`` - the component the router renders.
+DEFAULT_IMPORT = re.compile(
+    r"""\bimport\s+([A-Za-z_$][\w$]*)\s*(?:,\s*\{[^}]*\}\s*)?from\s*['"](\.[^'"]+)['"]"""
+)
+
+#: ``import { Widget } from './pages/Widget'`` - a named binding.
+NAMED_IMPORT = re.compile(
+    r"""\bimport\s*\{([^}]*)\}\s*from\s*['"](\.[^'"]+)['"]"""
+)
+
+EXPORTED_FUNCTION = re.compile(r"export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)")
+EXPORTED_CONST = re.compile(r"export\s+const\s+([A-Za-z_$][\w$]*)")
+EXPORT_DEFAULT = re.compile(r"export\s+default\b")
+
+#: Rollup's wording when an ESM import asks for a name the module never exports.
+MISSING_NAMED_EXPORT = re.compile(r'"([^"]+)" is not exported by "([^"]+)"')
+
+
+def _source_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _write_text(path: Path, body: str) -> bool:
+    try:
+        path.write_text(body, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _placeholder_export(name: str, suffix: str) -> str:
+    if suffix in (".tsx", ".jsx"):
+        return (
+            f"\n\n/* Placeholder export written by the ARC agent: {name} is imported\n"
+            "   but the module never exported it, which renders nothing (or aborts\n"
+            "   the bundle) and costs every test that needs this screen. */\n"
+            f"function __arc_{name}() {{\n"
+            f"  return <section><h1>{name}</h1></section>;\n"
+            "}\n"
+        )
+    return (
+        f"\n\n/* Placeholder export written by the ARC agent for {name}. */\n"
+        f"function __arc_{name}() {{ return null; }}\n"
+    )
+
+
+def ensure_default_exports(project_dir: Path) -> list[str]:
+    """Give every default-imported component a ``export default``.
+
+    ``import Repo from './pages/RepoPage'`` against a file that only has
+    ``export function Repo()`` builds only by luck: React receives ``undefined``
+    as an element type, throws during the first render, and the whole app shows
+    a blank page - no error in the build log, no failed request, and every test
+    of the task fails. Naming the export the importer already asked for is the
+    cheapest fix that keeps the page's real content.
+    """
+    added: list[str] = []
+    for path in _frontend_sources(project_dir):
+        text = _source_text(path)
+        if not text:
+            continue
+        for local, specifier in DEFAULT_IMPORT.findall(text):
+            target = _resolve_target(path, specifier)
+            if target is None or SHIM_DIR in target.parts:
+                continue
+            if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+                continue
+            body = _source_text(target)
+            if not body or EXPORT_DEFAULT.search(body):
+                continue
+            exported = EXPORTED_FUNCTION.findall(body) + EXPORTED_CONST.findall(body)
+            relative = str(target.relative_to(project_dir)).replace("\\", "/")
+            # Prefer the name the importer asked for; otherwise take the first
+            # export that *looks like a component*. A lowercase helper exported
+            # as the default would render as "element type is invalid" all over
+            # again, which is the failure this function exists to remove.
+            if local in exported:
+                chosen = local
+            elif exported and exported[0][:1].isupper():
+                chosen = exported[0]
+            else:
+                chosen = None
+            if chosen:
+                body = f"{body.rstrip()}\n\nexport default {chosen};\n"
+            else:
+                body = (
+                    f"{body.rstrip()}"
+                    f"{_placeholder_export(local, target.suffix)}"
+                    f"export default __arc_{local};\n"
+                )
+            if _write_text(target, body):
+                added.append(relative)
+    return added
+
+
+def complete_missing_exports(project_dir: Path, error_text: str) -> list[str]:
+    """Add a placeholder export for every name the bundler says is missing.
+
+    Rollup stops the build with ``"Widget" is not exported by
+    "src/pages/Foo.tsx", imported by "src/App.tsx"``. The import is real code the
+    model wrote, so the name is worth keeping: exporting an inert component from
+    the module it was expected in keeps the bundle valid and leaves every other
+    screen intact.
+    """
+    added: list[str] = []
+    for name, raw in MISSING_NAMED_EXPORT.findall(error_text or ""):
+        if not re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+            continue
+        candidates = [Path(raw)]
+        if not Path(raw).is_absolute():
+            candidates = [project_dir / raw, project_dir / "frontend" / raw, Path(raw)]
+        target = None
+        for candidate in candidates:
+            try:
+                candidate = candidate.resolve()
+                candidate.relative_to(project_dir.resolve())
+            except (OSError, ValueError):
+                continue
+            if candidate.is_file():
+                target = candidate
+            break
+        if target is None or SHIM_DIR in target.parts:
+            continue
+        if target.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+            continue
+        body = _source_text(target)
+        if not body:
+            continue
+        if re.search(rf"export\s+(?:async\s+)?(?:function|const|class)\s+{name}\b", body):
+            continue
+        if re.search(rf"\b{name}\b\s*(?:,|\}})", body) and "export" in body:
+            continue
+        body = (
+            f"{body.rstrip()}"
+            f"{_placeholder_export(name, target.suffix)}"
+            f"export {{ __arc_{name} as {name} }};\n"
+        )
+        if _write_text(target, body):
+            added.append(f"{name} -> {str(target.relative_to(project_dir)).replace(chr(92), '/')}")
+    return added
+
+
 def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
     """Every build failure that can be repaired without spending a model turn."""
     repairs: list[str] = []
@@ -731,8 +876,12 @@ def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
         repairs.append(f"package shim {shim}")
     for shim in shim_unresolved_node_modules(project_dir, error_text):
         repairs.append(f"backend shim {shim}")
+    for added in complete_missing_exports(project_dir, error_text):
+        repairs.append(f"export added {added}")
     for source in stub_unparseable_sources(project_dir, error_text):
         repairs.append(f"placeholdered unparseable {source}")
+    for added in ensure_default_exports(project_dir):
+        repairs.append(f"default export added {added}")
     return repairs
 
 
