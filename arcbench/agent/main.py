@@ -517,6 +517,22 @@ DATA_LIKE = re.compile(
 )
 
 
+SEED_ACCOUNT = re.compile(
+    r"account\s+`([^`]+)`[^`]*`([^`]+)`[^`]*`([^`]+)`"
+)
+
+
+def seed_credentials(nodes: list[dict]) -> dict | None:
+    """The account the suite signs in with, taken from the requirement text."""
+    for sentence in node_seed_sentences(nodes, {str(n.get("id")) for n in nodes}):
+        match = SEED_ACCOUNT.search(sentence)
+        if match:
+            username, email, password = (part.strip() for part in match.groups())
+            if username and password:
+                return {"username": username, "email": email, "password": password}
+    return None
+
+
 def node_seed_sentences(nodes: list[dict], wanted: set[str]) -> list[str]:
     """Seed sentences taken straight from the requirement text.
 
@@ -1275,7 +1291,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmClient,
-                  slug: str, deadline: float) -> str:
+                  slug: str, deadline: float, seed: dict | None = None) -> str:
     """Rehearse the grader's sequence, repairing once, and return a summary."""
     if os.environ.get("ARC_SKIP_REHEARSAL") == "1":
         log("[rehearsal] skipped (ARC_SKIP_REHEARSAL=1)")
@@ -1287,7 +1303,8 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
         # Only the first attempt pays for `npm install`; retries reuse the
         # installed tree so the repair loop cannot spend the run's time budget
         # on repeated installs of the same dependencies.
-        error = rehearse_startup(project_dir, smoke_port, install=(attempt == 1))
+        error = rehearse_startup(project_dir, smoke_port, install=(attempt == 1),
+                                 seed=seed)
         if error is None:
             log(f"[rehearsal] app builds and starts cleanly in {time.time() - started:.0f}s")
             return "build and start-up rehearsal passed"
@@ -1624,8 +1641,12 @@ def main(argv: list[str] | None = None) -> int:
         named = ensure_named_exports(project_dir)
         if named:
             log(f"[arc-agent] completed named exports: {named[:8]}")
+        credentials = seed_credentials(nodes_payload)
+        if credentials:
+            log(f"[arc-agent] the suite signs in as {credentials['username']}; "
+                f"the rehearsal will verify that sign-in works")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
-                                       llm, slug, deadline)
+                                       llm, slug, deadline, seed=credentials)
 
         # Local acceptance suite. On the platform the specs, the Playwright CLI
         # and a browser are all absent during generation, so this stays dormant

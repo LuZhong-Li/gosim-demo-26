@@ -317,7 +317,8 @@ def _spawn_server(backend: Path, port: int, log_file: Path) -> subprocess.Popen:
 
 
 def rehearse_startup(
-    output_dir: Path, smoke_port: int, *, timeout: int = 600, install: bool = True
+    output_dir: Path, smoke_port: int, *, timeout: int = 600, install: bool = True,
+    seed: dict | None = None,
 ) -> str | None:
     """Run the grading sequence ourselves, on the smoke port.
 
@@ -391,6 +392,19 @@ def rehearse_startup(
                     api_error = probe_api(smoke_port, output_dir, timeout=15.0)
                     if api_error:
                         return api_error
+                    if seed and seed.get("username") and seed.get("password"):
+                        login_error = probe_seeded_login(
+                            smoke_port, output_dir,
+                            str(seed["username"]), str(seed["password"]),
+                            seed.get("email"),
+                        )
+                        log(f"[rehearsal] seeded sign-in probe: "
+                            f"{login_error or 'the seeded account signs in'}")
+                        if login_error and not login_error.startswith(
+                            "no sign-in route"
+                        ):
+                            return (f"the seeded account cannot sign in, so every "
+                                    f"scenario's first step fails: {login_error}")
                     return None
             out = log_file.read_text(encoding="utf-8", errors="replace")
             return f"backend did not bind port {smoke_port} within 45s:\n{out[-1500:]}"
@@ -585,6 +599,87 @@ def candidate_api_paths(project_dir: Path, limit: int = 8) -> list[str]:
         if len(paths) >= limit:
             break
     return paths[:limit]
+
+
+#: A route literal in the generated backend that looks like a sign-in endpoint.
+LOGIN_ROUTE = re.compile(
+    r"""['"](/[A-Za-z0-9_\-/]*(?:login|sign-?in|auth)[A-Za-z0-9_\-/]*)['"]""",
+    re.IGNORECASE,
+)
+
+#: Bodies a generated sign-in route may expect.
+LOGIN_BODIES = (
+    ("username", "password"),
+    ("email", "password"),
+    ("usernameOrEmail", "password"),
+)
+
+
+def find_login_routes(project_dir: Path) -> list[str]:
+    """Route literals the generated backend registers that look like sign-in."""
+    found: list[str] = []
+    backend = project_dir / "backend"
+    if not backend.is_dir():
+        return found
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for match in LOGIN_ROUTE.finditer(text):
+            route = match.group(1)
+            if route not in found:
+                found.append(route)
+    return found[:6]
+
+
+def probe_seeded_login(
+    port: int,
+    project_dir: Path,
+    username: str,
+    password: str,
+    email: str | None = None,
+    timeout: float = 10.0,
+) -> str | None:
+    """Try to sign in as the account the suite uses, and say what happened.
+
+    Every scenario in the GitHub pack opens with "The visitor starts at the
+    application home page in a fresh unauthenticated browser session ... signs in
+    as alice-dev with Valid-password-123!". If that one step fails, all hundred
+    scenarios fail with it, which is exactly the shape of a 0/100 that still
+    builds and starts. The rehearsal used to stop at "backend answers GET /",
+    which says nothing about whether the seeded account can actually sign in.
+    """
+    routes = find_login_routes(project_dir)
+    if not routes:
+        return "no sign-in route found in the generated backend"
+    import urllib.error
+    import urllib.request
+
+    values = {"username": username, "email": email or username,
+              "usernameOrEmail": username}
+    attempts: list[str] = []
+    for route in routes:
+        for field, _ in LOGIN_BODIES:
+            payload = {field: values[field], "password": password}
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}{route}",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    if 200 <= response.status < 300:
+                        return None
+                    attempts.append(f"{route} {field} -> {response.status}")
+            except urllib.error.HTTPError as exc:
+                attempts.append(f"{route} {field} -> {exc.code}")
+            except Exception as exc:  # noqa: BLE001 - any failure is a failure
+                attempts.append(f"{route} {field} -> {type(exc).__name__}")
+    return ("the seeded account `" + username + "` cannot sign in: "
+            + "; ".join(attempts[:6]))
 
 
 def probe_api(port: int, project_dir: Path, timeout: float = 15.0) -> str | None:
