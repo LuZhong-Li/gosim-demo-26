@@ -49,6 +49,7 @@ from guard import ensure_named_exports
 from guard import sanitize_long_specifiers
 from guard import repair_wrong_relative_imports
 from guard import complete_store_methods
+from guard import ensure_startup_seed
 from guard import unrouted_pages
 from llm import LlmClient
 from prompts import (
@@ -1750,6 +1751,13 @@ def main(argv: list[str] | None = None) -> int:
         if credentials:
             log(f"[arc-agent] the suite signs in as {credentials['username']}; "
                 f"the rehearsal will verify that sign-in works")
+            seeded = ensure_startup_seed(project_dir, credentials, args.web_port)
+            if seeded:
+                log(f"[arc-agent] the backend now seeds that account through its "
+                    f"own registration route: {seeded}")
+            else:
+                log("[arc-agent] no registration route found to seed the account "
+                    "with; the rehearsal probe will report whether it exists")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials)
 

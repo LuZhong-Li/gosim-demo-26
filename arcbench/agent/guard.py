@@ -1136,6 +1136,110 @@ STORE_COMPAT = """
 """
 
 
+#: A route literal that looks like account creation.
+REGISTER_ROUTE = re.compile(
+    r"""\.post\(\s*['"](/[A-Za-z0-9_\-/]*(?:register|sign-?up)[A-Za-z0-9_\-/]*)['"]""",
+    re.IGNORECASE,
+)
+
+STARTUP_SEED = '''
+
+// --- account seed added by the ARC agent ------------------------------------
+// The suite signs in as __USER__ before almost every scenario. Creating that
+// account through this backend's OWN registration route guarantees the stored
+// password is exactly the form its sign-in route checks - a hand-written seed
+// kept being rejected (r55: every sign-in answered 401, and all hundred
+// scenarios failed on their first step). Errors are ignored on purpose: an
+// "already exists" answer is a success here.
+const __arcSeedBody = __BODY__;
+const __arcSeedRoute = "__ROUTE__";
+function __arcSeed(attempt = 0) {
+  const port = process.env.PORT || __PORT__;
+  fetch(`http://127.0.0.1:${port}${__arcSeedRoute}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(__arcSeedBody),
+  }).catch(() => {
+    if (attempt < 10) setTimeout(() => __arcSeed(attempt + 1), 400);
+  });
+}
+setTimeout(() => __arcSeed(), 600);
+'''
+
+
+def _listen_file(project_dir: Path) -> Path | None:
+    backend = project_dir / "backend" / "src"
+    if not backend.is_dir():
+        return None
+    preferred = backend / "index.js"
+    if preferred.is_file() and ".listen(" in _source_text(preferred):
+        return preferred
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        if ".listen(" in _source_text(path):
+            return path
+    return None
+
+
+def find_register_route(project_dir: Path) -> str | None:
+    backend = project_dir / "backend"
+    if not backend.is_dir():
+        return None
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        match = REGISTER_ROUTE.search(_source_text(path))
+        if match:
+            return match.group(1)
+    return None
+
+
+def ensure_startup_seed(
+    project_dir: Path, seed: dict | None, port: int = 3000
+) -> list[str]:
+    """Seed the suite's account by calling the app's own registration route.
+
+    A model-written seed has to guess the store shape, the password hashing and
+    the validation rules, and r55 showed how that goes: the account was either
+    absent or unstorable and every sign-in answered 401. Posting the same
+    payload the sign-in expects to the app's own POST /.../register reuses the
+    application's own write path, so the stored record matches by construction.
+    """
+    if not seed or not seed.get("username") or not seed.get("password"):
+        return []
+    entry = _listen_file(project_dir)
+    if entry is None:
+        return []
+    body = _source_text(entry)
+    if not body or "account seed added by the ARC agent" in body:
+        return []
+    route = find_register_route(project_dir)
+    if route is None:
+        return []
+    password = str(seed["password"])
+    payload = {
+        "username": str(seed["username"]),
+        "email": str(seed.get("email") or f"{seed['username']}@example.test"),
+        "password": password,
+        "confirmPassword": password,
+        "passwordConfirmation": password,
+        "passwordConfirm": password,
+        "agreeToTerms": True,
+        "acceptTerms": True,
+        "terms": True,
+    }
+    hook = (
+        STARTUP_SEED.replace("__USER__", str(seed["username"]))
+        .replace("__BODY__", json.dumps(payload))
+        .replace("__ROUTE__", route)
+        .replace("__PORT__", str(port))
+    )
+    if not _write_text(entry, body.rstrip() + hook):
+        return []
+    return [f"{str(entry.relative_to(project_dir)).replace(chr(92), '/')} -> {route}"]
+
+
 def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     """Define the store methods the backend calls but the store never exported.
 
