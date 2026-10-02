@@ -345,3 +345,62 @@ GitHub 那套登录契约，于是被重写成扁平 kebab 路由表，`/workboo
 
 `/running` 先渲染空状态再加载数据：`0 active / No runs are currently active.` 是**假读数**，
 必须等 `RUNNING` 或 run id 出现再判断。20:24 复查：5 个 r69 run **仍在 RUNNING**。
+
+---
+
+# r69 终值 + r70 起跑（2026-10-02 21:0x）
+
+## r69 官方成绩（全部 0）
+
+| 任务 | Score | Tests | 耗时 | Tokens | Cost |
+|---|---|---|---|---|---|
+| GitHub 原题 | 0.00 | 0.0% | 39m29s | 446,433 | ¥2.7861 |
+| GitHub Stage 1 | 0.00 | 0.0% | 43m44s | 491,837 | ¥3.0722 |
+| GitHub Stage 2 | 0.00 | 0.0% | 33m00s | 410,714 | ¥2.3621 |
+| GitHub Stage 3 | 0.00 | 0.0% | 34m12s | 423,494 | ¥2.5178 |
+| Sheet | 0.00 | 0.0% | 16m01s | 216,630 | ¥1.1905 |
+| **合计** | **0.00** | **0/200** | **166m26s** | **1.989M** | **¥3.9766** |
+
+日志：`arcbench/runs/_r69_{github,stage1,stage2,stage3,sheet}_stdout.txt`。
+
+## 好消息：P0 彻底消失
+
+五份日志 **0 次** `argument handler must be a function`，五份都有
+`[template-app.stdout] Backend listening at http://127.0.0.1:3000` —— 启动期崩溃不再是问题。
+
+## 两个静默 bug（都已修，且都有本地断言）
+
+1. **世界播种被静默跳过**（commit `f04fe83`）
+   - 现象：五份日志都没有 `the backend now seeds the pre-provisioned world …`，
+     也没有运行期 `[arc-seed]` 输出。
+   - 根因：payload 里的名字**带反引号**（``organization `Acme Demo` ``），
+     `WORLD_ORG_NAME` 要求紧跟大写字母 → 命中 0 个候选 → `requirement_world()` 返回 `{}`
+     → 整段 seeding 静默跳过。实测旧正则对真实 bundle 命中 **0**。
+   - 修复：正则容忍反引号/引号 + 大小写兜底；真实 bundle 与 Stage-1 形态均验证通过。
+2. **store 兼容层补错文件 → 运行期 500**（commit `826f6b7`）
+   - 现象：Stage 1 `TypeError: store.hashPassword is not a function`（auth.js:81）**×195**，
+     Stage 2 同一条 **×117**；应用起来了但每个 auth 请求 500。
+   - 根因：契约检查把 `backend/src/store.js` 写死、只认 `require('./store')`；
+     后端实际用 `gh_store.js`，兼容层被补进**没人 require 的文件**。
+   - 修复：按别名解析真实模块 → 填充进那个模块；并在所有 repair turn 之后再跑一次。
+
+## r70 已打包起跑（commit 见 git log，包 `arc-agent-r70.zip` 0.4MB / 119 项）
+
+包含：反引号世界解析、按模块补 store 兼容层 + 收尾复检、`893a1ed`（不覆盖已接线入口）、
+`a16b373`（补挂后补 default export）、`393a201`（账号邮箱配对 + Stage2/3 第二文本源）、
+`ee77443`（误报修复）、以及全新的 `templates/sheet` 前后端脚手架。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `a128c4309297` |
+| hackathon--github-stage-1 | `961e37ffa7b7` |
+| hackathon--github-stage-2 | `8b12d8eecb4a` |
+| hackathon--github-stage-3 | `0f1dc4ccf84e` |
+| hackathon--sheet | `51cffbf88e85` |
+
+## ⚠️ 待决：排行榜当前显示 0.00
+
+r69（全 0）是**最新提交**，所以历史页 `current leaderboard score = 0.00`，
+`arc-agent-r33-repro`（13/200、9.65 分）那份保险目前**不在榜上**。
+规则允许删除"最新且全 0/未运行"的提交；若要恢复可见分数，需要从最新往前逐个删到
+r33-repro（约 30+ 次删除，属不可逆操作）——**需要用户明确授权**，我没有自行执行。
