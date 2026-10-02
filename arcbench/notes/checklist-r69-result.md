@@ -48,6 +48,15 @@
 
 - [ ] `unrouted pages after patch` 数值（**r69 应已下降**；若仍 ≈26 说明补挂没生效，
       要查 `ensure_app_router` 的判定分支）
+
+  > ⚠️ 实测提醒：`unrouted pages after patch: 25` 这行是**补挂之前**打印的，不能当结论。
+  > 要看的是后面那句
+  > `[arc-agent] entry points now mount the generated pages: [...]`：
+  > - 带 `frontend/src/App.tsx (+N route(s))` → 走的是 `_splice_routes` 增量补挂；
+  > - 只有 `['frontend/src/__arc_auth__.tsx', 'frontend/src/App.tsx', 'frontend/src/main.tsx']`
+  >   不带 `+N` → 模型没写 `<Routes>`（例如用了 `createBrowserRouter`），走了整体重写，
+  >   虽然每个页面都被挂上，但模型自己的参数路由会丢。
+  > r69 Stage 2 就是后者。
 - [ ] rehearsal 是否仍在第一次前端构建上白耗 40–55s（P2）
 - [ ] Sheet 得分（预期仍 0）与 `no listing route` 类日志（P4）
 - [ ] P6 播种兜底报错、P7 LLM 超时（仅记录）
