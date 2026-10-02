@@ -89,6 +89,43 @@
 
 ---
 
+# ⏳ r70 结果（五个 run 21:02 起跑，待填）
+
+包：`arc-agent-r70.zip`（0.4MB / 119 项）——
+`github a128c4309297` / `stage1 961e37ffa7b7` / `stage2 8b12d8eecb4a` /
+`stage3 0f1dc4ccf84e` / `sheet 51cffbf88e85`
+
+## 第一层（四项）
+
+- [ ] 无 `argument handler must be a function`
+- [ ] 出现 `[arc-seed] … world seed finished`（**r69 五份都没有，这次应该出现**）
+- [ ] 无 `store.hashPassword is not a function` 运行期 500（r69 Stage1 ×195 / Stage2 ×117）
+- [ ] `entry points now mount the generated pages` 行：带 `+N route(s)` = 增量补挂；
+      不带 = 整体重写
+
+## 第二层（播种证据）
+
+- [ ] `the backend now seeds the pre-provisioned world … (N member(s), M team(s), K repo(s))`
+- [ ] `[arc-seed] signed in as org-owner` / `POST /api/orgs/acme-demo/…`（Stage 1/2/3）
+- [ ] Sheet：不再出现 `no listing route`，`Q3 Sales` 能被列表路由服务
+
+## 第三层（用例）
+
+- [ ] 各任务 Score / Tests（对比 r68 自测 6/30 基线）
+- [ ] 分类：GIVEN 断言失败 = 数据类；GIVEN 通过但控件/文案/跳转不对 = UI 类
+
+## 第四层（指标）
+
+| 任务 | Score | Tests | unrouted(判据行) | crash? | seed? |
+|---|---|---|---|---|---|
+| github | | | | | |
+| stage 1 | | | | | |
+| stage 2 | | | | | |
+| stage 3 | | | | | |
+| sheet | | | | | |
+
+---
+
 # ✅ r69 实测结果（2026-10-02 20:5x 填入）
 
 官方成绩：**arc-agent-r69 = 0.00 / 0.0%（0/200）**，166m26s，1.989M tokens，
