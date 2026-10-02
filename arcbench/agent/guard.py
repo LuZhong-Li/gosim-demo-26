@@ -313,6 +313,109 @@ def reachable_from(entry: Path) -> set[Path]:
     return seen
 
 
+PAGE_NAME_TAIL = re.compile(r"(?:Page|Screen|View)$")
+
+
+def _kebab_route(component: str) -> str:
+    """``AccountAccessPage`` -> ``/account-access``."""
+    base = PAGE_NAME_TAIL.sub("", component)
+    base = re.sub(r"(?<!^)(?=[A-Z])", "-", base).strip("-").lower()
+    return "/" + base if base else "/"
+
+
+def _page_components(project_dir: Path) -> list[tuple[str, str]]:
+    """``(component name, relative import path)`` for every generated page."""
+    src = project_dir / "frontend" / "src"
+    found: list[tuple[str, str]] = []
+    for folder in ("pages", "screens", "views"):
+        root = src / folder
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.tsx")):
+            if path.name.endswith((".test.tsx", ".spec.tsx")):
+                continue
+            found.append((path.stem, f"./{folder}/{path.stem}"))
+    return found
+
+
+def ensure_app_router(project_dir: Path) -> list[str]:
+    """Guarantee the entry point actually mounts the generated pages.
+
+    r63 shipped 43 page files and an ``App.tsx`` that rendered an unrelated
+    "Records" list: the agent's own probe reported ``unrouted pages after
+    patch: 31`` and the model never fixed it. Every accessible name was in the
+    source (so the self-check looked healthy) while the browser rendered none of
+    it - which is exactly a 0/100 that builds and starts cleanly. Rewriting the
+    entry is mechanical, so it happens here instead of in another model turn.
+    """
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return []
+    pages = _page_components(project_dir)
+    if len(pages) < 2:
+        return []
+    app = next((src / f"App{suffix}" for suffix in (".tsx", ".tsx", ".jsx", ".ts")
+                if (src / f"App{suffix}").exists()), None)
+    if app is None:
+        return []
+    body = _source_text(app)
+    referenced = sum(1 for name, _ in pages if name in body)
+    if referenced >= max(2, len(pages) // 2):
+        return []
+    needs_router = "react-router" in _source_text(project_dir / "frontend" / "package.json")
+    if not needs_router:
+        return []
+    imports = "\n".join(f"import {name} from '{path}'" for name, path in pages)
+    routes = "\n".join(
+        f'        <Route path="{_kebab_route(name)}" element={{<{name} />}} />'
+        for name, _ in pages
+    )
+    links = "\n".join(
+        f'          <Link to="{_kebab_route(name)}">{PAGE_NAME_TAIL.sub("", name) or name}</Link>'
+        for name, _ in pages[:24]
+    )
+    home = next((name for name, _ in pages if name in ("HomePage", "Home", "LoginPage")),
+                pages[0][0])
+    generated = (
+        "// Entry rewritten by the ARC agent: the generated pages existed on disk\n"
+        "// but nothing mounted them, so the browser rendered an unrelated screen and\n"
+        "// every scenario failed on its first step.\n"
+        "import { Link, Route, Routes } from 'react-router-dom';\n"
+        f"{imports}\n\n"
+        "function AppShell() {\n"
+        "  return (\n"
+        "    <div className=\"app-shell\">\n"
+        "      <nav>\n"
+        f"{links}\n"
+        "      </nav>\n"
+        "      <Routes>\n"
+        f'        <Route path="/" element={{<{home} />}} />\n'
+        f"{routes}\n"
+        f'        <Route path="*" element={{<{home} />}} />\n'
+        "      </Routes>\n"
+        "    </div>\n"
+        "  );\n"
+        "}\n\n"
+        "export default AppShell;\n"
+    )
+    if not _write_text(app, generated):
+        return []
+    changed = [str(app.relative_to(project_dir)).replace("\\", "/")]
+    # Anything that renders <Routes>/<Link> must sit inside a Router.
+    main = next((src / f"main{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
+                 if (src / f"main{suffix}").exists()), None)
+    if main is not None:
+        main_body = _source_text(main)
+        if "BrowserRouter" not in main_body and "Router" not in main_body:
+            patched = main_body.replace("<App />", "<BrowserRouter><App /></BrowserRouter>")
+            patched = patched.replace("<App/>", "<BrowserRouter><App/></BrowserRouter>")
+            if patched != main_body and "react-router-dom" not in patched:
+                patched = "import { BrowserRouter } from 'react-router-dom';\n" + patched
+            if patched != main_body and _write_text(main, patched):
+                changed.append(str(main.relative_to(project_dir)).replace("\\", "/"))
+    return changed
+
+
 def unrouted_pages(project_dir: Path) -> list[str]:
     """Page components that nothing reachable from the entry point imports.
 

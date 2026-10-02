@@ -55,6 +55,7 @@ from guard import ensure_signin_route
 from guard import static_list_issues
 from guard import unrouted_pages
 from guard import accessibility_contract_issues
+from guard import ensure_app_router
 from llm import LlmClient
 from prompts import (
     AUTH_CONTRACT,
@@ -1815,6 +1816,11 @@ def main(argv: list[str] | None = None) -> int:
         named = ensure_named_exports(project_dir)
         if named:
             log(f"[arc-agent] completed named exports: {named[:8]}")
+        # r63: the entry rendered an unrelated screen while 31 generated pages sat
+        # unreachable on disk - the probe reported it and the model never fixed it.
+        wired = ensure_app_router(project_dir)
+        if wired:
+            log(f"[arc-agent] entry points now mount the generated pages: {wired}")
         credentials = seed_credentials(nodes_payload)
         if credentials:
             log(f"[arc-agent] the suite signs in as {credentials['username']}; "
