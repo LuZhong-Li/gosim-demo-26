@@ -647,3 +647,17 @@ argument handler  0 | ENOENT 0 | is not a function 0 | Cannot read properties of
 | hackathon--github-stage-2 | `f1630a0faffb` |
 | hackathon--github-stage-3 | `247eaab2d162` |
 | hackathon--sheet | `7f09e6cef049` |
+
+---
+
+## r74 回落 + 保险恢复（2026-10-03 02:1x）
+
+- **r74 = 0.00 / 0-200**（161m57s，¥4.3812）：原题 0、Stage 1 0、Stage 2 0 —— 比 r73
+  （0.69，原题 1.54 / Stage2 5.35）**回落**。
+- 首要怀疑：`ensure_account_menu_contract` 包出来的 `ArcMenuShell`（`<ArcSessionBar />`
+  + `<原 App />`）让入口在容器里构建/渲染失败 —— 下一轮第一件事是读 r74 的 Stage-1 stdout
+  确认（grep `front-end serving` / `account menu contract` / 构建错误），若确认则回退该注入、
+  改成"只在入口完全没有 header 时补一个最简 `<AccountMenuBar />`"的更保守形式。
+- 按最佳提交保护策略：已把 `arc-agent-r33.zip` 重新上传为
+  **`arc-agent-r33-insurance2`** 并起跑五题（¥0），把榜单基线恢复到 5.66。
+- 预算：r74 花掉 ¥4.38，余量约 ¥335。
