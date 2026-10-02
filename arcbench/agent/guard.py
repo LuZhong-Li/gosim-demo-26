@@ -390,6 +390,94 @@ def check_local_imports(project_dir: Path) -> list[str]:
 #: rehearsal's captured build output.
 UNRESOLVED_IMPORT = re.compile(r'Could not resolve "([^"]+)" from "([^"]+)"')
 
+#: Node's wording when a ``require`` cannot be resolved, plus the "Require
+#: stack" block that names the requiring file:
+#:   Error: Cannot find module './routes'
+#:   Require stack:
+#:   - /workspace/template/backend/src/app.js
+#: r61 died exactly here: ``backend/src/app.js`` required a ``./routes`` that no
+#: turn ever wrote, the backend exited before binding the port, and all hundred
+#: tests failed without a single HTTP request.
+NODE_MISSING_MODULE = re.compile(r"""Cannot find module '([^']+)'""")
+NODE_REQUIRE_STACK = re.compile(r"Require stack:")
+STACK_PATH = re.compile(r"""(?:[A-Za-z]:)?[^\s'"`]*\.(?:js|cjs|mjs|json)\b""")
+
+#: Shaped like an Express router so both ``app.use(routes)`` and
+#: ``routes.get(...)`` keep working after the file is created.
+BACKEND_MODULE_STUB = '''// Placeholder written by the ARC agent for a backend module that was required
+// but never generated. r61's app.js required './routes', nothing ever wrote it,
+// and Node exited before the port was bound - so not one test ran. This is
+// shaped like an Express router, which covers both `app.use(routes)` and
+// `routes.get(...)`.
+const express = require('express');
+
+const arcRouter = express.Router();
+module.exports = new Proxy(arcRouter, {
+  get(target, prop) {
+    if (prop in target) return target[prop];
+    if (typeof prop === 'string' && /^[A-Za-z_]/.test(prop)) {
+      return function () { return target; };
+    }
+    return undefined;
+  },
+});
+'''
+
+
+def _project_relative(project_dir: Path, raw: str) -> Path | None:
+    """Turn an absolute or relative path from a log line into a project path."""
+    cleaned = raw.strip().strip("'\"").replace("\\", "/")
+    for marker in ("/backend/", "/frontend/"):
+        at = cleaned.find(marker)
+        if at != -1:
+            return project_dir / cleaned[at + 1:]
+    candidate = Path(cleaned)
+    if candidate.is_absolute():
+        return None
+    return project_dir / cleaned
+
+
+def stub_backend_modules(project_dir: Path, error_text: str) -> list[str]:
+    """Create a placeholder for a backend module that a ``require`` cannot find.
+
+    The build-repair loop already stubs modules the *bundler* cannot resolve, but
+    a backend ``require`` only fails at run time, so a missing local file there
+    survives every build check and kills the app the moment the grader starts it.
+    """
+    text = error_text or ""
+    created: list[str] = []
+    for match in NODE_MISSING_MODULE.finditer(text):
+        specifier = match.group(1)
+        if not specifier.startswith("."):
+            continue
+        importer: Path | None = None
+        stack_at = NODE_REQUIRE_STACK.search(text, match.end())
+        if stack_at is not None:
+            tail = text[stack_at.end(): stack_at.end() + 600]
+            first = STACK_PATH.search(tail)
+            if first is not None:
+                importer = _project_relative(project_dir, first.group(0))
+        if importer is None:
+            importer = project_dir / "backend" / "src" / "app.js"
+        relative = str(importer).replace("\\", "/")
+        if "/backend/" not in relative or not importer.exists():
+            continue
+        raw = importer.parent / specifier
+        target = raw if raw.suffix else Path(f"{raw}.js")
+        try:
+            target.relative_to(project_dir)
+        except ValueError:
+            continue
+        if target.exists():
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(BACKEND_MODULE_STUB, encoding="utf-8")
+        except OSError:
+            continue
+        created.append(str(target.relative_to(project_dir)).replace("\\", "/"))
+    return created
+
 
 def _stub_path(project_dir: Path, importer: str, specifier: str) -> Path | None:
     """Where a missing module imported by ``importer`` has to be created."""
@@ -1764,23 +1852,25 @@ def _app_file(project_dir: Path) -> Path | None:
 
 
 def ensure_signin_route(project_dir: Path, seed: dict | None) -> list[str]:
-    """Mount a seed sign-in route when the app has none of its own.
+    """Mount the seed sign-in route in front of the generated routes.
 
-    The suite signs in through the UI before almost every scenario, so an app
-    without a sign-in endpoint scores zero however good the rest of it is. The
-    mounted endpoint is registered before the generated routes and declines
-    every request that is not the seeded account.
+    The suite signs in through the UI before almost every scenario, so the seeded
+    account has to get in whatever the generated auth does. This used to run
+    only when the app had no sign-in route at all; r61 showed the other half of
+    the problem - the app *had* one, but stored its password with a salted
+    scheme the agent cannot reproduce ("unsupported password hashing"), so the
+    seed was never written and the account was rejected again.
+
+    The mounted endpoint is registered before the generated routes and declines
+    every request that is not the seeded account, so the invalid-credentials
+    scenarios still reach the real handlers.
     """
     if not seed or not seed.get("username") or not seed.get("password"):
-        return []
-    if _signin_files(project_dir):
-        return []
-    paths = find_frontend_login_paths(project_dir)
-    if not paths:
         return []
     app_file = _app_file(project_dir)
     if app_file is None:
         return []
+    paths = find_frontend_login_paths(project_dir)
     module = project_dir / "backend" / "src" / "arc-seed-auth.js"
     ordered = list(dict.fromkeys([*paths, *SEED_AUTH_PATHS]))
     routes = "".join(f"  app.post('{route}', handle);\n" for route in ordered).rstrip("\n")
@@ -1897,6 +1987,8 @@ def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
         repairs.append(f"rewrote a degenerate import specifier in {sanitised}")
     for stub in stub_missing_modules(project_dir, error_text):
         repairs.append(f"placeholder module {stub}")
+    for stub in stub_backend_modules(project_dir, error_text):
+        repairs.append(f"placeholder backend module {stub}")
     for shim in shim_unresolved_packages(project_dir, error_text):
         repairs.append(f"package shim {shim}")
     for shim in shim_unresolved_node_modules(project_dir, error_text):

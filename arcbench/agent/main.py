@@ -1803,8 +1803,8 @@ def main(argv: list[str] | None = None) -> int:
                 log(f"[arc-agent] wrote the seeded account into the sign-in store: {stored}")
             routed = ensure_signin_route(project_dir, credentials)
             if routed:
-                log(f"[arc-agent] the app had no sign-in route of its own; mounted a "
-                    f"seeded one in front of the generated routes: {routed}")
+                log(f"[arc-agent] mounted a seeded sign-in route in front of the "
+                    f"generated routes: {routed}")
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials,
                                        record=seed_record_literal(nodes_payload))
