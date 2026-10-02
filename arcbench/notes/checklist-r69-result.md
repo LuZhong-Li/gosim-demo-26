@@ -151,6 +151,31 @@ r69 的两个 0 都不是"页面没实现"，而是**两个 harness 侧的静默
 静默跳过、store 兼容层补错文件导致运行期 500。两者都已定位并修好且有本地断言，
 r70 是这段时间里第一个"该拿分"的版本。
 
+## ✅ f04fe83 的真机验证（r70 打包后补做）
+
+把两个 hook 注入**真实 GitHub 脚手架**（不是 stub），用 express shim 起服务后回读：
+
+```
+accounts: ['alice-dev', 'bob-reviewer']
+world org: {'name': 'acme-demo', 'displayName': 'Acme Demo'} owner: alice-dev
+  members: ['alice-dev', 'bob-reviewer']  repos: acme-docs(public) / secret-research(private)
+  teams: frontend-team / platform-team / frontend-child
+Backend listening at http://127.0.0.1:3601
+[arc-seed] signed in as alice-dev via /api/auth/login
+[arc-seed] POST /api/orgs -> 409            ← 脚手架自带 seed 已建好组织，幂等
+[arc-seed] POST /api/orgs/acme-demo/teams -> 201 ×2（frontend-team 409 已存在）
+[arc-seed] POST /api/orgs/acme-demo/teams/frontend-team/members -> 201
+[arc-seed] PATCH /api/orgs/acme-demo/teams/frontend-child -> 200
+[arc-seed] POST /api/orgs/acme-demo/repos -> 201（acme-docs 409）
+[arc-seed] world seed finished
+GET /api/discover -> {"orgs":[{"name":"acme-demo","displayName":"Acme Demo"}],
+                      "repos":[{"owner":"acme-demo","name":"acme-docs","visibility":"public"}]}
+```
+
+即 checklist 里要求的那行 `[arc-seed] world seed finished` 现在**真的会出现**，
+而且是在真实脚手架的 HTTP 接口上跑通的。顺带修了本地 express shim 的一个失真点
+（路由级中间件被丢弃，导致 `req.user` undefined）——那是 shim 的问题，不是应用的问题。
+
 ```markdown
 【r69 速查】
 🔴致命阻断：
