@@ -3111,8 +3111,14 @@ def ensure_startup_seed_world(
 #: A page that renders one of the seeded collections.
 COLLECTION_PAGE = re.compile(r"workbook|spreadsheet|worksheet|document", re.IGNORECASE)
 
-#: Evidence the page actually loads its data.
-LOADS_DATA = re.compile(r"fetch\(|axios|client\.(?:get|post)|\bapi\s*\.", re.IGNORECASE)
+#: Evidence the page actually loads its data. The local API client counts too:
+#: a page can call ``api.listWorkbooks()`` from ``../api`` without ever typing
+#: ``fetch``, and flagging that page sends the repair turn after working code.
+LOADS_DATA = re.compile(
+    r"fetch\(|axios|client\.(?:get|post)|\bapi\s*\.|\bapi\.[A-Za-z_$]"
+    r"|from\s*['\"][^'\"]*/api['\"]",
+    re.IGNORECASE,
+)
 
 #: A literal array of strings - usually a stub list standing in for the backend.
 HARDCODED_LIST = re.compile(r"\[\s*(?:['\"][^'\"]{2,60}['\"]\s*,\s*)+")
@@ -3131,26 +3137,33 @@ def static_list_issues(project_dir: Path) -> list[str]:
     src = project_dir / "frontend" / "src"
     if not src.is_dir():
         return issues
-    for path in sorted(src.rglob("*")):
-        if not path.is_file() or path.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+    # Only pages render the collection: routing helpers, shells and presentational
+    # components mention "worksheet"/"document" in passing, and flagging them sent
+    # the repair turn after code that was already correct.
+    for folder in ("pages", "screens", "views"):
+        root = src / folder
+        if not root.is_dir():
             continue
-        text = _source_text(path)
-        if not text or not COLLECTION_PAGE.search(path.name + " " + text[:2000]):
-            continue
-        relative = str(path.relative_to(project_dir)).replace("\\", "/")
-        literal = HARDCODED_LIST.search(text)
-        if LOADS_DATA.search(text):
-            if literal:
-                issues.append(
-                    f"{relative} renders a hard-coded list "
-                    f"({literal.group(0)[:60].strip()}) instead of the records the "
-                    f"backend serves"
-                )
-            continue
-        issues.append(
-            f"{relative} renders the record collection but never calls the API, "
-            f"so a seeded record cannot appear on it"
-        )
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix not in (".tsx", ".ts", ".jsx", ".js"):
+                continue
+            text = _source_text(path)
+            if not text or not COLLECTION_PAGE.search(path.name + " " + text[:2000]):
+                continue
+            relative = str(path.relative_to(project_dir)).replace("\\", "/")
+            literal = HARDCODED_LIST.search(text)
+            if LOADS_DATA.search(text):
+                if literal:
+                    issues.append(
+                        f"{relative} renders a hard-coded list "
+                        f"({literal.group(0)[:60].strip()}) instead of the records the "
+                        f"backend serves"
+                    )
+                continue
+            issues.append(
+                f"{relative} renders the record collection but never calls the API, "
+                f"so a seeded record cannot appear on it"
+            )
     # r63 shipped pages that were name-only shells: a couple of bare controls
     # with no state, no API call and no labelled input. They satisfied the
     # exact-name self-check while doing nothing the suite could use, so they are
