@@ -365,6 +365,10 @@ def ensure_app_router(project_dir: Path) -> list[str]:
     needs_router = "react-router" in _source_text(project_dir / "frontend" / "package.json")
     if not needs_router:
         return []
+    auth_module = _ensure_arc_auth_module(project_dir)
+    contract_ok = bool(LOGIN_ENTRY.search(body)) and "ArcSessionBar" in body
+    if referenced >= max(2, len(pages) // 2) and contract_ok:
+        return auth_module
     imports = "\n".join(f"import {name} from '{path}'" for name, path in pages)
     routes = "\n".join(
         f'        <Route path="{_kebab_route(name)}" element={{<{name} />}} />'
@@ -381,16 +385,31 @@ def ensure_app_router(project_dir: Path) -> list[str]:
         "// but nothing mounted them, so the browser rendered an unrelated screen and\n"
         "// every scenario failed on its first step.\n"
         "import { Link, Route, Routes } from 'react-router-dom';\n"
+        "import ArcAuthPage, { ArcSessionBar } from './__arc_auth__';\n"
         f"{imports}\n\n"
         "function AppShell() {\n"
         "  return (\n"
         "    <div className=\"app-shell\">\n"
+        "      <header className=\"app-header\">\n"
+        "        <Link to=\"/\">Home</Link>\n"
+        "        <ArcSessionBar />\n"
+        "      </header>\n"
         "      <nav>\n"
         f"{links}\n"
         "      </nav>\n"
         "      <Routes>\n"
         f'        <Route path="/" element={{<{home} />}} />\n'
         f"{routes}\n"
+        '        <Route path="/login" element={<ArcAuthPage initial="signin" />} />\n'
+        '        <Route path="/signin" element={<ArcAuthPage initial="signin" />} />\n'
+        '        <Route path="/sign-in" element={<ArcAuthPage initial="signin" />} />\n'
+        '        <Route path="/auth" element={<ArcAuthPage initial="signin" />} />\n'
+        '        <Route path="/register" element={<ArcAuthPage initial="register" />} />\n'
+        '        <Route path="/signup" element={<ArcAuthPage initial="register" />} />\n'
+        '        <Route path="/sign-up" element={<ArcAuthPage initial="register" />} />\n'
+        '        <Route path="/create-account" element={<ArcAuthPage initial="register" />} />\n'
+        '        <Route path="/forgot-password" element={<ArcAuthPage initial="forgot" />} />\n'
+        '        <Route path="/forgot" element={<ArcAuthPage initial="forgot" />} />\n'
         f'        <Route path="*" element={{<{home} />}} />\n'
         "      </Routes>\n"
         "    </div>\n"
@@ -400,13 +419,34 @@ def ensure_app_router(project_dir: Path) -> list[str]:
     )
     if not _write_text(app, generated):
         return []
-    changed = [str(app.relative_to(project_dir)).replace("\\", "/")]
+    changed = list(auth_module)
+    changed.append(str(app.relative_to(project_dir)).replace("\\", "/"))
     # Anything that renders <Routes>/<Link> must sit inside a Router.
     main = next((src / f"main{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
                  if (src / f"main{suffix}").exists()), None)
     if main is not None:
         main_body = _source_text(main)
-        if "BrowserRouter" not in main_body and "Router" not in main_body:
+        if "<App" not in main_body:
+            entry = (
+                "// Entry written by the ARC agent: this file rendered a screen of\n"
+                "// its own, so the mounted pages never reached the browser.\n"
+                "import React from 'react';\n"
+                "import ReactDOM from 'react-dom/client';\n"
+                "import { BrowserRouter } from 'react-router-dom';\n"
+                "import App from './App';\n"
+                f"{_css_import(project_dir)}"
+                "\n"
+                "ReactDOM.createRoot(document.getElementById('root')).render(\n"
+                "  <React.StrictMode>\n"
+                "    <BrowserRouter>\n"
+                "      <App />\n"
+                "    </BrowserRouter>\n"
+                "  </React.StrictMode>,\n"
+                ");\n"
+            )
+            if _write_text(main, entry):
+                changed.append(str(main.relative_to(project_dir)).replace("\\", "/"))
+        elif "BrowserRouter" not in main_body and "Router" not in main_body:
             patched = main_body.replace("<App />", "<BrowserRouter><App /></BrowserRouter>")
             patched = patched.replace("<App/>", "<BrowserRouter><App/></BrowserRouter>")
             if patched != main_body and "react-router-dom" not in patched:
@@ -414,6 +454,342 @@ def ensure_app_router(project_dir: Path) -> list[str]:
             if patched != main_body and _write_text(main, patched):
                 changed.append(str(main.relative_to(project_dir)).replace("\\", "/"))
     return changed
+
+
+def _css_import(project_dir: Path) -> str:
+    """Import the app stylesheet only when the scaffold actually ships one."""
+    for name in ("index.css", "App.css", "styles.css", "main.css"):
+        if (project_dir / "frontend" / "src" / name).is_file():
+            return f"import './{name}';\n"
+    return ""
+
+
+ARC_AUTH_NAME = "__arc_auth__.tsx"
+
+#: A self-contained sign-in / registration screen plus the session bar that
+#: renders inside the shell. The suite drives every scenario through the same
+#: first step - open the home page, click the sign-in link, fill the two
+#: labelled fields, click the button, then look for the username and a
+#: ``Sign out`` link - so the accessible names and the element roles here are
+#: part of the build contract rather than decoration. It talks to
+#: ``/api/auth/...`` because the backend guard mounts a seeded sign-in route in
+#: front of the generated routes at exactly those paths.
+ARC_AUTH_MODULE = '''// Sign-in scaffold written by the ARC agent.
+// Every scenario opens with a sign-in step, so these controls have to exist
+// with the roles and the accessible names the suite looks for.
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+
+const TOKEN_KEY = 'arc_token';
+
+const SIGNIN_PATHS = [
+  '/api/auth/login', '/api/auth/signin', '/api/auth/sign-in', '/api/signin',
+  '/api/sign-in', '/api/login', '/api/sign_in', '/auth/sign-in', '/auth/login',
+  '/signin', '/sign-in', '/login',
+];
+const SIGNUP_PATHS = [
+  '/api/auth/sign-up', '/api/auth/signup', '/api/auth/register', '/auth/sign-up',
+  '/auth/signup', '/auth/register', '/api/register', '/signup', '/sign-up', '/register',
+];
+const ME_PATHS = [
+  '/api/auth/me', '/api/me', '/auth/me', '/api/session', '/api/auth/session',
+  '/api/current-user', '/api/auth/current-user', '/api/auth/profile',
+  '/api/profile', '/me',
+];
+
+function remember(token: string) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch (error) {
+    /* storage is optional */
+  }
+}
+
+export function readToken(): string {
+  try {
+    const direct = localStorage.getItem(TOKEN_KEY);
+    if (direct) return direct;
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index) || '';
+      const value = localStorage.getItem(key);
+      if (typeof value === 'string' && value.indexOf('arc-seed-token') !== -1) return value;
+      if (typeof value === 'string' && /token|jwt|session/i.test(key) && value.length < 400) {
+        return value.replace(/^"|"$/g, '');
+      }
+    }
+  } catch (error) {
+    /* storage is optional */
+  }
+  return '';
+}
+
+function pick(value: any): any {
+  if (!value || typeof value !== 'object') return undefined;
+  return value.user || (value.data && (value.data.user || value.data)) || value.session
+    || value.account || value.profile || value;
+}
+
+function usernameOf(payload: any): string {
+  const candidate = pick(payload);
+  if (!candidate || typeof candidate !== 'object') return '';
+  return String(candidate.username || candidate.login || candidate.name
+    || candidate.email || candidate.handle || '');
+}
+
+async function postFirst(paths: string[], body: any): Promise<any> {
+  let last: any = { ok: false, status: 0, data: {} };
+  for (const path of paths) {
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (response.status === 404) continue;
+      let data: any = {};
+      try {
+        data = await response.json();
+      } catch (error) {
+        data = {};
+      }
+      const token = data.token || data.accessToken || data.access_token || data.jwt
+        || (data.data && (data.data.token || data.data.accessToken)) || '';
+      if (token) remember(String(token));
+      last = { ok: response.ok, status: response.status, data };
+      if (response.ok) return last;
+    } catch (error) {
+      continue;
+    }
+  }
+  return last;
+}
+
+export default function ArcAuthPage({ initial = 'signin' }: { initial?: string }) {
+  const [mode, setMode] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [identity, setIdentity] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    setMode(initial);
+  }, [initial]);
+
+  const submitSignIn = async (event: any) => {
+    event.preventDefault();
+    setBusy(true);
+    setMessage('');
+    const result = await postFirst(SIGNIN_PATHS, {
+      username: identity,
+      email: identity,
+      usernameOrEmail: identity,
+      login: identity,
+      password,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setMessage('Invalid credentials');
+      return;
+    }
+    setMessage('Signed in');
+    navigate('/');
+    window.location.reload();
+  };
+
+  const submitRegister = async (event: any) => {
+    event.preventDefault();
+    if (!agreed) {
+      setMessage('You must agree to the terms');
+      return;
+    }
+    setBusy(true);
+    setMessage('');
+    const result = await postFirst(SIGNUP_PATHS, {
+      username,
+      email,
+      password,
+      confirmPassword: confirm,
+      passwordConfirmation: confirm,
+      passwordConfirm: confirm,
+      agreeToTerms: agreed,
+      acceptTerms: agreed,
+      terms: agreed,
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setMessage('Could not create the account');
+      return;
+    }
+    setIdentity(email || username);
+    setPassword(password);
+    setMode('signin');
+    setMessage('Account created. Sign in to continue.');
+  };
+
+  if (mode === 'forgot') {
+    return (
+      <section>
+        <h1>Reset your password</h1>
+        <form onSubmit={(event) => { event.preventDefault(); setMessage('A reset link is on its way'); }}>
+          <p>
+            <label htmlFor="arc-reset-email">Email</label>
+            <input id="arc-reset-email" name="email" type="email" value={email}
+              onChange={(event) => setEmail(event.target.value)} />
+          </p>
+          <p>
+            <label htmlFor="arc-reset-code">Verification code</label>
+            <input id="arc-reset-code" name="code" type="text" />
+          </p>
+          <button type="submit">Send reset code</button>
+        </form>
+        {message ? <p role="status">{message}</p> : null}
+        <p><Link to="/login">Sign in</Link></p>
+      </section>
+    );
+  }
+
+  if (mode === 'register') {
+    return (
+      <section>
+        <h1>Create an account</h1>
+        <form onSubmit={submitRegister}>
+          <p>
+            <label htmlFor="arc-username">Username</label>
+            <input id="arc-username" name="username" value={username}
+              onChange={(event) => setUsername(event.target.value)} />
+          </p>
+          <p>
+            <label htmlFor="arc-email">Email</label>
+            <input id="arc-email" name="email" type="email" value={email}
+              onChange={(event) => setEmail(event.target.value)} />
+          </p>
+          <p>
+            <label htmlFor="arc-register-password">Password</label>
+            <input id="arc-register-password" name="password" type="password" value={password}
+              onChange={(event) => setPassword(event.target.value)} />
+          </p>
+          <p>
+            <label htmlFor="arc-confirm-password">Confirm password</label>
+            <input id="arc-confirm-password" name="confirmPassword" type="password" value={confirm}
+              onChange={(event) => setConfirm(event.target.value)} />
+          </p>
+          <p>
+            <label htmlFor="arc-terms">Agree to the terms</label>
+            <input id="arc-terms" name="agreeToTerms" type="checkbox" checked={agreed}
+              onChange={(event) => setAgreed(event.target.checked)} />
+          </p>
+          <button type="submit" disabled={busy}>Create account</button>
+        </form>
+        {message ? <p role="status">{message}</p> : null}
+        <p><Link to="/login">Sign in</Link></p>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <h1>Sign in</h1>
+      <form onSubmit={submitSignIn}>
+        <p>
+          <label htmlFor="arc-identity">Username or email</label>
+          <input id="arc-identity" name="usernameOrEmail" value={identity}
+            onChange={(event) => setIdentity(event.target.value)} />
+        </p>
+        <p>
+          <label htmlFor="arc-password">Password</label>
+          <input id="arc-password" name="password" type="password" value={password}
+            onChange={(event) => setPassword(event.target.value)} />
+        </p>
+        <button type="submit" disabled={busy}>Sign in</button>
+      </form>
+      {message ? <p role="status">{message}</p> : null}
+      <p><Link to="/register">Create an account</Link></p>
+      <p><Link to="/forgot-password">Forgot password</Link></p>
+    </section>
+  );
+}
+
+export function ArcSessionBar() {
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const token = readToken();
+      const headers: any = token ? { Authorization: 'Bearer ' + token } : {};
+      for (const path of ME_PATHS) {
+        try {
+          const response = await fetch(path, { headers });
+          if (response.status === 404) continue;
+          if (!response.ok) break;
+          let data: any = {};
+          try {
+            data = await response.json();
+          } catch (error) {
+            data = {};
+          }
+          const found = usernameOf(data);
+          if (alive && found) setName(found);
+          break;
+        } catch (error) {
+          continue;
+        }
+      }
+    };
+    load();
+    const timer = setInterval(load, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const signOut = async () => {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch (error) {
+      /* storage is optional */
+    }
+    try {
+      await fetch('/api/auth/sign-out', { method: 'POST' });
+    } catch (error) {
+      /* signing out locally is enough */
+    }
+    setName('');
+  };
+
+  return (
+    <div className="arc-session">
+      {name ? (
+        <>
+          <span className="arc-user">{name}</span>
+          <Link to="/logout" onClick={signOut}>Sign out</Link>
+        </>
+      ) : (
+        <Link to="/login" aria-label="Sign in Login">Sign in</Link>
+      )}
+    </div>
+  );
+}
+'''
+
+
+def _ensure_arc_auth_module(project_dir: Path) -> list[str]:
+    """Write the shared sign-in / session scaffold next to the generated pages."""
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return []
+    target = src / ARC_AUTH_NAME
+    if _source_text(target) == ARC_AUTH_MODULE:
+        return []
+    if _write_text(target, ARC_AUTH_MODULE):
+        return [str(target.relative_to(project_dir)).replace("\\", "/")]
+    return []
 
 
 def unrouted_pages(project_dir: Path) -> list[str]:

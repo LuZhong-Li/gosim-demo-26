@@ -1871,6 +1871,20 @@ def main(argv: list[str] | None = None) -> int:
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials,
                                        record=seed_record)
+        # r65: the grading build still warned about names a surviving scaffold
+        # page imported from a module the model had rewritten, so the sweep runs
+        # once more here - after every repair turn, guard restore and rehearsal -
+        # and the entry is re-read against the role contract, because rewriting
+        # ``App.tsx`` is exactly what dropped the compliant header last time.
+        final_exports = ensure_named_exports(project_dir)
+        final_defaults = ensure_default_exports(project_dir)
+        if final_exports or final_defaults:
+            log(f"[arc-agent] final export sweep: {len(final_exports)} named, "
+                f"{len(final_defaults)} default(s), e.g. "
+                f"{(final_exports or final_defaults)[:6]}")
+        final_contract = accessibility_contract_issues(project_dir)
+        log(f"[arc-agent] role contract after the entry rewrite: "
+            f"{final_contract or 'clean'}")
 
         # Local acceptance suite. On the platform the specs, the Playwright CLI
         # and a browser are all absent during generation, so this stays dormant
