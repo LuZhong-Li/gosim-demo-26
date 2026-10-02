@@ -87,6 +87,70 @@
 
 ## 极简速查
 
+---
+
+# ✅ r69 实测结果（2026-10-02 20:5x 填入）
+
+官方成绩：**arc-agent-r69 = 0.00 / 0.0%（0/200）**，166m26s，1.989M tokens，
+¥3.9766。逐题：原题 0.00（39m29s / ¥2.7861）、Stage 1 0.00（43m44s / ¥3.0722）、
+Stage 2 0.00（33m00s / ¥2.3621）、Stage 3 0.00（34m12s / ¥2.5178）、
+Sheet 0.00（16m01s / ¥1.1905）。日志落盘：`arcbench/runs/_r69_*_stdout.txt`。
+
+## 🔴 第一层
+
+- [x] `argument handler must be a function` —— **五份日志全是 0 次** ✅ P0 真修掉了
+- [x] 应用正常监听：五份都有 `[template-app.stdout] Backend listening at
+      http://127.0.0.1:3000` ✅
+- [ ] `[arc-seed] world seed finished` —— **五份都没有** ❌ 见下（已修）
+- [x] 五份都完成了前端构建（Stage 2: `✓ 109 modules transformed`）
+
+## 🟡 第二层（播种）
+
+- [x] 账号播种执行了：Stage 1 `the backend now seeds every pre-provisioned account
+      through its own registration route: ['backend/src/index.js -> /auth/sign-up
+      (15 account(s))']`
+- [ ] **世界播种一行都没有**：五份日志都没有 `the backend now seeds the pre-provisioned
+      world …`，也没有 `[arc-seed]` 运行期输出
+- 根因（已修，commit `f04fe83`）：需求 payload 里名字**带反引号**
+      （``organization `Acme Demo` ``），`WORLD_ORG_NAME` 只匹配大写开头，
+      于是 `org_display == ""` → `requirement_world()` 返回 `{}` → 整个 seeding
+      被**静默跳过**。实测：旧正则对真实 bundle 命中 **0** 个候选。
+      新正则兼容反引号/引号 + 大小写兜底；真实 bundle 与 Stage-1 形态都验证通过。
+
+## 🟢 第三层（用例）
+
+- ❌ 没有任何用例通过，因此无法区分"数据类/UI 类"——因为**根本没走到用例**：
+  运行期 500 把每个请求都打死了。
+- 决定性证据（运行期错误，非启动期）：
+  - Stage 1：`TypeError: store.hashPassword is not a function`
+    （`backend/src/auth.js:81`）**×195**
+  - Stage 2：同一条 **×117**；原题 / Stage 3 / Sheet：0 次
+- 根因（已修，commit `826f6b7`）：契约检查把"backend/src/store.js"写死，只认
+  `require('./store')`；后端实际用的是 `gh_store.js`，于是兼容层补进了一个
+  **没人 require 的文件**。现在按别名解析真实模块 + 在所有 repair turn 之后再补一次。
+
+## 📊 第四层
+
+- `unrouted pages after patch`：25–26（**该行在补挂之前打印，不是结论**）；
+  判据是 `entry points now mount the generated pages`：
+  Stage 2 是不带 `+N` 的那种 → 走了整体重写（模型没用 `<Routes>`）
+- Stage 1/Stage 2 首次 rehearsal 未再白烧 40–55s（构建一次通过）
+- Sheet：16m01s、0 分，r69 包里还没有 `templates/sheet`（起点错误状态）
+- 无 LLM 超时；无"播种兜底报错"
+
+## 📝 第五层：r70 输入
+
+1. `a16b373`（补挂后补 default export）+ `893a1ed`（已接线入口不整体重写）
+2. **Sheet 独立脚手架**（前后端已就绪，本地 36/36 + 浏览器 E2E）
+3. 本轮两个"必中"修复：`f04fe83` 反引号世界解析、`826f6b7` 按模块补 store 兼容层
+4. 长期：内存存储持久化
+
+## 结论
+
+r69 的两个 0 都不是"页面没实现"，而是**两个 harness 侧的静默 bug**：世界播种被
+静默跳过、store 兼容层补错文件导致运行期 500。两者都已定位并修好且有本地断言，
+r70 是这段时间里第一个"该拿分"的版本。
+
 ```markdown
 【r69 速查】
 🔴致命阻断：
