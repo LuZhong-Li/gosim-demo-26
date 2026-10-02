@@ -426,6 +426,16 @@ function buildPivot(sheet, spec) {
   const columnIndex = header.findIndex((title) => String(title).trim() === String(spec.columnField || '').trim());
   const valueIndex = Math.max(0, header.findIndex((title) => String(title).trim() === String(spec.valueField).trim()));
   const summarise = String(spec.summarizeBy || spec.summarize || 'SUM').toUpperCase();
+  // REQ-5-3-1: SUM/AVERAGE over a column with no parseable numbers has to say so
+  // and keep the previous result instead of publishing an empty pivot.
+  if (summarise === 'SUM' || summarise === 'AVERAGE') {
+    const numeric = rows
+      .map((values) => String(values[valueIndex] === undefined ? '' : values[valueIndex]).replace(/,/g, '').trim())
+      .filter((value) => value !== '' && !Number.isNaN(Number(value)));
+    if (!numeric.length) {
+      return { error: 'Value field requires numeric values' };
+    }
+  }
   const buckets = new Map();
   rows.forEach((values) => {
     const key = String(values[rowIndex] === undefined ? '' : values[rowIndex]);
@@ -481,6 +491,23 @@ function refreshPivot(sheet, pivotId) {
   return rebuilt;
 }
 
+//: REQ-5-3-1: "New worksheet" puts the pivot on the first unused PivotN sheet.
+function createPivotWorksheet(workbook, spec) {
+  const used = new Set((workbook.worksheets || []).map((sheet) => sheet.name));
+  let index = 1;
+  while (used.has(`Pivot${index}`)) index += 1;
+  const target = createWorksheet(`Pivot${index}`);
+  workbook.worksheets.push(target);
+  workbook.updatedAt = now();
+  const pivot = buildPivot(target, spec);
+  if (!pivot || pivot.error) {
+    // Leave the workbook as it was when the spec is unusable.
+    workbook.worksheets = workbook.worksheets.filter((sheet) => sheet !== target);
+    return pivot || { error: 'Range is invalid' };
+  }
+  return { worksheet: target, pivot };
+}
+
 //: REQ-2-1-4: a worksheet another sheet's pivot still reads cannot be deleted.
 function dependentPivot(workbook, sheet) {
   if (!workbook || !workbook.worksheets) return null;
@@ -500,6 +527,13 @@ function dependentPivot(workbook, sheet) {
   return null;
 }
 
+function removePivot(sheet, pivotId) {
+  const before = (sheet.pivots || []).length;
+  sheet.pivots = (sheet.pivots || []).filter((pivot) => pivot.id !== pivotId);
+  sheet.updatedAt = now();
+  return before - sheet.pivots.length;
+}
+
 module.exports = {
   NUMBER_RANGE,
   addValidation,
@@ -508,6 +542,7 @@ module.exports = {
   clearFilters,
   createWorkbook,
   createWorksheet,
+  createPivotWorksheet,
   dependentPivot,
   deleteColumns,
   deleteRows,
@@ -524,6 +559,7 @@ module.exports = {
   rawCell,
   refreshPivot,
   removeValidation,
+  removePivot,
   removeWorkbook,
   removeWorksheet,
   renameWorkbook,

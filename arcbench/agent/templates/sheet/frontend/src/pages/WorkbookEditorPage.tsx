@@ -50,6 +50,7 @@ function WorkbookEditorPage() {
   const [pivotColumn, setPivotColumn] = useState('');
   const [pivotValue, setPivotValue] = useState('');
   const [pivotSummary, setPivotSummary] = useState('SUM');
+  const [pivotTarget, setPivotTarget] = useState('new');
 
   const applyWorkbook = useCallback((payload: WorkbookPayload, keepSheet?: string) => {
     setWorkbook(payload);
@@ -339,8 +340,12 @@ function WorkbookEditorPage() {
         valueField: pivotValue || headers[1] || 'B',
         summarizeBy: pivotSummary,
         hasHeader,
+        newWorksheet: pivotTarget === 'new',
       });
       applySheet(payload.worksheet);
+      if (payload.workbook) {
+        applyWorkbook(payload.workbook as WorkbookPayload, payload.worksheet.name);
+      }
       setDialog(null);
       setError('');
     } catch (failure) {
@@ -362,6 +367,18 @@ function WorkbookEditorPage() {
 
   // REQ-3-2-1: paste a copied range at the selected cell. The clipboard text is
   // taken as a table, so a copied block lands exactly as it was copied.
+  async function removePivot() {
+    if (!sheet || !sheet.pivots.length) return;
+    try {
+      const payload = await api.deletePivot(workbookId, sheet.name, sheet.pivots[0].id);
+      applySheet(payload.worksheet);
+      setNote('Pivot table removed');
+      setError('');
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  }
+
   async function pasteFromClipboard() {
     if (!sheet) return;
     let text = '';
@@ -521,7 +538,53 @@ function WorkbookEditorPage() {
       ) : null}
 
       {sheet.pivots.map((pivot) => (
-        <div key={pivot.id}>
+        <section key={pivot.id} role="region" aria-label="Pivot table editor">
+          <h2>Pivot table editor</h2>
+          <div className="toolbar">
+            <label>
+              Rows
+              <select
+                value={pivot.rowField}
+                onChange={(event) => setPivotRow(event.target.value)}
+              >
+                {headers.map((header) => <option key={header} value={header}>{header}</option>)}
+              </select>
+            </label>
+            <label>
+              Columns
+              <select
+                value={pivot.columnField}
+                onChange={(event) => setPivotColumn(event.target.value)}
+              >
+                <option value="">(none)</option>
+                {headers.map((header) => <option key={header} value={header}>{header}</option>)}
+              </select>
+            </label>
+            <label>
+              Values
+              <select
+                value={pivot.valueField}
+                onChange={(event) => setPivotValue(event.target.value)}
+              >
+                {headers.map((header) => <option key={header} value={header}>{header}</option>)}
+              </select>
+            </label>
+            <label>
+              Summarize by
+              <select
+                value={pivot.summarizeBy}
+                onChange={(event) => setPivotSummary(event.target.value)}
+              >
+                <option value="SUM">SUM</option>
+                <option value="AVERAGE">AVERAGE</option>
+                <option value="COUNT">COUNT</option>
+                <option value="MIN">MIN</option>
+                <option value="MAX">MAX</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => refreshPivot(pivot)}>Apply</button>
+            <button type="button" onClick={removePivot}>Delete rule</button>
+          </div>
           <table className="pivot-table" aria-label="Pivot table">
             <thead>
               <tr>
@@ -539,7 +602,7 @@ function WorkbookEditorPage() {
             </tbody>
           </table>
           <button type="button" onClick={() => refreshPivot(pivot)}>Refresh pivot table</button>
-        </div>
+        </section>
       ))}
 
       {dialog === 'add-sheet' ? (
@@ -701,6 +764,30 @@ function WorkbookEditorPage() {
         <div className="dialog-backdrop">
           <div className="dialog" role="dialog" aria-modal="true" aria-label="Create pivot table">
             <h2>Create pivot table</h2>
+            <p>{`Source range: ${usedRange}`}</p>
+            <fieldset>
+              <legend>Place the pivot table</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="pivotTarget"
+                  value="new"
+                  checked={pivotTarget === 'new'}
+                  onChange={() => setPivotTarget('new')}
+                />
+                {' '}New worksheet
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="pivotTarget"
+                  value="current"
+                  checked={pivotTarget === 'current'}
+                  onChange={() => setPivotTarget('current')}
+                />
+                {' '}Current worksheet
+              </label>
+            </fieldset>
             <label>
               Rows
               <select value={pivotRow || headers[0] || ''} onChange={(event) => setPivotRow(event.target.value)}>
@@ -731,7 +818,7 @@ function WorkbookEditorPage() {
               </select>
             </label>
             <div className="dialog-actions">
-              <button type="button" onClick={createPivot}>Create pivot table</button>
+              <button type="button" onClick={createPivot}>Create</button>
               <button type="button" onClick={() => setDialog(null)}>Cancel</button>
             </div>
           </div>

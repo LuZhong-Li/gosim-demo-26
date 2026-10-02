@@ -382,8 +382,23 @@ app.delete('/api/workbooks/:id/worksheets/:sheet/validations/:rule', (req, res) 
 app.post('/api/workbooks/:id/worksheets/:sheet/pivots', (req, res) => {
   const found = locate(req, res);
   if (!found) return undefined;
-  const pivot = store.buildPivot(found.sheet, req.body || {});
+  const spec = req.body || {};
+  // REQ-5-3-1: the dialog's "New worksheet" option creates the first unused
+  // PivotN sheet and puts the result there; otherwise it lands on this sheet.
+  if (spec.newWorksheet) {
+    const created = store.createPivotWorksheet(found.workbook, spec);
+    if (!created || created.error) {
+      return fail(res, 400, (created && created.error) || 'Range is invalid');
+    }
+    return res.status(201).json({
+      pivot: created.pivot,
+      worksheet: serializeWorksheet(created.worksheet),
+      workbook: serializeWorkbook(found.workbook, false),
+    });
+  }
+  const pivot = store.buildPivot(found.sheet, spec);
   if (!pivot) return fail(res, 400, 'Range is invalid');
+  if (pivot.error) return fail(res, 400, pivot.error);
   return res.status(201).json({ pivot, worksheet: serializeWorksheet(found.sheet) });
 });
 
@@ -394,6 +409,13 @@ app.post('/api/workbooks/:id/worksheets/:sheet/pivots/:pivot/refresh', (req, res
   if (!pivot) return fail(res, 404, 'Pivot table not found');
   if (pivot.error) return fail(res, 400, pivot.error);
   return res.json({ pivot, worksheet: serializeWorksheet(found.sheet) });
+});
+
+app.delete('/api/workbooks/:id/worksheets/:sheet/pivots/:pivot', (req, res) => {
+  const found = locate(req, res);
+  if (!found) return undefined;
+  store.removePivot(found.sheet, req.params.pivot);
+  return res.json({ worksheet: serializeWorksheet(found.sheet) });
 });
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));

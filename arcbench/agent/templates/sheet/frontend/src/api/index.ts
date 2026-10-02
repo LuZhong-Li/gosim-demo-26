@@ -170,12 +170,16 @@ export const api = {
       'DELETE', `/workbooks/${id}/worksheets/${sheet}/validations/${rule}`),
   createPivot: (id: string, sheet: string, payload: {
     range: string; rowField: string; columnField?: string; valueField: string;
-    summarizeBy: string; hasHeader: boolean;
-  }) => request<{ pivot: PivotRecord; worksheet: WorksheetPayload }>(
+    summarizeBy: string; hasHeader: boolean; newWorksheet?: boolean;
+  }) => request<{ pivot: PivotRecord; worksheet: WorksheetPayload;
+    workbook?: WorkbookPayload }>(
     'POST', `/workbooks/${id}/worksheets/${sheet}/pivots`, payload),
   refreshPivot: (id: string, sheet: string, pivot: string) =>
     request<{ pivot: PivotRecord; worksheet: WorksheetPayload }>(
       'POST', `/workbooks/${id}/worksheets/${sheet}/pivots/${pivot}/refresh`, {}),
+  deletePivot: (id: string, sheet: string, pivot: string) =>
+    request<{ worksheet: WorksheetPayload }>(
+      'DELETE', `/workbooks/${id}/worksheets/${sheet}/pivots/${pivot}`),
 };
 
 export default api;
