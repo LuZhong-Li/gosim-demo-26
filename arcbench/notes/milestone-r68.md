@@ -560,3 +560,47 @@ SUM/AVERAGE 遇到非数值列 → `Value field requires numeric values`（保�
 > 的 UI 用例明显通过，就说明 `0465e99` 是这几轮 0 分的主因，r73 值得立刻起跑。
 > 注意 `backend/node_modules` 必须用 pnpm **重新安装**（robocopy 复制会打断 pnpm 的符号链接，
 > 表现为 `Cannot find module 'body-parser'`）。
+
+---
+
+# r72 终值 + 首份逐条自测报告 + r73 起跑（2026-10-03 00:0x）
+
+## r72 官方成绩：五题仍全 0
+
+| 任务 | Score | 耗时 | Tokens | Cost |
+|---|---|---|---|---|
+| GitHub 原题 | 0.00 | 39m50s | 411,261 | ¥2.4801 |
+| Stage 1 | 0.00 | 43m19s | 458,604 | ¥2.7528 |
+| Stage 2 | 0.00 | 39m31s | 427,416 | ¥2.5043 |
+| Stage 3 | 0.00 | 52m01s | 514,862 | ¥3.1476 |
+| Sheet | 0.00（`Score --`，成本数据缺失） | — | — | — |
+| **合计** | **0.00 / 0-200** | **174m41s** | — | — |
+
+## selftest-web 首份**逐条**报告（r71 Stage-1 产物 + SPA 修复）
+
+`submissions/2d6f4447-…`：**0/30，30 条全 FAIL**，报错统一为
+`Test timeout of 60000ms exceeded.`（**整条 60s 硬超时**，不是 10s 元素定位超时）。
+
+**反常点**：同一配方早先是 4/30、6/30（跑的是**我们的脚手架产物**），这次跑的是
+**模型生成的 r71 产物** → 0/30。本地同一目录 `GET /` 返回 200（Vite index.html），
+所以"容器内构建/启动"与本地存在分歧，**不能据此判定 SPA 修复无效**。
+
+**收获**：首次拿到官方 spec 文件名体系 →
+`REQ-1-1-1-sign-up / REQ-1-1-2-sign-in / REQ-1-1-3-password-recovery / REQ-1-2-sign-out /
+REQ-1-3-change-password / REQ-2-1-1-browse-organization-repositories /
+REQ-2-1-2-create-organization …`（Stage-1 共 30 条），可做"需求号 ↔ spec ↔ 失败现象"对照表。
+
+## r73 已起跑（2026-10-03 00:03）
+
+包 `arc-agent-r73.zip`（0.41MB / 119 项，含 `0465e99` SPA 接线 + `02926ac` collection 守卫
++ `d70ba51`/`832b4db`/`60b81cd`/`0d1e2b8`/`10f8e43`）。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `7018e00f986f` |
+| hackathon--github-stage-1 | `18f896a44b69` |
+| hackathon--github-stage-2 | `6e7a1574c6c5` |
+| hackathon--github-stage-3 | `87054877879c` |
+| hackathon--sheet | `46641881ce99` |
+
+预算：r72 花掉约 ¥10.9（r33-insurance 为 ¥0），余量约 ¥345。
