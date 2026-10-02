@@ -83,3 +83,56 @@ GitHub Stage 2 = 5.43 / 6.9%（2 条）；其余四项 0；小计 2/200、209 mi
 
 - `gh_store` / `sheet_store` 是**纯内存**存储，进程重启丢数据；分数上来后，"刷新后仍在"类用例会集中暴露。
 - Sheet 仍全 0，需要在 Stage 1/2 稳定后单独攻。
+
+## 7. r68 平台结果与真正死因（2026-10-02 19:55 补记）
+
+**r68 五题 = 0/200**（185m42s / 2.121M tokens / ¥5.0764）：
+GitHub 0/100（43m0s）、Stage 1 0/30（34m53s）、Stage 2 0（37m26s）、Stage 3 0（37m45s）、
+Sheet 0/100（32m38s）。**本地自测 6/30 完全没有在平台上复现。**
+
+死因（run `9daee315dd83` 的 Status + Stdout 原文）：
+
+```
+Run Status 2 STAGE 2 Running agent
+  template application server exited before becoming ready (code=1)   ← 出现 3 次
+
+[template-app.stderr] TypeError: argument handler must be a function
+[template-app.stderr]     at Function.use (.../node_modules/router/index.js:392:13)
+[template-app.stderr]     at Function.<anonymous> (.../express/lib/application.js:222:21)
+[template-app.stderr]     at Object.<anonymous> (/workspace/template/backend/src/app.js:15:5)
+```
+
+`app.js:15` 就是 **r67 新加的孤儿 router 挂载行**。模型那边有个文件只是"出现过
+`express.Router` 字样"（例如 `module.exports = { router }`），被我们判定为 router 后
+`app.use('/', 该模块)` → Express 立刻抛 `argument handler must be a function` → **后端启动即崩**
+→ 评测端连不上应用 → 30 条场景全 0。
+
+**自测为什么没抓到**：自测包用的是我们**预构建的 dist + self-contained 镜像**，且那份 app 的孤儿模块
+恰好都真的导出 router；平台则是**自己 rebuild + 用模型的 app.js**，于是踩中。
+
+**r69 修复（`__arcMount` 守卫）**：所有注入挂载改为
+
+```js
+function __arcMount(prefix, loader) {
+  try {
+    const loaded = loader();
+    const handler = loaded && loaded.default ? loaded.default : loaded;
+    if (typeof handler === 'function') app.use(prefix, handler);
+    else console.error('arc: skipped mount ' + prefix + ' (not a handler)');
+  } catch (error) { console.error('arc: skipped mount ' + prefix + ': ' + (error && error.message)); }
+}
+__arcMount('/', () => require('./auth'));
+```
+
+本地验证：故意放一个 `module.exports = { router }` 的坏模块 → 服务**正常启动**，
+只打印 `arc: skipped mount / (not a handler)`，`GET /` 照常响应；修复前同样的形状必然崩。
+
+## 8. r69 现状（本轮结束）
+
+1. ✅ 需求驱动播种：`requirement_accounts()` 从需求原文抽 15 个预置账号（排除 `unknown` /
+   `unknown-reviewer` / `nora.demo`），`ensure_startup_seed_all()` 走应用自己的注册路由批量播种；
+   本地 scaffold 已跑通 `seed hook -> /api/auth/register (15 account(s))`。
+2. ✅ 崩溃安全挂载：`__arcMount` 守卫（见上），本地用坏模块验证通过。
+3. ⏭ 待办：组织/仓库/团队种子（`Acme Demo` / `acme-docs` / `secret-research` / `frontend-team` …）
+   —— REQ-2 十五条的前置；然后打包 r69 → 上传 → 五题起跑。
+4. 🔎 出分后首要核对：**REQ-1-1-1 注册三条在平台是否通过**（应用这次不会再崩，才有可比性）。

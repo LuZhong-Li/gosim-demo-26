@@ -3096,13 +3096,39 @@ def mount_orphan_routers(project_dir: Path) -> list[str]:
                 declared_path.startswith(f"/{stem}") for declared_path in declared):
             prefixes.append(f"/{stem}")
         for prefix in prefixes:
+            # Mount through a guard, never directly: r68's Stage-1 run died with
+            #   TypeError: argument handler must be a function
+            #   at Function.use (.../router/index.js:392:13)
+            #   at Object.<anonymous> (backend/src/app.js:15:5)
+            # because a module that merely *mentions* express.Router was mounted
+            # and turned out not to export a handler - one bad mount crashed the
+            # backend, the runner saw "template application server exited before
+            # becoming ready (code=1)" three times, and all 30 scenarios scored 0.
             lines += (
-                f"\napp.use('{prefix}', require('{specifier}'));"
-                f" // ARC agent: orphaned router mounted ({path.name})"
+                f"\n__arcMount('{prefix}', () => require('{specifier}'));"
+                f" // ARC agent: orphaned router ({path.name})"
             )
         mounted.append(f"{path.name} -> {'/' + stem if len(prefixes) > 1 else '/'}")
     if not lines:
         return []
+    helper = (
+        "\n\n// ARC agent: every injected mount goes through this guard so a module\n"
+        "// that does not actually export an Express handler cannot kill the server.\n"
+        "function __arcMount(prefix, loader) {\n"
+        "  try {\n"
+        "    const loaded = loader();\n"
+        "    const handler = loaded && loaded.default ? loaded.default : loaded;\n"
+        "    if (typeof handler === 'function') {\n"
+        "      app.use(prefix, handler);\n"
+        "    } else {\n"
+        "      console.error('arc: skipped mount ' + prefix + ' (not a handler)');\n"
+        "    }\n"
+        "  } catch (error) {\n"
+        "    console.error('arc: skipped mount ' + prefix + ': ' + (error && error.message));\n"
+        "  }\n"
+        "}\n"
+    )
+    lines = helper + lines
     anchor = re.search(r"^.*app\.use\(express\.json\([^)]*\)\)\s*;?\s*$", app_body, re.M)
     if anchor is not None:
         patched = app_body[:anchor.end()] + "\n" + lines + app_body[anchor.end():]
