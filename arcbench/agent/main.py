@@ -52,6 +52,8 @@ from guard import complete_store_methods
 from guard import ensure_startup_seed
 from guard import ensure_startup_seed_all
 from guard import requirement_accounts
+from guard import requirement_world
+from guard import ensure_startup_seed_world
 from guard import collect_text
 from guard import ensure_signin_seed
 from guard import ensure_signin_route
@@ -1837,6 +1839,11 @@ def main(argv: list[str] | None = None) -> int:
         named = ensure_named_exports(project_dir)
         if named:
             log(f"[arc-agent] completed named exports: {named[:8]}")
+        # A page the entry imports without a default export fails the bundle,
+        # so every page gets one before the router starts naming them.
+        defaults = ensure_default_exports(project_dir)
+        if defaults:
+            log(f"[arc-agent] completed default exports: {defaults[:8]}")
         # r63: the entry rendered an unrelated screen while 31 generated pages sat
         # unreachable on disk - the probe reported it and the model never fixed it.
         wired = ensure_app_router(project_dir)
@@ -1862,6 +1869,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 log("[arc-agent] no registration route found to seed the account "
                     "with; the rehearsal probe will report whether it exists")
+            # Accounts are only half of the predefined world: every REQ-2-*
+            # scenario starts from an organization, its teams, its repositories
+            # and the memberships/grants between them, and r68's runs had none
+            # of those because nothing outside the accounts was provisioned.
+            world = requirement_world(collect_text(nodes_payload), accounts)
+            seeded_world = ensure_startup_seed_world(
+                project_dir, world, accounts, str(credentials["password"]),
+                args.web_port)
+            if seeded_world:
+                log(f"[arc-agent] the backend now seeds the pre-provisioned world "
+                    f"through its own business routes: {seeded_world}")
+            elif world:
+                log("[arc-agent] world seed found no place to install itself; "
+                    "the generated backend has no entry file with a listener")
             stored = ensure_signin_seed(project_dir, credentials)
             if stored:
                 log(f"[arc-agent] wrote the seeded account into the sign-in store: {stored}")

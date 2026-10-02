@@ -136,3 +136,71 @@ __arcMount('/', () => require('./auth'));
 3. ⏭ 待办：组织/仓库/团队种子（`Acme Demo` / `acme-docs` / `secret-research` / `frontend-team` …）
    —— REQ-2 十五条的前置；然后打包 r69 → 上传 → 五题起跑。
 4. 🔎 出分后首要核对：**REQ-1-1-1 注册三条在平台是否通过**（应用这次不会再崩，才有可比性）。
+
+---
+
+## r69：预置世界（组织 / 团队 / 仓库 / 成员 / 权限）播种 —— 已完成并本地验证
+
+### 新增代码（`arcbench/agent/guard.py`）
+
+| 名称 | 作用 |
+|---|---|
+| `requirement_world(text, accounts)` | 从需求原文抽 `Acme Demo`、`acme-docs`(public)、`secret-research`(private)、`frontend-team`/`platform-team`/`frontend-child`/`access-role-team`，以及成员与角色关系；**只有需求文本里出现过的账号才会被写入关系**，所以 Sheet（文本里没有这些名字）不会误播。 |
+| `world_seed_payload(...)` | 把上面的世界编译成一份有序请求计划：账号 → 登录 → 组织 → 成员 → 团队 → 团队成员 → 团队层级 → 仓库 → 仓库授权。每个动作都带候选路径（`/api/orgs`、`/api/organizations`、`/orgs` 三种前缀 × `/api` 两级），逐个试到不是 404/405 为止。 |
+| `ensure_startup_seed_world(...)` | 把计划作为 `WORLD_SEED` 注入后端监听文件（与账号播种同一个入口文件），启动后 700ms 执行。 |
+
+### 遵守的约束
+
+1. 实体名全部来自评测传入的 requirement payload，不硬编码清单（`Acme Demo` 是
+   "出现次数最多的 `organization <Name>` 候选"，仓库名必须是 slug 形状）。
+2. 账号走应用**自己的注册路由**，组织/团队/仓库/成员/授权走应用**自己的业务路由**
+   （`POST /api/orgs`、`/api/orgs/:name/members`、`/api/orgs/:name/teams`、
+   `/api/orgs/:name/teams/:team/members`、`PATCH /api/orgs/:name/teams/:team`、
+   `/api/orgs/:name/repos`、`/api/orgs/:name/access`），复用后端校验与存储链路。
+3. 先登录（`org-owner` / `Valid-password-123!`）拿 `Bearer` token，再执行需要鉴权的步骤；
+   登录失败则记一行日志后继续，**绝不中断服务启动**；`already exists` 视为成功。
+4. 不预置"必须不存在"的名字：`new-member` 不是组织成员、`mobile-team` 不建、
+   `unknown` / `unknown-reviewer` / `nora.demo` 不注册。
+
+### 本地验证（`arcbench/runs/_scratch_r69.py`，全部通过）
+
+```
+accounts (15): alice-dev, recovery-visibility, recovery-invalid-code, recovery-success,
+  password-change-success, password-change-invalid, password-change-required, org-owner,
+  team-maintainer, bob-reviewer, new-member, existing-member, org-member,
+  protected-member, repo-admin
+org: {'name': 'acme-demo', 'displayName': 'Acme Demo'}   owner: org-owner
+members: org-owner(Owner), team-maintainer(Owner), repo-admin/bob-reviewer/
+  existing-member/org-member/protected-member(Member)   # new-member 不在其中
+teams: frontend-team(members=[bob-reviewer]), platform-team,
+  frontend-child(parent=frontend-team), access-role-team     # mobile-team 未创建
+repos: acme-docs(public), secret-research(private)
+teamGrants: access-role-team Write   userGrants: repo-admin Admin
+```
+
+把注入后的 `index.js` 对着一个假后端（`_scratch_r69_hook/stub-server.js`）跑通：
+
+```
+[arc-seed] signed in as org-owner via /api/auth/login
+[arc-seed] POST /api/orgs -> 201
+[arc-seed] POST /api/orgs/acme-demo/members -> 201  ×6
+[arc-seed] POST /api/orgs/acme-demo/teams -> 201    ×4
+[arc-seed] POST /api/orgs/acme-demo/teams/frontend-team/members -> 201
+[arc-seed] PATCH /api/orgs/acme-demo/teams/frontend-child -> 200
+[arc-seed] POST /api/orgs/acme-demo/repos -> 201    ×2
+[arc-seed] POST /api/orgs/acme-demo/access -> 201   ×4
+[arc-seed] world seed finished
+```
+
+`node --check` 通过（注入 JS 无语法错误），`python -m py_compile guard.py main.py` 通过。
+
+### 本轮同时修掉的 r68 缺陷
+
+- `ensure_app_router` 手术式补挂 25–26 个无路由页面（见 run-log 的 P1）。
+- 入口改写前先补 default export（P2），避免第一次 rehearsal 必定构建失败。
+
+### 未修（下一轮首要项）
+
+- Sheet 没有任何列表路由 → 全 0（P4），Sheet 需要独立脚手架。
+- 9 个可访问名缺失、`missing-name repair made it worse` 停手（P5）。
+- 内存存储重启即丢（`gh_store.js` / `sheet_store.js`），需要持久化。
