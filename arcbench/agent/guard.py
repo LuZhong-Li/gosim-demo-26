@@ -3754,6 +3754,28 @@ KEEP_PAGES = {
         "frontend/src/pages/WorkbookHomePage.tsx",
         "frontend/src/pages/WorkbookEditorPage.tsx",
     ),
+    # GitHub tasks use the bundled scaffold, so that is the slug the restore
+    # looks up (``task=github template=scaffold``). r70's GitHub runs booted and
+    # seeded correctly and still scored zero, which means the pages the suite
+    # looks for were the missing half; these files are the scaffold's working
+    # implementation of them.
+    "scaffold": (
+        "frontend/src/api/index.ts",
+        "frontend/src/labels.ts",
+        "frontend/src/components/Layout.tsx",
+        "frontend/src/components/Form.tsx",
+        "frontend/src/pages/AuthPage.tsx",
+        "frontend/src/pages/HomePage.tsx",
+        "frontend/src/pages/OrgsPage.tsx",
+        "frontend/src/pages/OrgPage.tsx",
+        "frontend/src/pages/RepoPage.tsx",
+        "frontend/src/pages/RepoSettingsPage.tsx",
+        "frontend/src/pages/RepoSearchPage.tsx",
+        "frontend/src/pages/PullsTab.tsx",
+        "frontend/src/pages/TeamPage.tsx",
+        "frontend/src/pages/ComparePage.tsx",
+        "frontend/src/pages/SettingsPage.tsx",
+    ),
 }
 
 
@@ -3768,35 +3790,26 @@ def restore_keep_pages(
     if not relatives:
         return []
     wanted = {name for name in (required_names or set()) if name and len(name) > 3}
-    carried: dict[str, list[str]] = {}
-    for relative in relatives:
-        source = scaffold_dir / relative
-        if not source.is_file():
-            return []
-        body = _source_text(source)
-        names = [name for name in wanted if name in body]
-        if names:
-            carried[relative] = names
-    if not carried:
-        return []
     # Where the names live now is irrelevant: if they are nowhere in the
     # frontend sources the suite cannot reach them through the UI.
     haystack = "\n".join(_source_text(path) for path in _frontend_sources(project_dir))
-    missing = [name for names in carried.values() for name in names
-               if name not in haystack]
-    if not missing:
-        return []
     restored: list[str] = []
+    lost: list[str] = []
     for relative in relatives:
         source = scaffold_dir / relative
         if not source.is_file():
             continue
+        names = [name for name in wanted if name in _source_text(source)]
+        missing = [name for name in names if name not in haystack]
+        if not missing:
+            continue
         if _write_text(project_dir / relative, _source_text(source)):
             restored.append(relative)
+            lost.extend(missing)
     if not restored:
         return []
-    return [f"restored {len(restored)} scaffold file(s) after {len(missing)} name(s) "
-            f"went missing ({', '.join(sorted(set(missing))[:4])}): {', '.join(restored)}"]
+    return [f"restored {len(restored)} scaffold file(s) after {len(set(lost))} name(s) "
+            f"went missing ({', '.join(sorted(set(lost))[:4])}): {', '.join(restored)}"]
 
 
 def mount_orphan_routers(project_dir: Path) -> list[str]:
