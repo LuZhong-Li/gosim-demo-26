@@ -63,6 +63,7 @@ from guard import unrouted_pages
 from guard import accessibility_contract_issues
 from guard import ensure_app_router
 from guard import guard_app_use
+from guard import restore_keep_pages
 from guard import mount_orphan_routers
 from llm import LlmClient
 from prompts import (
@@ -1937,6 +1938,16 @@ def main(argv: list[str] | None = None) -> int:
         # r68/r70 Stage 1 never booted at all: an ``app.use`` argument evaluated
         # to a non-function and express threw while loading app.js. Every mount in
         # the application module now goes through a type filter.
+        # r70's Sheet run kept the scaffold and served the seeded workbook, yet
+        # the generated pages replaced the scaffold's and 13 exact names went
+        # missing. Put the scaffold pages back when their names are gone.
+        restored_pages = restore_keep_pages(
+            project_dir, TEMPLATES / slug, slug, set(exact_names(nodes_payload)))
+        if restored_pages:
+            log(f"[arc-agent] kept pages: {restored_pages}")
+            routed_again = ensure_app_router(project_dir)
+            if routed_again:
+                log(f"[arc-agent] re-ran the entry wiring: {routed_again}")
         guarded_use = guard_app_use(project_dir)
         if guarded_use:
             log(f"[arc-agent] app.use() runtime guard: {guarded_use}")

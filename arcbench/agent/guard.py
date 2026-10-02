@@ -3739,6 +3739,65 @@ def guard_app_use(project_dir: Path) -> list[str]:
 #: must never be treated as an orphaned router.
 ORPHAN_ROUTER_SKIP = {"app.js", "index.js", "arc-seed-auth.js", "server.js"}
 
+#: Files a template ships that carry requirement names the suite asserts on.
+#: The generation turn rewrites the page tree often enough that these come back
+#: empty: r70's Sheet run kept the scaffold (``task=sheet template=sheet``, the
+#: seeded workbook was served, no crash) yet lost 13 exact names - including
+#: ``New blank workbook``, ``Import CSV``, ``Export CSV``, ``Add worksheet`` and
+#: ``Formula bar`` - because the generated pages replaced the scaffold's, so the
+#: task still scored zero. When the names they provide have disappeared, the
+#: scaffold copies are put back as one consistent set.
+KEEP_PAGES = {
+    "sheet": (
+        "frontend/src/api/index.ts",
+        "frontend/src/components/Grid.tsx",
+        "frontend/src/pages/WorkbookHomePage.tsx",
+        "frontend/src/pages/WorkbookEditorPage.tsx",
+    ),
+}
+
+
+def restore_keep_pages(
+    project_dir: Path,
+    scaffold_dir: Path,
+    slug: str,
+    required_names: set[str] | None = None,
+) -> list[str]:
+    """Put back the scaffold pages whose requirement names the run lost."""
+    relatives = KEEP_PAGES.get(slug, ())
+    if not relatives:
+        return []
+    wanted = {name for name in (required_names or set()) if name and len(name) > 3}
+    carried: dict[str, list[str]] = {}
+    for relative in relatives:
+        source = scaffold_dir / relative
+        if not source.is_file():
+            return []
+        body = _source_text(source)
+        names = [name for name in wanted if name in body]
+        if names:
+            carried[relative] = names
+    if not carried:
+        return []
+    # Where the names live now is irrelevant: if they are nowhere in the
+    # frontend sources the suite cannot reach them through the UI.
+    haystack = "\n".join(_source_text(path) for path in _frontend_sources(project_dir))
+    missing = [name for names in carried.values() for name in names
+               if name not in haystack]
+    if not missing:
+        return []
+    restored: list[str] = []
+    for relative in relatives:
+        source = scaffold_dir / relative
+        if not source.is_file():
+            continue
+        if _write_text(project_dir / relative, _source_text(source)):
+            restored.append(relative)
+    if not restored:
+        return []
+    return [f"restored {len(restored)} scaffold file(s) after {len(missing)} name(s) "
+            f"went missing ({', '.join(sorted(set(missing))[:4])}): {', '.join(restored)}"]
+
 
 def mount_orphan_routers(project_dir: Path) -> list[str]:
     """Mount every backend Express router that nothing requires.
