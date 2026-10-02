@@ -204,3 +204,33 @@ teamGrants: access-role-team Write   userGrants: repo-admin Admin
 - Sheet 没有任何列表路由 → 全 0（P4），Sheet 需要独立脚手架。
 - 9 个可访问名缺失、`missing-name repair made it worse` 停手（P5）。
 - 内存存储重启即丢（`gh_store.js` / `sheet_store.js`），需要持久化。
+
+---
+
+## r69 提交与起跑
+
+- 包：`arcbench/dist/arc-agent-r69.zip`（0.35MB，95 项，根目录 `main.py`；
+  stage 目录 `arcbench/runs/stage-r69-200555`）
+- commit：`5c31bc3`（本体），`a16b373`（补挂后再补 default export，留给 r70）
+- 上传：2026-10-02 12:06:46（`New submission` → `Drop your agent code here` →
+  `arc-agent-r69` → 勾 `使用比赛额度评测` → `Save submission`），History 计数 39 → 40
+- 起跑：历史页 `Run 5 remaining tasks` 一次拉起五题（北京时间 12:07:01–12:07:04）
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `b9be2621b6be` |
+| hackathon--github-stage-1 | `dc2be680696f` |
+| hackathon--github-stage-2 | `82ee7e2642e4` |
+| hackathon--github-stage-3 | `9fde70354911` |
+| hackathon--sheet | `5415e1e9a042` |
+
+预算：起跑前 ¥374.09（上轮 ¥5.08）。五题全部 RUNNING。
+
+### r69 出分后首要核对
+
+1. `[template-app.stderr]` 里不能再出现 `argument handler must be a function`
+   （P0 是否真被修掉）。
+2. `[arc-seed] signed in as org-owner ... world seed finished` 是否出现在 Stdout 里
+   （P3 的播种是否在真实生成的 app 上找到路由）。
+3. `[arc-agent] unrouted pages after patch` 是否从 25–26 降到个位数（P1）。
+4. REQ-1-1-1 注册三条在平台是否继续通过（本地自测 6/30 的那三条）。
