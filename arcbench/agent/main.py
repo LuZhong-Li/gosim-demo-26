@@ -1708,12 +1708,22 @@ def main(argv: list[str] | None = None) -> int:
             # One round leaves most of the holes (r39 still had 49 missing on
             # GitHub); the tests cannot find a name the source never mentions.
             previous = None
-            for round_no in range(1, 4):
+            stalled_rounds = 0
+            # r63: three rounds left 41 names missing on GitHub and 32 on Sheet -
+            # the suite cannot find a name the source never mentions, so keep
+            # going while there is budget and only stop after two dead rounds.
+            for round_no in range(1, 7):
                 if not missing_names or time.time() >= deadline:
                     break
                 if previous is not None and len(missing_names) >= previous:
-                    log(f"[selfcheck] missing-name repair stalled at {len(missing_names)}")
-                    break
+                    stalled_rounds += 1
+                    if stalled_rounds >= 2:
+                        log(f"[selfcheck] missing-name repair stalled at {len(missing_names)}")
+                        break
+                    log(f"[selfcheck] missing-name repair did not shrink "
+                        f"({len(missing_names)}); retrying once")
+                else:
+                    stalled_rounds = 0
                 previous = len(missing_names)
                 log(f"[selfcheck] missing-name repair round {round_no}: "
                     f"{len(missing_names)} missing")

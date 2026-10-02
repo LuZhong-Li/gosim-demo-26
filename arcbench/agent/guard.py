@@ -1485,6 +1485,26 @@ def static_list_issues(project_dir: Path) -> list[str]:
             f"{relative} renders the record collection but never calls the API, "
             f"so a seeded record cannot appear on it"
         )
+    # r63 shipped pages that were name-only shells: a couple of bare controls
+    # with no state, no API call and no labelled input. They satisfied the
+    # exact-name self-check while doing nothing the suite could use, so they are
+    # reported here and repaired by the same turn as the data-source problems.
+    for folder in ("pages", "screens", "views"):
+        root = src / folder
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.tsx")):
+            text = _source_text(path)
+            if len(text) > 1200:
+                continue
+            if re.search(r"useState|useEffect|fetch\(|axios|client\.|onClick=|"
+                         r"<label|<input|<form|useNavigate|useParams", text):
+                continue
+            issues.append(
+                f"{str(path.relative_to(project_dir)).replace(chr(92), '/')} is a "
+                f"name-only shell (no state, no API call, no labelled control); the "
+                f"suite drives real controls, so the page has to behave"
+            )
     return issues[:6]
 
 
