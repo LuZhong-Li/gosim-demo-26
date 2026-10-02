@@ -54,6 +54,7 @@ from guard import ensure_startup_seed_all
 from guard import requirement_accounts
 from guard import requirement_world
 from guard import ensure_startup_seed_world
+from guard import bundled_requirement_text
 from guard import collect_text
 from guard import ensure_signin_seed
 from guard import ensure_signin_route
@@ -1853,13 +1854,21 @@ def main(argv: list[str] | None = None) -> int:
         if credentials:
             log(f"[arc-agent] the suite signs in as {credentials['username']}; "
                 f"the rehearsal will verify that sign-in works")
+            # The mounted tree is the authority, but Stage 2/3 mount only their
+            # own slice, and the world those scenarios reuse was described in
+            # the earlier slice. The bundled requirement text is read as a
+            # second source so the seed records are not lost between stages.
+            seed_text = collect_text(nodes_payload)
+            bundled = bundled_requirement_text(asset_slug)
+            if bundled:
+                seed_text = f"{seed_text}\n{bundled}"
             # The graded scenarios each start from a pre-provisioned world, and
             # the requirement text says the application "must provision those
             # records before the corresponding scenario". Seeding only the
             # rehearsal account left REQ-1-1-3 S2/S3, all of REQ-1-3 and all
             # fifteen REQ-2-* cases failing their GIVEN (r68 self-test: 6/30).
             accounts = requirement_accounts(
-                collect_text(nodes_payload), str(credentials["password"]))
+                seed_text, str(credentials["password"]))
             if all(account["username"] != credentials["username"] for account in accounts):
                 accounts.insert(0, dict(credentials))
             seeded = ensure_startup_seed_all(project_dir, accounts, args.web_port)
@@ -1873,7 +1882,7 @@ def main(argv: list[str] | None = None) -> int:
             # scenario starts from an organization, its teams, its repositories
             # and the memberships/grants between them, and r68's runs had none
             # of those because nothing outside the accounts was provisioned.
-            world = requirement_world(collect_text(nodes_payload), accounts)
+            world = requirement_world(seed_text, accounts)
             seeded_world = ensure_startup_seed_world(
                 project_dir, world, accounts, str(credentials["password"]),
                 args.web_port)

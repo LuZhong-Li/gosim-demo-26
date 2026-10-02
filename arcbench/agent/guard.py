@@ -2407,6 +2407,46 @@ SEED_ACCOUNT_DENY = {
 #: Accounts the scenarios name without an ``@example.test`` address.
 SEED_ACCOUNT_EXTRA = ("alice-dev",)
 
+#: "account alice-dev, email alice.dev@example.test, password ..." - the suite
+#: signs in with either the username or that exact address, so the address the
+#: requirement states has to be the address the account is created with.
+ACCOUNT_WITH_EMAIL = re.compile(
+    r"""\baccount\b[^.\n]{0,24}?`?((?=[a-z0-9\-]*-)[a-z0-9][a-z0-9\-]{2,38})`?[^.\n]{0,24}?"""
+    r"""[,\s]+(?:with\s+)?email\s+`?([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+)""",
+    re.IGNORECASE,
+)
+
+#: Names the seed sentences introduce by role: "member bob-reviewer",
+#: "team frontend-team", "owner alice-dev". Entity names are slugs, so a word
+#: without a hyphen ("member account") is prose rather than a name.
+SEED_ROLE_NAME = re.compile(
+    r"""\b(account|member|owner|team)\s+`?([a-z0-9][a-z0-9\-]{2,38})""",
+    re.IGNORECASE,
+)
+
+#: Words that follow a role word in ordinary prose.
+SEED_ROLE_STOPWORDS = {
+    "workflow", "requested", "account", "member", "owner", "team", "name",
+    "list", "page", "menu", "the", "and", "with", "that", "this", "which",
+    "sign-in", "sign-up", "sign-out", "log-in", "log-out", "req-1", "req-2",
+}
+
+
+def _slug_names(text: str, roles: tuple[str, ...]) -> list[str]:
+    """Entity names the requirement introduces as ``<role> <name>``."""
+    found: list[str] = []
+    for role, name in SEED_ROLE_NAME.findall(text or ""):
+        if role.lower() not in roles:
+            continue
+        name = name.lower()
+        if "-" not in name or name in SEED_ROLE_STOPWORDS or name in found:
+            continue
+        # "account REQ-1-1-2" is a requirement id, not an account.
+        if name.startswith(("req-", "task-", "scenario")):
+            continue
+        found.append(name)
+    return found
+
 
 def collect_text(value: object, limit: int = 400_000) -> str:
     """All strings inside the requirement payload, for the seed extraction below."""
@@ -2431,6 +2471,43 @@ def collect_text(value: object, limit: int = 400_000) -> str:
     return "\n".join(parts)
 
 
+#: The bundles shipped inside the agent, one folder per task family.
+BUNDLED_ASSETS = Path(__file__).resolve().parent / "assets"
+
+#: How much of a bundled bundle to scan, in characters.
+BUNDLED_TEXT_LIMIT = 900_000
+
+
+def bundled_requirement_text(slug: str) -> str:
+    """The requirement text bundled with the agent for this task family.
+
+    Stage 2 and Stage 3 mount only their own slice of the GitHub requirements,
+    so their GIVEN steps name far fewer entities than the world the scenarios
+    actually need ("These are the same seed records as the previous stage").
+    The full text is already inside the agent - the requirement map that drives
+    generation - so the seed extraction reads it as a second source.
+    """
+    if not slug:
+        return ""
+    parts: list[str] = []
+    size = 0
+    for name in ("delta.md", "requirement-map.json"):
+        path = BUNDLED_ASSETS / slug / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if size + len(text) > BUNDLED_TEXT_LIMIT:
+            text = text[:max(0, BUNDLED_TEXT_LIMIT - size)]
+        parts.append(text)
+        size += len(text)
+        if size >= BUNDLED_TEXT_LIMIT:
+            break
+    return "\n".join(parts)
+
+
 def requirement_accounts(text: str, password: str) -> list[dict]:
     """The accounts the requirements say must already exist.
 
@@ -2443,7 +2520,16 @@ def requirement_accounts(text: str, password: str) -> list[dict]:
     app seeded was the rehearsal one.
     """
     names: list[str] = []
+    emails: dict[str, str] = {}
+    for username, email in ACCOUNT_WITH_EMAIL.findall(text or ""):
+        emails.setdefault(username.lower(), email)
     for local in REQUIREMENT_ACCOUNT.findall(text or ""):
+        if local in SEED_ACCOUNT_DENY or local in names:
+            continue
+        names.append(local)
+    # "... member bob-reviewer ..." names an account too, and it has to exist
+    # before the organization membership that mentions it can be created.
+    for local in _slug_names(text or "", ("account", "member", "owner")):
         if local in SEED_ACCOUNT_DENY or local in names:
             continue
         names.append(local)
@@ -2451,7 +2537,11 @@ def requirement_accounts(text: str, password: str) -> list[dict]:
         if name not in names:
             names.insert(0, name)
     return [
-        {"username": name, "email": f"{name}@example.test", "password": password}
+        {
+            "username": name,
+            "email": emails.get(name, f"{name}@example.test"),
+            "password": password,
+        }
         for name in names
     ]
 
@@ -2647,6 +2737,21 @@ def requirement_world(text: str, accounts: list[dict]) -> dict:
         if username in names
     ]
     owner = next((m["username"] for m in members if m["role"] == "Owner"), "")
+    if not owner:
+        # The original GitHub bundle (and therefore Stage 2/3, whose mounted
+        # tree only carries their own requirements) describes the same world with
+        # the older wording: "organization Acme Demo, repository acme-docs,
+        # member bob-reviewer, team frontend-team" / "owner alice-dev".
+        harvested = [name for name in _slug_names(body, ("member", "owner"))
+                     if name in names]
+        if harvested:
+            owners = [name for name in _slug_names(body, ("owner",)) if name in names]
+            owner = (owners or [name for name in ("alice-dev",) if name in names]
+                     or harvested)[0]
+            ordered = [owner] + sorted(name for name in harvested if name != owner)
+            members = [{"username": name,
+                        "role": "Owner" if name == owner else "Member"}
+                       for name in ordered]
     if not members or not owner:
         return {}
     # "organization Acme Demo with public repository acme-docs" names the org,
