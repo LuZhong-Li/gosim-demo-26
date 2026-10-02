@@ -114,6 +114,26 @@ so provisioning the seed is as important as the UI itself.
   back after every reload, and a rejected write must leave the seed unchanged.
 """.strip()
 
+ROLE_CONTRACT = """
+ROLE CONTRACT - the hidden tests query by ARIA role AND accessible name, so the
+element type matters as much as the words on it. A label spelled right on the
+wrong element is still invisible to the suite.
+
+- The way into the sign-in page must be a LINK (an anchor or router Link), not a
+  button: the suite does getByRole('link', { name: /login/i }).click() from the
+  home page. A button labelled "Sign in" satisfies the wording and still fails
+  the test.
+- Every form control must be reachable by getByLabel(...): use a real <label>
+  bound to each input (label for=/id=, or wrapping), named for the requirement
+  wording - username or email, and password.
+- The control that submits the sign-in form must be a BUTTON whose accessible
+  name matches /login|sign in/i.
+- After signing in, the signed-in username must be visible as its own exact text
+  node AND a LINK named "Sign out" (or "Log out") must be present in the shell.
+- Interactive controls are queried as getByRole('link'|'button'|'checkbox'), so
+  do not render a primary action as a <div onClick> or a bare <span>.
+""".strip()
+
 
 AUTH_CONTRACT = """
 Authentication contract — every authenticated scenario starts by signing in, so

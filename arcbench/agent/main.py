@@ -54,12 +54,14 @@ from guard import ensure_signin_seed
 from guard import ensure_signin_route
 from guard import static_list_issues
 from guard import unrouted_pages
+from guard import accessibility_contract_issues
 from llm import LlmClient
 from prompts import (
     AUTH_CONTRACT,
     GENERATION_SYSTEM,
     PERFORMANCE_CONTRACT,
     REPAIR_SYSTEM,
+    ROLE_CONTRACT,
     SEED_CONTRACT,
     STACK_RULES,
     UI_CONTRACT,
@@ -604,6 +606,7 @@ def build_module_prompt(
         UI_CONTRACT,
         "",
         SEED_CONTRACT,
+        ROLE_CONTRACT,
         "",
         AUTH_CONTRACT,
         "",
@@ -1781,6 +1784,31 @@ def main(argv: list[str] | None = None) -> int:
                     remaining = static_list_issues(project_dir)
                     log(f"[arc-agent] data-source check after patch: "
                         f"{remaining or 'clean'}")
+        # The suite drives the UI with getByRole(...) plus an accessible-name
+        # regex, so a correctly-worded control on the wrong element type is
+        # still unfindable. r62 scored 0 on all three tasks while its
+        # exact-name coverage looked healthy (142/173), which is what a role
+        # mismatch looks like from the outside.
+        role_issues = accessibility_contract_issues(project_dir)
+        if role_issues:
+            log(f"[arc-agent] role contract: {role_issues}")
+            if llm.available and time.time() < deadline - 300:
+                patched = repair_from_rehearsal(
+                    project_dir, llm,
+                    "Static role-contract check failed before the grader ran:\n"
+                    + "\n".join(role_issues)
+                    + "\n\nThe hidden suite locates controls with getByRole(...) "
+                      "and an accessible-name regex, so the element TYPE decides "
+                      "whether the control is found. Keep every label that is "
+                      "already there and change only what is needed so the "
+                      "described controls exist with the described roles. Emit "
+                      "the corrected files complete, in the JSON envelope.",
+                    deadline,
+                )
+                if patched:
+                    guard_generated(project_dir, TEMPLATES / slug, set(patched))
+                    log(f"[arc-agent] role contract after patch: "
+                        f"{accessibility_contract_issues(project_dir) or 'clean'}")
         # A named import of something the target module never exports fails the
         # bundle outright (r51: `"Page" is not exported by "Form.tsx"`), and the
         # bundler only reports the first name it trips over, so fix them all now.

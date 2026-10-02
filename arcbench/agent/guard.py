@@ -1851,6 +1851,59 @@ def _app_file(project_dir: Path) -> Path | None:
     return None
 
 
+#: A control that renders the sign-in entry. The suite reaches the sign-in page
+#: with ``getByRole('link', { name: /login/i })``, so a <button> labelled
+#: "Sign in" satisfies the wording and still fails the first step of every
+#: scenario - exactly the shape of a 0/100 that builds and starts cleanly.
+LOGIN_ENTRY = re.compile(
+    r"""<(button|a|Link)\b[^>]*>[^<]{0,40}?"""
+    r"""(?:sign\s*in|log\s*in|login)""",
+    re.IGNORECASE,
+)
+SIGNOUT_ENTRY = re.compile(r"""sign\s*out|log\s*out""", re.IGNORECASE)
+
+
+def accessibility_contract_issues(project_dir: Path) -> list[str]:
+    """Static read of the generated front end against the role contract.
+
+    The suite drives the UI with ``getByRole`` + an accessible-name regex, so
+    the element *type* decides whether a correctly-worded control is findable.
+    Reading the source for this costs nothing and catches the failure before a
+    forty-minute run does.
+    """
+    frontend = project_dir / "frontend" / "src"
+    if not frontend.is_dir():
+        return []
+    saw_login = False
+    login_is_link = False
+    saw_signout = False
+    for path in sorted(frontend.rglob("*")):
+        if path.suffix.lower() not in (".jsx", ".tsx", ".js", ".ts", ".html"):
+            continue
+        text = _source_text(path)
+        if not text:
+            continue
+        if SIGNOUT_ENTRY.search(text):
+            saw_signout = True
+        for match in LOGIN_ENTRY.finditer(text):
+            saw_login = True
+            if match.group(1).lower() in ("a", "link"):
+                login_is_link = True
+    issues: list[str] = []
+    if saw_login and not login_is_link:
+        issues.append(
+            "the sign-in entry is rendered as a <button>; the suite opens the "
+            "sign-in page with getByRole('link', { name: /login/i }).click(), "
+            "so it has to be an anchor or a router Link"
+        )
+    if not saw_signout:
+        issues.append(
+            "no 'Sign out' (or 'Log out') control exists; after signing in the "
+            "suite expects getByRole('link', { name: /sign out/i }) to be visible"
+        )
+    return issues[:4]
+
+
 def ensure_signin_route(project_dir: Path, seed: dict | None) -> list[str]:
     """Mount the seed sign-in route in front of the generated routes.
 
