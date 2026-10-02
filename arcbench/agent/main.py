@@ -56,6 +56,7 @@ from guard import static_list_issues
 from guard import unrouted_pages
 from guard import accessibility_contract_issues
 from guard import ensure_app_router
+from guard import mount_orphan_routers
 from llm import LlmClient
 from prompts import (
     AUTH_CONTRACT,
@@ -1876,6 +1877,9 @@ def main(argv: list[str] | None = None) -> int:
         # once more here - after every repair turn, guard restore and rehearsal -
         # and the entry is re-read against the role contract, because rewriting
         # ``App.tsx`` is exactly what dropped the compliant header last time.
+        orphaned = mount_orphan_routers(project_dir)
+        if orphaned:
+            log(f"[arc-agent] mounted orphaned backend routers: {orphaned}")
         final_exports = ensure_named_exports(project_dir)
         final_defaults = ensure_default_exports(project_dir)
         if final_exports or final_defaults:

@@ -485,11 +485,12 @@ const TOKEN_KEY = 'arc_token';
 const SIGNIN_PATHS = [
   '/api/auth/login', '/api/auth/signin', '/api/auth/sign-in', '/api/signin',
   '/api/sign-in', '/api/login', '/api/sign_in', '/auth/sign-in', '/auth/login',
-  '/signin', '/sign-in', '/login',
+  '/auth/auth/sign-in', '/auth/auth/login', '/signin', '/sign-in', '/login',
 ];
 const SIGNUP_PATHS = [
   '/api/auth/sign-up', '/api/auth/signup', '/api/auth/register', '/auth/sign-up',
   '/auth/signup', '/auth/register', '/api/register', '/signup', '/sign-up', '/register',
+  '/auth/auth/sign-up', '/auth/auth/signup', '/auth/users', '/api/users',
 ];
 const ME_PATHS = [
   '/api/auth/me', '/api/me', '/auth/me', '/api/session', '/api/auth/session',
@@ -2350,6 +2351,86 @@ def _app_file(project_dir: Path) -> Path | None:
     return None
 
 
+#: Files that build the application or are mounted by the ARC guard itself; they
+#: must never be treated as an orphaned router.
+ORPHAN_ROUTER_SKIP = {"app.js", "index.js", "arc-seed-auth.js", "server.js"}
+
+
+def mount_orphan_routers(project_dir: Path) -> list[str]:
+    """Mount every backend Express router that nothing requires.
+
+    The model writes each module as its own file and is asked to register it in
+    ``app.js``. r65's Stage 1 app shipped a complete ``backend/src/auth.js``
+    (registration, sign-in, password reset, ``/auth/...`` paths) that no
+    ``app.use`` ever referenced, while ``app.js`` mounted a *different*
+    ``./routes/auth`` module instead - so ``POST /auth/sign-up`` answered 404 and
+    REQ-1-1-1 could not pass no matter what the browser did. Mounting the
+    orphaned router at ``/`` makes the paths it already declares reachable, which
+    is the contract its own front end calls.
+    """
+    app_file = _app_file(project_dir)
+    if app_file is None:
+        return []
+    app_body = _source_text(app_file)
+    if not app_body or "orphaned router mounted" in app_body:
+        return []
+    src = app_file.parent
+    # Only ``app.use(prefix, require('./x'))`` counts as "already mounted". A file
+    # can be required purely for a helper (r65: ``repositories.js`` imports
+    # ``./auth`` for ``getAccountByToken``) and still never be registered - which
+    # is exactly the module whose routes the front end calls.
+    mounted_targets: set[Path] = set()
+    for path in sorted(src.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        for specifier in re.findall(
+                r"app\.use\(\s*['\"][^'\"]*['\"]\s*,\s*require\(\s*['\"]([^'\"]+)['\"]\s*\)",
+                _source_text(path)):
+            if not specifier.startswith("."):
+                continue
+            target = _resolve_target(path, specifier)
+            if target is not None:
+                mounted_targets.add(target.resolve())
+    lines = ""
+    mounted: list[str] = []
+    for path in sorted(src.rglob("*.js")):
+        if "node_modules" in path.parts or path.name in ORPHAN_ROUTER_SKIP:
+            continue
+        if path.resolve() in mounted_targets or path.resolve() == app_file.resolve():
+            continue
+        body = _source_text(path)
+        if "Router()" not in body and "express.Router" not in body:
+            continue
+        declared = [match[2] for match in ROUTE_PATH_RE.findall(body)]
+        if not declared:
+            continue
+        specifier = _relative_specifier(app_file, path)
+        prefixes = ["/"]
+        stem = path.stem
+        if re.fullmatch(r"[A-Za-z][\w-]*", stem) and not any(
+                declared_path.startswith(f"/{stem}") for declared_path in declared):
+            prefixes.append(f"/{stem}")
+        for prefix in prefixes:
+            lines += (
+                f"\napp.use('{prefix}', require('{specifier}'));"
+                f" // ARC agent: orphaned router mounted ({path.name})"
+            )
+        mounted.append(f"{path.name} -> {'/' + stem if len(prefixes) > 1 else '/'}")
+    if not lines:
+        return []
+    anchor = re.search(r"^.*app\.use\(express\.json\([^)]*\)\)\s*;?\s*$", app_body, re.M)
+    if anchor is not None:
+        patched = app_body[:anchor.end()] + "\n" + lines + app_body[anchor.end():]
+    else:
+        created = APP_CREATE.search(app_body)
+        if created is None:
+            return []
+        patched = app_body[:created.end()] + "\n" + lines + app_body[created.end():]
+    if not _write_text(app_file, patched):
+        return []
+    return mounted
+
+
 #: A control that renders the sign-in entry. The suite reaches the sign-in page
 #: with ``getByRole('link', { name: /login/i })``, so a <button> labelled
 #: "Sign in" satisfies the wording and still fails the first step of every
@@ -2553,6 +2634,8 @@ def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:
         repairs.append(f"named export added {added}")
     for added in ensure_default_exports(project_dir):
         repairs.append(f"default export added {added}")
+    for mounted in mount_orphan_routers(project_dir):
+        repairs.append(f"orphaned router mounted {mounted}")
     return repairs
 
 
