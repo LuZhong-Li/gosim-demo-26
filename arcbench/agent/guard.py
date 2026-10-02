@@ -412,7 +412,12 @@ def ensure_app_router(project_dir: Path) -> list[str]:
         patched = _splice_routes(body, missing)
         if patched and patched != body and _write_text(app, patched):
             relative = str(app.relative_to(project_dir)).replace(chr(92), "/")
-            return list(auth_module) + [f"{relative} (+{len(missing)} route(s))"]
+            # The new routes import pages by default name, so every one of them
+            # needs a default export before the bundle is built.
+            completed = ensure_default_exports(project_dir)
+            changed = list(auth_module) + [f"{relative} (+{len(missing)} route(s))"]
+            changed.extend(completed[:8])
+            return changed
     if len(referenced) >= max(2, len(pages) // 2) and contract_ok:
         return auth_module
     imports = "\n".join(f"import {name} from '{path}'" for name, path in pages)
