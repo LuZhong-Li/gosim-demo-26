@@ -404,3 +404,58 @@ r69（全 0）是**最新提交**，所以历史页 `current leaderboard score =
 `arc-agent-r33-repro`（13/200、9.65 分）那份保险目前**不在榜上**。
 规则允许删除"最新且全 0/未运行"的提交；若要恢复可见分数，需要从最新往前逐个删到
 r33-repro（约 30+ 次删除，属不可逆操作）——**需要用户明确授权**，我没有自行执行。
+
+---
+
+# r70 终值 + r71 起跑（2026-10-02 22:0x）
+
+## r70 官方成绩（仍全 0，但 harness 层明显前进）
+
+| 任务 | Score | 耗时 | Tokens | Cost | 启动 | 世界播种 |
+|---|---|---|---|---|---|---|
+| GitHub 原题 | 0.00 | 39m25s | 432,584 | ¥2.6674 | ✅ `Backend listening` | ✅ `world seed finished` |
+| Stage 1 | 0.00 | 36m25s | 417,627 | ¥2.4223 | ❌ app.js:227 崩溃 | — |
+| Stage 2 | 0.00 | 48m50s | 501,705 | ¥3.1645 | ✅ | ✅ |
+| Stage 3 | 0.00 | 39m58s | 444,509 | ¥2.6980 | — | — |
+| Sheet | 0.00 | 22m34s | 272,775 | ¥1.6008 | ✅ | n/a |
+| **合计** | **0.00** | **187m12s** | **2.069M** | **¥4.2682** | | |
+
+**三个决定性进步**（都可用日志行核对）：
+1. `f04fe83` 生效：原题与 Stage 2 的 stdout 里出现 `[arc-seed] … world seed finished`
+   —— r68/r69 五份日志里从未出现过。
+2. 原题/Stage 2 都 `Backend listening at http://127.0.0.1:3000`，不再"启动即崩"。
+3. Sheet 首次命中 `task=sheet template=sheet`，且
+   `[rehearsal] seeded record probe: Q3 Sales is served`（历史致命探针通过）。
+
+**剩余失败（本轮新修）**：
+- Stage 1：`TypeError: argument handler must be a function` at `app.js:227` ——
+  模型自己的 `app.use(factory())` 返回 undefined；修 `285cd49` `guard_app_use()`
+  （把每个 `app.use(` 换成带类型过滤的 `__arcUse(app, …)`；本地实测修复前 exit 1、
+  修复后正常加载并打印 `arc: dropped 1 non-function middleware argument(s)`）。
+- Sheet：`exact-name coverage 57/70 (13 missing)`，缺的正是脚手架自带的名字
+  （`New blank workbook` / `Import CSV` / `Export CSV` / `Add worksheet` / `Formula bar` …），
+  即生成阶段覆盖了脚手架页面；修 `d7094c2` `restore_keep_pages()`（名字整体消失时
+  成套恢复 4 个脚手架文件，幂等，github 不受影响）。
+
+## r71 已打包起跑（方案 Y，用户 2026-10-02 决定）
+
+包：`arc-agent-r71.zip`（0.4MB / 118 项，无 `node_modules`/`dist`/`.arc`）
+包含：`f04fe83`（反引号世界解析）+ `826f6b7`（store 契约按真实模块注入 + 收尾复检）
++ `285cd49`（app.use 运行期类型过滤）+ `d7094c2`（sheet 页面防覆盖）
++ `a16b373`、`893a1ed`（路由补挂 / 不覆盖已接线入口）+ `393a201`（账号邮箱配对、
+Stage2/3 第二文本源）+ `ee77443`（误报修复）+ `templates/sheet` 前后端脚手架。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `0faa84342044` |
+| hackathon--github-stage-1 | `205ed8a34f2f` |
+| hackathon--github-stage-2 | `3f2b94d57f57` |
+| hackathon--github-stage-3 | `79d55d4c9577` |
+| hackathon--sheet | `ec386f813833` |
+
+22:00 起跑，5 active。
+
+## 兜底（若 r71 仍全 0）
+
+直接上传 `arcbench/dist/arc-agent-r33.zip`（13/200、9.65 分那份）作为**新提交**并起跑，
+榜单立刻恢复 —— **零删除**，符合官方"最新提交"规则。
