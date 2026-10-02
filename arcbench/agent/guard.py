@@ -418,7 +418,11 @@ def ensure_app_router(project_dir: Path) -> list[str]:
             changed = list(auth_module) + [f"{relative} (+{len(missing)} route(s))"]
             changed.extend(completed[:8])
             return changed
-    if len(referenced) >= max(2, len(pages) // 2) and contract_ok:
+    # An entry that already mounts the pages keeps them: replacing it throws
+    # away the routing it got right (the spreadsheet template routes
+    # ``/workbooks/:id``, which the generated flat route list does not know
+    # about). Only a genuinely unwired entry is rewritten from scratch.
+    if len(referenced) >= 2 or contract_ok:
         return auth_module
     imports = "\n".join(f"import {name} from '{path}'" for name, path in pages)
     routes = "\n".join(
