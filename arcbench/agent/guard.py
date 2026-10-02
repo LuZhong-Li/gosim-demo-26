@@ -2354,10 +2354,29 @@ STORE_COMPAT = """
 (function (api) {
   if (api === null || (typeof api !== 'object' && typeof api !== 'function')) return;
   const __arcMemory = {};
+  function __arcList(value) {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') {
+      // A keyed map that is also asked for .find()/.filter()/... answers them
+      // instead of throwing "sessions.find is not a function".
+      for (const method of ['find', 'filter', 'map', 'forEach', 'some', 'slice', 'push']) {
+        if (typeof value[method] !== 'function') {
+          value[method] = Array.prototype[method];
+        }
+      }
+      if (typeof value.length !== 'number') value.length = Object.keys(value).length;
+      return value;
+    }
+    return [];
+  }
   if (typeof api.collection !== 'function') {
     api.collection = function (name, initial) {
       if (__arcMemory[name] === undefined || __arcMemory[name] === null) {
-        __arcMemory[name] = initial === undefined ? {} : initial;
+        // Arrays, not plain objects: the generated routes call
+        // ``store.collection('sessions').find(...)`` (r70 Stage 2 threw
+        // "sessions.find is not a function" six times) while other modules use
+        // the same handle as a keyed map. An array supports both.
+        __arcMemory[name] = __arcList(initial);
       }
       return __arcMemory[name];
     };
