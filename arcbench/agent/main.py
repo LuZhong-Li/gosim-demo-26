@@ -63,6 +63,7 @@ from guard import unrouted_pages
 from guard import accessibility_contract_issues
 from guard import ensure_app_router
 from guard import guard_app_use
+from guard import ensure_frontend_serving
 from guard import restore_keep_pages
 from guard import mount_orphan_routers
 from llm import LlmClient
@@ -1959,6 +1960,13 @@ def main(argv: list[str] | None = None) -> int:
         guarded_use = guard_app_use(project_dir)
         if guarded_use:
             log(f"[arc-agent] app.use() runtime guard: {guarded_use}")
+        # r71 Stage 1 booted, seeded and still scored zero because its app.js
+        # answered the browser with "ENOENT .../backend/src/frontend/dist/index.html".
+        # The suite drives the product in a browser, so the built front end has to
+        # be served from a path that does not depend on the working directory.
+        serving = ensure_frontend_serving(project_dir)
+        if serving:
+            log(f"[arc-agent] front-end serving: {serving}")
         late_contract = backend_store_contract(project_dir)
         if late_contract:
             log(f"[arc-agent] store contract issues after repair: {late_contract[:4]}")

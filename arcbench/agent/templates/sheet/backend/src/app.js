@@ -418,6 +418,16 @@ app.delete('/api/workbooks/:id/worksheets/:sheet/pivots/:pivot', (req, res) => {
   return res.json({ worksheet: serializeWorksheet(found.sheet) });
 });
 
+// ---------- the built front end (the suite drives the UI in a browser) ----------
+// ``npm start`` runs with backend/ as the working directory, so the dist path is
+// resolved from this file rather than from cwd.
+const __distPath = require('path').resolve(__dirname, '..', '..', 'frontend', 'dist');
+const __distIndex = require('path').join(__distPath, 'index.html');
+if (require('fs').existsSync(__distIndex)) {
+  app.use(express.static(__distPath));
+  app.get(/^(?!\/api(?:\/|$)).*/, (req, res) => res.sendFile(__distIndex));
+}
+
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 module.exports = app;

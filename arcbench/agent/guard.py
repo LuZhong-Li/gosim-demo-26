@@ -3758,6 +3758,94 @@ def guard_app_use(project_dir: Path) -> list[str]:
 #: must never be treated as an orphaned router.
 ORPHAN_ROUTER_SKIP = {"app.js", "index.js", "arc-seed-auth.js", "server.js"}
 
+#: A ``sendFile`` whose root is the app module itself - the browser then gets
+#: "ENOENT ... backend/src/frontend/dist/index.html" instead of the app.
+WRONG_DIST_ROOT = re.compile(
+    r"""sendFile\(\s*['"]frontend/dist/index\.html['"]\s*,\s*\{\s*root:\s*__dirname\s*\}\s*\)"""
+)
+
+ARC_DIST_HELPER = '''
+
+// ARC agent: the suite loads the product in a browser, so the built front end has
+// to be served. ``npm start`` runs with backend/ as the working directory, so the
+// path is resolved from this file, never from cwd (r71 Stage 1 answered 404 -
+// "ENOENT ... backend/src/frontend/dist/index.html" - to every page request and
+// scored zero with a perfectly healthy API).
+const __arcPath = require('path');
+const __arcFs = require('fs');
+const __arcDist = __arcPath.resolve(__dirname, '..', '..', 'frontend', 'dist');
+const __arcDistIndex = __arcPath.join(__arcDist, 'index.html');
+function __arcServeDist(target) {
+  try {
+    if (!__arcFs.existsSync(__arcDistIndex)) {
+      console.error('arc: frontend/dist/index.html is missing; the UI cannot be served');
+      return;
+    }
+    target.use(require('express').static(__arcDist));
+  } catch (error) {
+    console.error('arc: could not serve frontend/dist: ' + (error && error.message));
+  }
+}
+__arcServeDist(__APP__);
+'''
+
+
+def ensure_frontend_serving(project_dir: Path) -> list[str]:
+    """Make sure the app actually serves the built front end.
+
+    r71's Stage 1 run started cleanly, seeded the world correctly and still scored
+    zero: its ``app.js`` ended with
+    ``res.sendFile('frontend/dist/index.html', { root: __dirname })``, which
+    resolves to ``backend/src/frontend/dist/index.html`` and does not exist, so the
+    first ``page.goto('/')`` of every scenario got an error page. The sheet app had
+    no static middleware at all. Both are fixed here.
+    """
+    app_file = _app_file(project_dir)
+    if app_file is None:
+        return []
+    if not (project_dir / "frontend").is_dir():
+        return []
+    body = _source_text(app_file)
+    if not body:
+        return []
+    created = APP_CREATE.search(body)
+    if created is None:
+        return []
+    name = created.group("name")
+    changed: list[str] = []
+
+    if WRONG_DIST_ROOT.search(body):
+        body = WRONG_DIST_ROOT.sub("sendFile(__arcDistIndex)", body)
+        changed.append("repointed the SPA fallback at the real dist")
+
+    helper = ARC_DIST_HELPER.replace("__APP__", name)
+    if "__arcServeDist" not in body:
+        body = body[:created.end()] + helper + body[created.end():]
+        changed.append("inserted static serving for frontend/dist")
+
+    # A catch-all that answers JSON 404 would shadow the fallback, so the SPA
+    # route goes in front of it (and in front of module.exports).
+    fallback = (f"\n{name}.get(/^(?!\\/api(?:\\/|$)).*/, (req, res) => "
+                f"res.sendFile(__arcDistIndex)); // ARC agent: serve the SPA\n")
+    if "__arcDistIndex)); // ARC agent: serve the SPA" not in body:
+        not_found = re.search(
+            r"^.*\b" + re.escape(name) + r"\.use\(\(req, res\)\s*=>\s*[^\n]*404[^\n]*$",
+            body, re.M)
+        if not_found is not None:
+            body = body[:not_found.start()] + fallback.lstrip("\n") + "\n" + body[not_found.start():]
+            changed.append("added the SPA fallback ahead of the JSON 404")
+        else:
+            marker = re.search(r"^module\.exports\s*=", body, re.M)
+            if marker is not None:
+                body = body[:marker.start()] + fallback.lstrip("\n") + "\n\n" + body[marker.start():]
+                changed.append("appended the SPA fallback")
+    if not changed:
+        return []
+    if not _write_text(app_file, body):
+        return []
+    relative = str(app_file.relative_to(project_dir)).replace(chr(92), "/")
+    return [f"{relative}: {'; '.join(changed)}"]
+
 #: Files a template ships that carry requirement names the suite asserts on.
 #: The generation turn rewrites the page tree often enough that these come back
 #: empty: r70's Sheet run kept the scaffold (``task=sheet template=sheet``, the
