@@ -1856,9 +1856,21 @@ def main(argv: list[str] | None = None) -> int:
             if routed:
                 log(f"[arc-agent] mounted a seeded sign-in route in front of the "
                     f"generated routes: {routed}")
+        # r64 Stage 1: the backticked literal in the GitHub requirements is the
+        # account name, and the "does the seeded record get listed?" probe was
+        # fired at it. GitHub has no such listing route, so the probe failed,
+        # the repair turn it triggered rewrote the backend, and that turned a
+        # working seeded sign-in (/sign-in -> 200) into 404 - which is the only
+        # reason the run still scored zero. The collection probe belongs to the
+        # spreadsheet task; for an account name it is meaningless.
+        seed_record = seed_record_literal(nodes_payload)
+        if credentials and seed_record == credentials.get("username"):
+            log(f"[arc-agent] skipping the collection probe: `{seed_record}` is the "
+                f"seeded account, not a listed record")
+            seed_record = None
         rehearsal_note = run_rehearsal(project_dir, smoke_port, args.web_port,
                                        llm, slug, deadline, seed=credentials,
-                                       record=seed_record_literal(nodes_payload))
+                                       record=seed_record)
 
         # Local acceptance suite. On the platform the specs, the Playwright CLI
         # and a browser are all absent during generation, so this stays dormant
