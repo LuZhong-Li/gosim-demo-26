@@ -2338,6 +2338,12 @@ STORE_METHOD = re.compile(
     r"`(?:[A-Za-z_$][\w$]*\.)*([A-Za-z_$][\w$]*)\(\)` is called but"
 )
 
+#: The module the missing method belongs to, as reported by the contract check.
+STORE_ISSUE = re.compile(
+    r"`([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(\)` is called but "
+    r"([^\s]+) never defines"
+)
+
 STORE_COMPAT = """
 
 // --- compatibility layer added by the ARC agent -----------------------------
@@ -3913,10 +3919,26 @@ def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     throws and the server dies before it binds the port.
     """
     flagged: list[str] = []
+    # Which module each name belongs to: the backend may keep its data in
+    # ``gh_store.js`` while the routes still say ``store.``, so the filler has to
+    # go into the module the caller actually imports.
+    by_module: dict[str, list[str]] = {}
     for issue in issues or []:
-        for name in STORE_METHOD.findall(issue):
-            if name not in flagged:
-                flagged.append(name)
+        matched = STORE_ISSUE.findall(issue)
+        for _alias, method, module in matched:
+            module = module.replace("\\", "/")
+            names = by_module.setdefault(module, [])
+            if method not in names:
+                names.append(method)
+            if method not in flagged:
+                flagged.append(method)
+        if not matched:
+            for name in STORE_METHOD.findall(issue):
+                if name not in flagged:
+                    flagged.append(name)
+                names = by_module.setdefault("backend/src/store.js", [])
+                if name not in names:
+                    names.append(name)
     if not flagged:
         return []
     # ``collection``/``save``/``hydrate``/``reset`` always get a real
@@ -3926,15 +3948,17 @@ def complete_store_methods(project_dir: Path, issues: list[str]) -> list[str]:
     # as the password and the sign-in route can never match it. r53 shipped
     # exactly that and the grader answered 401 to every sign-in, so those names
     # get a deterministic digest instead.
-    extra = [name for name in flagged if name not in ("collection", "save", "hydrate", "reset")]
-    store = project_dir / "backend" / "src" / "store.js"
-    body = _source_text(store)
-    if not body or "added by the ARC agent" in body:
-        return []
-    fillers = "".join(_store_filler(name) for name in extra)
-    if not _write_text(store, body.rstrip() + STORE_COMPAT % fillers):
-        return []
-    return flagged
+    written: list[str] = []
+    for module, names in by_module.items():
+        store = project_dir / module
+        body = _source_text(store)
+        if not body or "added by the ARC agent" in body:
+            continue
+        extra = [name for name in names if name not in ("collection", "save", "hydrate", "reset")]
+        fillers = "".join(_store_filler(name) for name in extra)
+        if _write_text(store, body.rstrip() + STORE_COMPAT % fillers):
+            written.extend(names)
+    return list(dict.fromkeys(written))
 
 
 def deterministic_build_repair(project_dir: Path, error_text: str) -> list[str]:

@@ -81,11 +81,9 @@ API_ROUTE_RE = re.compile(r"""\.(get|use|all)\(\s*['"]([^'"]+)['"]""")
 # same class of bug - `store.getState is not a function` - cost r37 its 100
 # spreadsheet tests. This is a static, high-precision check for it: no npm, no
 # node_modules, just the generated sources.
-STORE_IMPORT_RES = (
-    re.compile(
-        r"""(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*['"]"""
-        r"""(?:\.\.?/)*(?:src/)?store(?:\.js)?['"]\s*\)"""
-    ),
+STORE_IMPORT_RES = re.compile(
+    r"""(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\(\s*['"]"""
+    r"""(\.{1,2}/(?:[^'"]*/)*(?:store|[A-Za-z0-9$]+[_\-]store)(?:\.js)?)['"]\s*\)"""
 )
 STORE_CALL_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\s*\(")
 STORE_DEFINITION_RES = (
@@ -114,26 +112,27 @@ def _store_definitions(store_text: str) -> set[str]:
 def backend_store_contract(project_dir: Path) -> list[str]:
     """Report store methods the generated modules call but the store never defines."""
     backend = project_dir / "backend"
-    store_path = backend / "src" / "store.js"
-    if not store_path.exists():
-        return []
-    try:
-        defined = _store_definitions(store_path.read_text(encoding="utf-8", errors="replace"))
-    except OSError:
-        return []
-
     findings: list[str] = []
     seen: set[str] = set()
+    definitions: dict[Path, set[str]] = {}
     for path in sorted(backend.rglob("*.js")):
-        if path == store_path or "node_modules" in path.parts:
+        if "node_modules" in path.parts:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        aliases: set[str] = set()
-        for pattern in STORE_IMPORT_RES:
-            aliases.update(pattern.findall(text))
+        # Resolve every alias to the module it actually imports: r69 Stage 2 kept
+        # the calls in auth.js but the backend ended up on ``gh_store.js``, so a
+        # check that only knew about ``store.js`` reported nothing and the app
+        # threw "store.hashPassword is not a function" on every auth request.
+        aliases: dict[str, Path] = {}
+        for alias, specifier in STORE_IMPORT_RES.findall(text):
+            target = (path.parent / specifier)
+            if target.suffix != ".js":
+                target = target.with_suffix(".js")
+            if target.is_file():
+                aliases[alias] = target.resolve()
         if not aliases:
             continue
         relative = path.relative_to(project_dir)
@@ -142,10 +141,25 @@ def backend_store_contract(project_dir: Path) -> list[str]:
             if not stripped or stripped.startswith("//") or stripped.startswith("*"):
                 continue
             for alias, method in STORE_CALL_RE.findall(line):
-                if alias not in aliases or method in defined:
+                target = aliases.get(alias)
+                if target is None:
                     continue
+                if target not in definitions:
+                    try:
+                        body = target.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        definitions[target] = set()
+                    else:
+                        definitions[target] = _store_definitions(body)
+                if method in definitions[target]:
+                    continue
+                try:
+                    module_relative = target.relative_to(project_dir)
+                except ValueError:
+                    module_relative = target
+                module_text = str(module_relative).replace("\\", "/")
                 finding = (f"{relative}:{lineno}: `{alias}.{method}()` is called but "
-                           f"backend/src/store.js never defines `{method}`")
+                           f"{module_text} never defines `{method}`")
                 if finding not in seen:
                     seen.add(finding)
                     findings.append(finding)

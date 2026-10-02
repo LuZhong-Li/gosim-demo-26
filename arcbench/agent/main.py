@@ -1928,6 +1928,20 @@ def main(argv: list[str] | None = None) -> int:
             log(f"[arc-agent] final export sweep: {len(final_exports)} named, "
                 f"{len(final_defaults)} default(s), e.g. "
                 f"{(final_exports or final_defaults)[:6]}")
+        # r69 Stage 2: the compatibility layer was added mid-flight, then a later
+        # repair turn replaced the backend module set (store.js -> gh_store.js), so
+        # the graded run answered "store.hashPassword is not a function" to every
+        # auth request while the app itself started cleanly. The contract pass
+        # therefore runs once more, after every repair turn, right before submit.
+        late_contract = backend_store_contract(project_dir)
+        if late_contract:
+            log(f"[arc-agent] store contract issues after repair: {late_contract[:4]}")
+            late_fixed = complete_store_methods(project_dir, late_contract)
+            if late_fixed:
+                log(f"[arc-agent] re-applied store compatibility methods: {late_fixed}")
+            still_open = backend_store_contract(project_dir)
+            if still_open:
+                log(f"[arc-agent] store contract still open: {still_open[:3]}")
         final_contract = accessibility_contract_issues(project_dir)
         log(f"[arc-agent] role contract after the entry rewrite: "
             f"{final_contract or 'clean'}")
