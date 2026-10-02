@@ -234,3 +234,80 @@ teamGrants: access-role-team Write   userGrants: repo-admin Admin
    （P3 的播种是否在真实生成的 app 上找到路由）。
 3. `[arc-agent] unrouted pages after patch` 是否从 25–26 降到个位数（P1）。
 4. REQ-1-1-1 注册三条在平台是否继续通过（本地自测 6/30 的那三条）。
+
+---
+
+## r69 快照（用户 2026-10-02 20:1x 提供，已按实测校正一处）
+
+### 一、r68 日志分析产出（落盘）
+
+- 原始 stdout 全部保存：`arcbench/runs/_r68_*_stdout.txt`（5 份，行数 375 / 378 / 304 / 374 / 343）
+- 问题清单归档：`arcbench/notes/run-log-2026-10-01.md`（文件路径 + 行号 + 原文，共 7 项）
+
+| 编号 | 问题 | 状态 |
+|---|---|---|
+| P0 | `argument handler must be a function`（`app.js:15`），五题全 0 | ✅ `e4de5db` `__arcMount` 守卫 |
+| P1 | `unrouted pages after patch: 26`，模型补不动 | ✅ 手术式补挂（见下） |
+| P2 | 首次 rehearsal 前端构建失败，白耗 40–55s | ✅ 补 default export |
+| P3 | 只有账号播种，`Acme Demo` / 全套角色完全未预置 | ✅ r69 world 播种 |
+| P4 | Sheet 生成后端完全没有列表路由，持续 0 分 | ⏭ r70 首要项（独立脚手架） |
+| P5 | 改名迭代"越修越差"后停手（9 个名字仍缺） | ⏭ 内容轮次 |
+| P6 / P7 | 播种兜底自报错 / LLM 超时（均非致命） | ✅ 判定为可接受，不改 |
+
+### 二、r69 实现内容（`guard.py`）
+
+`requirement_world()` 解析需求原文按频次选主候选实体：`Acme Demo`、`acme-docs`(public)、
+`secret-research`(private)；团队 `frontend-team` / `platform-team` / `frontend-child` /
+`access-role-team`，并解析成员与角色。过滤规则：不预置 `new-member`、不建 `mobile-team`、
+跳过 `unknown*` / `nora.demo`。
+
+`ensure_startup_seed_world()` 生成有序 HTTP 请求计划注入后端监听启动流程：
+账号复用应用自身注册路由；组织 / 团队 / 仓库 / 成员 / 授权调用应用业务接口
+（`/api/orgs`、`/api/orgs/:name/members`、`/teams`、`/teams/:team/members`、
+`PATCH /teams/:team`、`/repos`、`/access`）；先以 `org-owner` 登录拿 Bearer Token，
+多候选路径自动探测，"已存在"视为成功，绝不中断服务启动。
+
+### 三、⚠️ 校正：路由手术（P1/P2）**已经在 r69 里生效**
+
+快照里写的"路由手术属于 r70 才生效"不对。打包输入是
+`arcbench/runs/stage-r69-200555`，其中：
+
+```
+guard.py:341  def _splice_routes(body: str, missing: list[tuple[str, str]]) -> str | None:
+guard.py:412  patched = _splice_routes(body, missing)          # ← 已在 r69 包里
+guard.py:2626 def requirement_world(text, accounts)
+guard.py:2965 def ensure_startup_seed_world(...)
+```
+
+`_splice_routes()` 的调用点在 r69 包内（`5c31bc3` 早于打包），所以 r69 生效的是
+**handler 守卫 + 账号播种 + 世界播种 + 路由补挂 + 入口改写前的 default export 补全**；
+只有 `a16b373`（补挂之后再补一遍 default export）是 r70 才加载。因此核查
+`unrouted pages after patch` 这个指标在 r69 就应该有改善。
+
+### 四、r69 五个 run（2026-10-02 12:07:01–12:07:04 UTC / 20:07 北京时间）
+
+| 任务 | run id |
+|---|---|
+| GitHub 原题 | `b9be2621b6be` |
+| GitHub Stage 1 | `dc2be680696f` |
+| GitHub Stage 2 | `82ee7e2642e4` |
+| GitHub Stage 3 | `9fde70354911` |
+| Sheet | `5415e1e9a042` |
+
+20:11 复查 `/running`：5 active，全部 RUNNING。
+
+### 五、r69 出分后的核对顺序
+
+1. `[template-app.stderr]` 不再出现 `argument handler must be a function`（P0）。
+2. Stdout 出现 `[arc-seed] ... world seed finished`（世界播种在真实产物上跑完）。
+3. `unrouted pages after patch` 明显下降（P1 —— 注意这项在 r69 就该生效）。
+4. REQ-1-1-1 注册 3 条是否仍通过；REQ-1-1-3 S2/S3、REQ-1-3 S1/S2/S3 是否解锁
+   （账号就位 → 这些是"数据问题"的试金石）。
+5. REQ-2 十五条区分「GIVEN 数据已就位但页面没实现」vs「播种/路由仍失败」。
+
+### 六、r70 清单
+
+1. 启用 `a16b373`（补挂路由后再补 default export），继续压低 unrouted 页面。
+2. **Sheet 独立脚手架**（工作簿 / 工作表 / 列表路由）—— r68/r69 都因"没有列表路由"全 0。
+3. 全局长期风险：`gh_store.js` / `sheet_store.js` 内存存储，进程重启丢全部种子；
+   播种只解决启动初始化，持久化尚未做。
