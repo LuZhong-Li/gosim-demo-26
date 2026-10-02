@@ -73,6 +73,37 @@
 
 ## 推荐迭代节奏
 
+## 关于"后端 fs 持久化"的实测结论（2026-10-02 23:2x，基于真机 payload）
+
+对五份真机 `requirements.yaml` 做关键词统计与上下文抽查：
+
+```
+run             bytes    persist  reload  reopen  restart
+stage1          59,787      11      19       4      0
+github         170,893      34      80      38      0
+stage2          50,518       7      14       3      0
+stage3          63,415      16      47      31      0
+sheet          202,230     119       0     121      0
+```
+
+**`restart` 在所有 payload 里都是 0 次**；`persist/reopen/reload` 的上下文全部是**浏览器层**：
+
+- "After returning to the home page or **reopening**, the workbook name, last-updated … remain persisted"
+- "After the visitor **reloads the page**, the workspace still visibly displays the username `nora-demo`"
+- "The new tab still exists after **refresh or reopening**"
+
+→ **没有任何场景要求"后端进程重启后数据还在"**。评测期间后端只启动一次（生成结束时 rehearse、
+评测开始再起一次，播种 hook 每次启动都重跑），所以：
+
+1. **不建议把路由改造成 async fs 持久化**（用户文档里的 `persistent_store.js` 方案）：
+   收益为 0，风险却是实打实的——漏 `await` 会让业务拿到 Promise、`gh_store` 26 处调用要逐一改、
+   并发写同一 JSON 还会互相覆盖；截止前 24h 不值得。
+2. 真正要保证的是**前端刷新后能重新拉到同一份状态**：页面必须在 mount 时重新请求后端
+   （我们的 Sheet/GitHub 页面都是这么写的），以及**登录态跨刷新**（GitHub 脚手架已用
+   localStorage 的 `tokenStore`）。
+3. 如果哪天确实要防"进程重启"：最小改动是**保留现有同步 store**，只在写操作后把整个 state
+   快照 `fs.writeFile` 到 `backend/data/store.json`、启动时读回一次，**不需要把路由改成 async**。
+
 ```
 本地 shim / 真机验证  →  平台 Self-test 跑单 stage 隔离复现（消耗自测配额，不花正式额度）
                      →  关键指标达标  →  正式全五题提交冲榜
