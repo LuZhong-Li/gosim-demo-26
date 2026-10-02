@@ -1,0 +1,444 @@
+# ARC-Bench 未解决问题清单（含相关代码）
+
+生成时间：2026-10-02 23:5x（北京时间）· 作者：本对话 agent
+范围：`D:\gosim-demo-26\arcbench\**`（harness）、`arcbench\runs\_r71_artifacts\**`（真机产物）、
+`arcbench\dist\**`（提交包与自测包）
+
+阅读顺序：**第 1 节是结论**；第 2 节起每个问题给出「现象 → 证据 → 根因 → 相关代码 → 状态」。
+文档大小远小于 288KB（纯文本约 30KB）。
+
+---
+
+## 1. 结论速览
+
+| # | 问题 | 状态 | 影响 |
+|---|---|---|---|
+| P1 | 自测 0/30（同一配方早先是 6/30）——容器里应用起不来 | **未解决** | 阻断"本地 CI 闭环" |
+| P2 | r73 尚未上传起跑（等 r72 归零） | 待执行 | 两个 P0 修复未上线 |
+| P3 | Stage-1 REQ-2 缺 13 个 accessible name | 未解决 | REQ-2 十五条用例 |
+| P4 | Sheet 新补的 3 个名字 + 透视表工作流未在平台验证 | 未验证 | 100 条 Sheet 用例 |
+| P5 | `restore_keep_pages` 曾把构建改坏（已修，未验证） | 已修未验证 | 会让整个前端不产出 dist |
+| P6 | 模型用 `createBrowserRouter` 时被整体重写 `App.tsx` | 缓解未根治 | 参数路由丢失 |
+| P7 | 内存 store 不持久 | 决策：不修 | 已用 payload 证据说明 |
+| P8 | 平台侧：看不到官方逐条用例（现已通过自测站绕开） | 已缓解 | — |
+
+---
+
+## P1（未解决，最高优先级）自测包在平台容器里跑不起来 → 0/30
+
+### 现象
+
+`https://arcbench-selftest-web.vercel.app/submissions/2d6f4447-a512-4c4c-8e92-c8517a2c5c37`
+
+```
+GitHub 题 · 第一阶段   未全部通过   0 / 30
+FAIL REQ-1-1-1-sign-up.spec.ts  REQ-1-1-1: Register a New GitHub Account - Scenario 1
+报错 Test timeout of 60000ms exceeded.
+```
+
+30 条全 FAIL，报错统一是**整条用例 60s 超时**（不是 10s 的元素定位超时）→ 浏览器侧没进入可用状态。
+
+### 关键反常
+
+同一份配方早先的两次提交是 4/30、6/30（`10/2 17:22`、`18:29`），这次是 **0/30**。差异：
+
+| | 早期包（4/30、6/30） | 本次包（0/30） |
+|---|---|---|
+| 被测应用 | **我们的脚手架产物**（r62/r68 生成） | **模型生成的 r71 Stage-1 产物** |
+| node_modules | npm 扁平布局 | pnpm `--node-linker=hoisted` 扁平布局 |
+| 包大小 | 2.3MB | 2.39MB |
+| 顶层结构 | Dockerfile + backend/ + frontend/ + requirements/ | 相同 |
+
+### 本地反证（应用本身是好的）
+
+在本机把同一份目录跑起来：
+
+```
+boot: Backend listening at http://127.0.0.1:3830
+GET / -> http=200 size=468        （返回真实 Vite index.html）
+```
+
+说明 **应用能起、能服务前端**，问题出在"容器里的构建/启动方式"或"该应用在容器环境下的行为"。
+
+### 相关代码 —— 自测包 Dockerfile（`arcbench/runs/_selftest_r71_ghstage1_final/Dockerfile`）
+
+```dockerfile
+FROM node:20-bookworm
+
+WORKDIR /app
+COPY . /app
+
+ENV PORT=3000
+ENV ARC_EXTRA_PORTS=0
+ENV NODE_ENV=production
+EXPOSE 3000
+
+CMD ["node", "/app/backend/src/index.js"]
+```
+
+### 相关代码 —— 自测包构建流程（本次实际使用，PowerShell）
+
+```powershell
+# 1) 从真机产物复制（排除 node_modules）
+robocopy "$src\backend"  "$dst\backend"  /E /XD node_modules
+robocopy "$src\frontend" "$dst\frontend" /E /XD node_modules      # 含预构建 dist
+robocopy "$src\requirements" "$dst\requirements" /E
+# 2) 装 backend 依赖（必须扁平布局，否则 zip 里出现 ../ 被安全校验拒绝）
+pnpm install --node-linker=hoisted
+# 3) 打 zip（根目录直接含 Dockerfile）
+Compress-Archive -Path "$dst\*" -DestinationPath "arcbench\dist\selftest-r71-ghstage1-served.zip"
+```
+
+### 待验证的三个假设（下一步各花 1 次自测配额）
+
+1. **harness 自己会构建**：平台提示"不要包含 node_modules…构建产物"，可能它自己 `npm install && npm run build`；
+   若容器**无网络**，这一步失败 → 没有 dist → 60s 超时。**验证法**：上传一个**最小探针包**
+   （只含 `Dockerfile` + 一个 10 行的 `http` 服务，直接返回 `<!doctype html><div id=root>`），
+   若也 0/30，就说明问题在"包结构/启动方式"而非应用。
+2. **`frontend/dist` 是否被覆盖**：若 harness 重新构建且失败，可能把我们的 dist 清掉。
+3. **应用的 `index.html` 资源路径**：它是 `/assets/…` 绝对路径，若 harness 用了子路径前缀就会 404。
+
+---
+
+## P2（待执行）r73 未上传起跑
+
+**原因**：铁律"同一任务只能一个 run；Running ≠ 0 时绝不上传"。r72 的 4 个 run 仍在跑。
+
+**已就绪**：`arcbench\dist\arc-agent-r73.zip`（119 项）自检结果：
+
+```
+entries: 119 | main.py: True | runtime: True | sheet template: True | .arc: 0
+contains ensure_frontend_serving: True
+```
+
+**r73 应包含的 commit 集合**（全部已在工作树）：
+
+```
+0465e99  SPA 静态资源接线（GET / 404 → 200）
+02926ac  collection() 空值守卫（会话接口 500）
+d70ba51  client 导出 / 恢复后补 named export
+832b4db  collection 数组方法（find/filter/map/push）
+60b81cd  GitHub 脚手架页面按文件恢复
+0d1e2b8  Sheet 三个缺失控件名
+10f8e43  Sheet 透视表完整工作流（REQ-5-3-1）
+393a201  账号邮箱配对 + Stage2/3 第二文本源
+ee77443  static_list_issues 误报修复
+893a1ed  已接线入口不再整体重写
+a16b373  补挂后补 default export
+```
+
+**起跑后要做的四项第一层检查**：`Backend listening` / `[arc-seed] … world seed finished` /
+无 `is not a function` / `entry points now mount the generated pages` 行。
+
+---
+
+## P3（未解决）Stage-1 REQ-2 缺 13 个 accessible name
+
+### 证据（从真机产物逐名比对，脚本 `arcbench/runs/_scratch_r72_artifact_gap.py`）
+
+```
+stage1: payload nodes=156 quoted names=69 missing=13
+  MISSING Access denied
+  MISSING Account is already a member
+  MISSING Account not found
+  MISSING Add people or teams
+  MISSING Create organization
+  MISSING Create team
+  MISSING Cyclic team hierarchy is not allowed
+  MISSING Member menu existing-member
+  MISSING Member menu protected-member
+  MISSING New team
+  MISSING Remove bob-reviewer
+  MISSING Remove from organization
+  MISSING Sign up
+```
+
+### 缺口对应的页面/接口（产物里存在但缺这些名字）
+
+产物 `frontend/src/pages/`：`NewOrganizationPage.tsx`、`NewTeamPage.tsx`、`PeoplePage.tsx`、
+`OrgPage.tsx`、`OrgsPage.tsx`、`TeamPage.tsx` 等已存在；后端 `organizations.js` 已有成员/团队路由。
+缺的是**这些页面上承载上述文案的控件与提示**。
+
+### 相关代码 —— 需求原文里这些名字的语义（来自 `/submit` 页面无法拿到，来自任务页正文）
+
+```
+REQ-2-2-4 Remove a Member from an Organization:
+  People 列表每位成员有 "Member menu <username>"；
+  菜单项 "Remove from organization"；确认文案 "Remove bob-reviewer"；
+  未知账号 → "Account not found"；已有成员 → "Account is already a member"；
+  无权限 → "Access denied"
+REQ-2-2-1 Create an Organization Team:
+  "New team" / "Create team" / "Team name is invalid"
+REQ-2-2-2 Manage Organization Team Members and Hierarchy:
+  父团队循环 → "Cyclic team hierarchy is not allowed"
+REQ-2-1-2 Create an Organization After Authentication:
+  "Create organization" / "Organization name is required" / "Display name is required"
+```
+
+---
+
+## P4（未验证）Sheet 本轮补齐项
+
+### 已补的名字（`0d1e2b8` + `10f8e43`，真机清单 70 名里原先缺 9）
+
+```
+Paste / New worksheet / Pivot table editor / Value field requires numeric values /
+Pivot field is no longer available. Select a new field. /
+Please delete or rebuild dependent pivot tables first /
+A workbook must contain at least one worksheet / Worksheet name already exists /
+Worksheet name cannot be empty
+```
+
+### 相关代码 —— 透视表后端（`agent/templates/sheet/backend/src/store.js`）
+
+```js
+// REQ-5-3-1: SUM/AVERAGE over a column with no parseable numbers has to say so
+if (summarise === 'SUM' || summarise === 'AVERAGE') {
+  const numeric = rows
+    .map((values) => String(values[valueIndex] === undefined ? '' : values[valueIndex])
+      .replace(/,/g, '').trim())
+    .filter((value) => value !== '' && !Number.isNaN(Number(value)));
+  if (!numeric.length) return { error: 'Value field requires numeric values' };
+}
+
+// REQ-2-1-4: a worksheet another sheet's pivot still reads cannot be deleted.
+function dependentPivot(workbook, sheet) { /* 字段名在其他工作表表头里 → 视为被依赖 */ }
+```
+
+```js
+// app.js —— 删除工作表时的依赖拦截
+const dependent = store.dependentPivot(found.workbook, found.sheet);
+if (dependent) return fail(res, 400, 'Please delete or rebuild dependent pivot tables first');
+```
+
+### 相关代码 —— 透视表前端（`agent/templates/sheet/frontend/src/pages/WorkbookEditorPage.tsx`）
+
+```tsx
+<p>{`Source range: ${usedRange}`}</p>
+<fieldset>
+  <legend>Place the pivot table</legend>
+  <label><input type="radio" name="pivotTarget" value="new" checked={pivotTarget === 'new'}
+    onChange={() => setPivotTarget('new')} /> New worksheet</label>
+  ...
+</fieldset>
+<section role="region" aria-label="Pivot table editor">
+  {/* Rows / Columns / Values / Summarize by 组合框 + Apply */}
+</section>
+```
+
+### 验证方式
+
+`arcbench/runs/_scratch_sheet/smoke.js`（38 项全过）+ `vite build` 通过；**平台内未验证**。
+
+---
+
+## P5（已修未验证）`restore_keep_pages` 曾把前端构建改坏
+
+### 现象（r71 Sheet 日志结尾）
+
+```
+✗ Build failed in 1.55s
+src/pages/CreateWorkbookPage.tsx (2:9): "client" is not exported by "src/api/index.ts"
+```
+
+### 根因
+
+`restore_keep_pages` 把脚手架的 `api/index.ts` 换回去，而模型的页面 `import { client } from '../api'`
+→ 构建失败 → 没有 dist → 应用无法服务前端 → 0 分。
+
+### 相关修复代码（`agent/guard.py` + `agent/main.py`）
+
+```python
+# main.py：恢复之后再补一轮 export
+restored_pages = restore_keep_pages(project_dir, TEMPLATES / slug, slug,
+                                   set(exact_names(nodes_payload)))
+if restored_pages:
+    log(f"[arc-agent] kept pages: {restored_pages}")
+    repaired_exports = ensure_named_exports(project_dir)
+    if repaired_exports:
+        log(f"[arc-agent] exports completed after the page restore: {repaired_exports[:6]}")
+```
+
+```ts
+// templates/sheet/frontend/src/api/index.ts（新增 client 导出）
+const stripApiPrefix = (path: string) => String(path).replace(/^\/api/, '');
+export const client = {
+  get: async (path: string) => ({ data: await request('GET', stripApiPrefix(path)), status: 200 }),
+  post: async (path: string, body?: unknown) => ({
+    data: await request('POST', stripApiPrefix(path), body), status: 201 }),
+  put: async (path: string, body?: unknown) => ({ data: await request('PUT', stripApiPrefix(path), body), status: 200 }),
+  patch: async (path: string, body?: unknown) => ({ data: await request('PATCH', stripApiPrefix(path), body), status: 200 }),
+  delete: async (path: string) => ({ data: await request('DELETE', stripApiPrefix(path)), status: 200 }),
+};
+```
+
+```ts
+// templates/scaffold/frontend/src/api/index.ts（由私有改为导出）
+export const client = axios.create({ baseURL: '/api', timeout: 8000 });
+```
+
+**仍未完全消除的风险**：恢复整份 `api/index.ts` 时，若模型的其他页面依赖它**独有**的导出，
+只能靠 `ensure_named_exports` 补桩（补出来的是占位值，运行时可能 `undefined`）。
+
+---
+
+## P6（缓解未根治）模型用 `createBrowserRouter` 时入口被整体重写
+
+### 现象（r69 Stage 2 日志）
+
+```
+[arc-agent] entry points now mount the generated pages:
+  ['frontend/src/__arc_auth__.tsx', 'frontend/src/App.tsx', 'frontend/src/main.tsx']
+```
+
+不带 `+N route(s)` → 走了**整体重写**分支（因为入口里没有 `</Routes>`，无法增量补挂）。
+页面都被挂上，但模型自己写的参数路由（如 `/:owner/:name`）会丢。
+
+### 相关代码（`agent/guard.py`）
+
+```python
+    if missing and "</Routes>" in body:
+        patched = _splice_routes(body, missing)      # 增量补挂（首选）
+        ...
+    # An entry that already mounts the pages keeps them: replacing it throws
+    # away the routing it got right ...
+    if len(referenced) >= 2 or contract_ok:
+        return auth_module
+    # —— 至此才整体重写（生成一个扁平的 kebab 路由表）——
+```
+
+**未根治**：`createBrowserRouter` / 路由数组的入口仍只能整体重写。
+
+---
+
+## P7（决策：不修）内存 store 不持久
+
+### 证据：五份真机 payload 里 `restart` 出现 0 次
+
+```
+run             bytes    persist  reload  reopen  restart
+stage1          59,787      11      19       4      0
+github         170,893      34      80      38      0
+stage2          50,518       7      14       3      0
+stage3          63,415      16      47      31      0
+sheet          202,230     119       0     121      0
+```
+
+`persist/reopen/reload` 的上下文全是**浏览器层**（例如 "After returning to the home page or
+reopening, the workbook name … remain persisted"、"After the visitor reloads the page, the
+workspace still visibly displays the username `nora-demo`"）。
+
+→ 评测期间后端只启动一次，播种 hook 每次启动重跑；**fs 持久化换不来任何用例**，
+而改造需要把 26 处 `store.xxx` 全改成 `await`（漏一处就拿到 Promise）、并发写 JSON 会互相覆盖。
+
+### 真要做的备选（最小改动，未实施）
+
+保留同步 store，只在写操作后把整个 state 快照写文件、启动时读回一次——**不需要把路由改成 async**。
+
+---
+
+## P8（已缓解）拿不到官方逐条用例 → 现已通过自测站拿到
+
+自测站（`arcbench-selftest-web.vercel.app`，5/10 剩余）会输出**逐条 pass/fail + 报错 + 截图**，
+并暴露官方 spec 文件名：
+
+```
+REQ-1-1-1-sign-up.spec.ts              REQ-1-1-2-sign-in.spec.ts
+REQ-1-1-3-password-recovery.spec.ts    REQ-1-2-sign-out.spec.ts
+REQ-1-3-change-password.spec.ts        REQ-2-1-1-browse-organization-repositories.spec.ts
+REQ-2-1-2-create-organization.spec.ts  …（共 30 条 Stage-1 用例）
+```
+
+⚠️ 平台正式 run 页的 `project.zip` 在内部浏览器里下不下来（按钮 `visible:false`、
+强制点击无 download 事件、页内 `fetch` 不可用）→ 走"人工下载 → 丢进
+`C:\Users\HW\Downloads\r71-project`"这条路（已验证可行）。
+
+---
+
+## 附：两个 P0 修复的完整代码（已进 r73 包）
+
+### A. SPA 静态资源接线（`agent/guard.py`，commit `0465e99`）
+
+```python
+WRONG_DIST_ROOT = re.compile(
+    r"""sendFile\(\s*['"]frontend/dist/index\.html['"]\s*,\s*\{\s*root:\s*__dirname\s*\}\s*\)"""
+)
+
+ARC_DIST_HELPER = '''
+// ARC agent: the suite loads the product in a browser, so the built front end has
+// to be served. ``npm start`` runs with backend/ as the working directory, so the
+// path is resolved from this file, never from cwd.
+const __arcPath = require('path');
+const __arcFs = require('fs');
+const __arcDist = __arcPath.resolve(__dirname, '..', '..', 'frontend', 'dist');
+const __arcDistIndex = __arcPath.join(__arcDist, 'index.html');
+function __arcServeDist(target) {
+  try {
+    if (!__arcFs.existsSync(__arcDistIndex)) {
+      console.error('arc: frontend/dist/index.html is missing; the UI cannot be served');
+      return;
+    }
+    target.use(require('express').static(__arcDist));
+  } catch (error) {
+    console.error('arc: could not serve frontend/dist: ' + (error && error.message));
+  }
+}
+__arcServeDist(__APP__);
+'''
+
+def ensure_frontend_serving(project_dir: Path) -> list[str]:
+    # 1) sendFile(..., {root: __dirname}) → sendFile(__arcDistIndex)
+    # 2) 注入 __arcServeDist(app)（express.static 指向绝对 dist）
+    # 3) 在 JSON 404 兜底之前插入 SPA fallback：
+    #    app.get(/^(?!\/api(?:\/|$)).*/, (req, res) => res.sendFile(__arcDistIndex));
+```
+
+### B. `collection()` 空值守卫（`agent/guard.py`，commit `02926ac`）
+
+```python
+ARC_COLLECTION_GUARD = '''
+(function (api) {
+  if (!api || typeof api.collection !== 'function' || api.collection.__arcGuarded) return;
+  const __arcOriginalCollection = api.collection;
+  const __arcGuardedCollection = function (name, fallback) {
+    const value = __arcOriginalCollection.call(api, name, fallback);
+    if (value === null || value === undefined) {
+      return fallback === undefined ? [] : fallback;
+    }
+    return value;
+  };
+  __arcGuardedCollection.__arcGuarded = true;
+  api.collection = __arcGuardedCollection;
+})(module.exports);
+'''
+```
+
+真机复现（r71 Stage-1 的 `store.js`）：
+
+```
+BEFORE: store.collection('accounts') -> typeof: undefined
+        Object.values(undefined) -> 抛异常（rc=1）
+AFTER : typeof: object | Object.values ok: 0 | find ok: function | rc=0
+```
+
+> 注意：不要用"在函数体里插 `const users = …`"的方案——原函数已声明过同名变量时，
+> 重复 `const` 声明会直接抛 `Identifier 'users' has already been declared`。
+
+---
+
+## 附：本地断言脚本清单（每次打包前跑）
+
+```
+arcbench/runs/_scratch_r69.py                    播种 / 路由补挂 / 世界解析
+arcbench/runs/_scratch_r69_router.py             _splice_routes 冒烟
+arcbench/runs/_scratch_r70_template.py           模板干跑（sheet 模板被正确选中）
+arcbench/runs/_scratch_r70_store.py              store 契约按真实模块注入
+arcbench/runs/_scratch_r70_appuse.py             app.use 运行期类型过滤
+arcbench/runs/_scratch_r71_keeppages.py          sheet 页面按名恢复
+arcbench/runs/_scratch_r72_keeppages_github.py   github 页面按名恢复
+arcbench/runs/_scratch_r72_store_collection.py   collection 返回数组/补数组方法
+arcbench/runs/_scratch_r73_frontend_serving.py   修复前 404 / 修复后 200
+arcbench/runs/_scratch_r73_collection_guard.py   修复前 undefined / 修复后 []
+arcbench/runs/_scratch_r72_artifact_gap.py       真机产物逐名缺口统计
+arcbench/runs/_scratch_sheet/smoke.js            Sheet 后端 38/38
+```
