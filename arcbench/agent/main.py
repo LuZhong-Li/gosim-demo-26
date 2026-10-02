@@ -50,6 +50,9 @@ from guard import sanitize_long_specifiers
 from guard import repair_wrong_relative_imports
 from guard import complete_store_methods
 from guard import ensure_startup_seed
+from guard import ensure_startup_seed_all
+from guard import requirement_accounts
+from guard import collect_text
 from guard import ensure_signin_seed
 from guard import ensure_signin_route
 from guard import static_list_issues
@@ -1843,10 +1846,19 @@ def main(argv: list[str] | None = None) -> int:
         if credentials:
             log(f"[arc-agent] the suite signs in as {credentials['username']}; "
                 f"the rehearsal will verify that sign-in works")
-            seeded = ensure_startup_seed(project_dir, credentials, args.web_port)
+            # The graded scenarios each start from a pre-provisioned world, and
+            # the requirement text says the application "must provision those
+            # records before the corresponding scenario". Seeding only the
+            # rehearsal account left REQ-1-1-3 S2/S3, all of REQ-1-3 and all
+            # fifteen REQ-2-* cases failing their GIVEN (r68 self-test: 6/30).
+            accounts = requirement_accounts(
+                collect_text(nodes_payload), str(credentials["password"]))
+            if all(account["username"] != credentials["username"] for account in accounts):
+                accounts.insert(0, dict(credentials))
+            seeded = ensure_startup_seed_all(project_dir, accounts, args.web_port)
             if seeded:
-                log(f"[arc-agent] the backend now seeds that account through its "
-                    f"own registration route: {seeded}")
+                log(f"[arc-agent] the backend now seeds every pre-provisioned "
+                    f"account through its own registration route: {seeded}")
             else:
                 log("[arc-agent] no registration route found to seed the account "
                     "with; the rehearsal probe will report whether it exists")
