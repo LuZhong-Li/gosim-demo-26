@@ -61,6 +61,14 @@
 
 ## 🚩 异常预案
 
+### ⚠️ 读数陷阱（本轮踩到）
+
+`https://arc-bench.com/running` **会先渲染空状态再看数据**：页面先出现
+"0 active / No runs are currently active."，随后才变成真实数字。用
+`if (body.includes("active")) break;` 之类的等待条件会**误判为 0 active（run 已结束）**。
+正确做法：等待出现 `RUNNING` 或具体 run id，再读 `(\d+)\s+active`；
+历史页同理，卡片先显示 `running` 占位，分数要等刷新后才出现。
+
 1. 有 `world seed finished` 但 REQ-1-1-3 / REQ-1-3 的 GIVEN 仍全失败
    → 查 ①token 鉴权 ②接口探测选错路径 ③播种顺序 ④内存存储重启清空。
 2. seed 日志正常但大量页面 404 且 `unrouted pages = 26`
