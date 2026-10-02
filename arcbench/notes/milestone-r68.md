@@ -540,3 +540,23 @@ SUM/AVERAGE 遇到非数值列 → `Value field requires numeric values`（保�
 | hackathon--github-stage-2 | `556ca66978e3` |
 | hackathon--github-stage-3 | `fac5c3aceb68` |
 | hackathon--sheet | `5d0d3a855645` |
+
+---
+
+# 自测包就绪（2026-10-02 23:4x，等用户决定 r73）
+
+按官方/豆包给的 selftest-web 约束重做了产物包，**两份对照**，都在 `arcbench/dist/`：
+
+| 包 | 内容 | 本地实测 |
+|---|---|---|
+| `selftest-r71-ghstage1.zip`（36.5MB） | r71 Stage-1 **原始产物**（含 frontend/node_modules，未修 SPA） | `GET /` → **404 ENOENT** |
+| `selftest-r71-ghstage1-served.zip`（4.89MB） | 同一产物 + `guard.ensure_frontend_serving`（修 SPA 接线） | `GET /` → **200 text/html** ✓ |
+
+公共约束（都满足）：zip 根目录直接是 `backend/ frontend/ requirements/ + Dockerfile`、
+无 `.arc/`、无 harness 源码（`main.py` / `guard.py` 不在包里）、自带预构建 `frontend/dist`
+与 backend 依赖（评测容器无网络）。
+
+> 上传这两份到 `arcbench-selftest-web.vercel.app` 就能直接做 A/B：如果"修 SPA 接线"那一份
+> 的 UI 用例明显通过，就说明 `0465e99` 是这几轮 0 分的主因，r73 值得立刻起跑。
+> 注意 `backend/node_modules` 必须用 pnpm **重新安装**（robocopy 复制会打断 pnpm 的符号链接，
+> 表现为 `Cannot find module 'body-parser'`）。
