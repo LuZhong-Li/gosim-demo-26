@@ -462,6 +462,13 @@ function buildPivot(sheet, spec) {
 function refreshPivot(sheet, pivotId) {
   const pivot = (sheet.pivots || []).find((item) => item.id === pivotId);
   if (!pivot) return null;
+  // REQ-5-3-1: refreshing after the source column disappeared has to say so
+  // instead of rendering an empty pivot.
+  const header = rangeMatrix(sheet, pivot.range)[0] || [];
+  const needed = [pivot.rowField, pivot.valueField].filter(Boolean);
+  if (needed.some((field) => !header.some((title) => String(title).trim() === String(field).trim()))) {
+    return { error: 'Pivot field is no longer available. Select a new field.' };
+  }
   const rebuilt = buildPivot(sheet, {
     range: pivot.range,
     rowField: pivot.rowField,
@@ -474,6 +481,25 @@ function refreshPivot(sheet, pivotId) {
   return rebuilt;
 }
 
+//: REQ-2-1-4: a worksheet another sheet's pivot still reads cannot be deleted.
+function dependentPivot(workbook, sheet) {
+  if (!workbook || !workbook.worksheets) return null;
+  for (const other of workbook.worksheets) {
+    if (other === sheet || other === undefined || other === null) continue;
+    const pivots = other.pivots || [];
+    if (pivots.length) {
+      const header = new Set(
+        rangeMatrix(sheet, `A1:${formula.columnName(Math.max(1, sheet.columnCount))}1`)[0] || [],
+      );
+      const shared = pivots.some((pivot) => [pivot.rowField, pivot.valueField]
+        .filter(Boolean)
+        .some((field) => header.has(field)));
+      if (shared) return other;
+    }
+  }
+  return null;
+}
+
 module.exports = {
   NUMBER_RANGE,
   addValidation,
@@ -482,6 +508,7 @@ module.exports = {
   clearFilters,
   createWorkbook,
   createWorksheet,
+  dependentPivot,
   deleteColumns,
   deleteRows,
   displayCell,

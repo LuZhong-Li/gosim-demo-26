@@ -360,6 +360,37 @@ function WorkbookEditorPage() {
     }
   }
 
+  // REQ-3-2-1: paste a copied range at the selected cell. The clipboard text is
+  // taken as a table, so a copied block lands exactly as it was copied.
+  async function pasteFromClipboard() {
+    if (!sheet) return;
+    let text = '';
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (failure) {
+      text = '';
+    }
+    if (!text) {
+      setNote('Nothing to paste');
+      return;
+    }
+    const matrix = text.replace(/\r\n/g, '\n').replace(/\n+$/, '')
+      .split('\n')
+      .map((row) => row.split('\t'));
+    try {
+      const payload = await api.paste(workbookId, sheet.name, {
+        start: selected,
+        matrix,
+        mode: 'paste',
+      });
+      applySheet(payload.worksheet);
+      setNote(`Pasted ${payload.written.length} cell(s)`);
+      setError('');
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  }
+
   if (!sheet) {
     return (
       <section>
@@ -386,6 +417,7 @@ function WorkbookEditorPage() {
         <button type="button" onClick={clearFilter}>Clear filter</button>
         <button type="button" onClick={() => setDialog('validation')}>Data validation</button>
         <button type="button" onClick={() => setDialog('pivot')}>Create pivot table</button>
+        <button type="button" onClick={pasteFromClipboard}>Paste</button>
         <a href={api.exportUrl(workbookId, sheet.name)} download={`${sheet.name}.csv`}>Export CSV</a>
         <span>Selected range: {selectionLabel}</span>
       </div>

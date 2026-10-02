@@ -233,6 +233,11 @@ app.delete('/api/workbooks/:id/worksheets/:sheet', (req, res) => {
   if (found.workbook.worksheets.length <= 1) {
     return fail(res, 400, 'A workbook must contain at least one worksheet');
   }
+  // REQ-2-1-4: a worksheet a pivot table still reads stays put.
+  const dependent = store.dependentPivot(found.workbook, found.sheet);
+  if (dependent) {
+    return fail(res, 400, 'Please delete or rebuild dependent pivot tables first');
+  }
   store.removeWorksheet(found.workbook, found.sheet);
   return res.json({ workbook: serializeWorkbook(found.workbook, false) });
 });
@@ -387,6 +392,7 @@ app.post('/api/workbooks/:id/worksheets/:sheet/pivots/:pivot/refresh', (req, res
   if (!found) return undefined;
   const pivot = store.refreshPivot(found.sheet, req.params.pivot);
   if (!pivot) return fail(res, 404, 'Pivot table not found');
+  if (pivot.error) return fail(res, 400, pivot.error);
   return res.json({ pivot, worksheet: serializeWorksheet(found.sheet) });
 });
 
