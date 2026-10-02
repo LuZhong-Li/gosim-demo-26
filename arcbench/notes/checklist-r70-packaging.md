@@ -11,6 +11,16 @@
 - [ ] run 结束前日志里出现 traceability 汇总（`report_traceability()` 写入的
       requirement / test 状态），不是空目录
 
+> ⚠️ 概念澄清（修正一处常见误解）：`.arc/` **不是打进 zip 的交付物**，而是
+> agent 在**平台运行时**写进生成目录（`/workspace/template/.arc/`）的产物。
+> 所以：
+> - zip 里**必须**有 SDK（`arcbench_agent_runtime/`），**不应该**有陈旧的 `.arc/`；
+>   实测 r70 包 `.arc` 条目数 = **0**，`arcbench/agent/` 下也没有 `.arc/` 目录 ✅
+> - 真正不能丢的是"运行期写出 `.arc/runner-events.jsonl` + `.arc/traceability/*.json`"，
+>   以及 run 页出现 `Traceability initialized with N requirements and M scenarios`。
+> - SDK 会把可追溯表纳入运行期 git：`gitops.py:93-95` 生成的项目 `.gitignore` 为
+>   `.arc/*` + `!.arc/traceability/` + `!.arc/traceability/**`（事件流忽略、追溯表提交）。
+
 ## 包内容
 
 - [ ] zip 根目录有 `main.py` + `requirements.txt`
