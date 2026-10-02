@@ -89,6 +89,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return payload as T;
 }
 
+// Generated pages routinely import a generic ``{ client }`` handle and call
+// ``client.get('/workbooks')``; answer that contract so their imports resolve
+// (r71's Sheet build failed with "client is not exported by src/api/index.ts").
+const stripApiPrefix = (path: string) => String(path).replace(/^\/api/, '');
+
+export const client = {
+  get: async (path: string) => ({ data: await request('GET', stripApiPrefix(path)), status: 200 }),
+  post: async (path: string, body?: unknown) => ({
+    data: await request('POST', stripApiPrefix(path), body), status: 201,
+  }),
+  put: async (path: string, body?: unknown) => ({
+    data: await request('PUT', stripApiPrefix(path), body), status: 200,
+  }),
+  patch: async (path: string, body?: unknown) => ({
+    data: await request('PATCH', stripApiPrefix(path), body), status: 200,
+  }),
+  delete: async (path: string) => ({ data: await request('DELETE', stripApiPrefix(path)), status: 200 }),
+};
+
 export const api = {
   listWorkbooks: () => request<{ workbooks: WorkbookSummary[] }>('GET', '/workbooks'),
   getWorkbook: (id: string) => request<{ workbook: WorkbookPayload }>('GET', `/workbooks/${id}`),

@@ -144,7 +144,9 @@ export const tokenStore = {
   },
 };
 
-const client = axios.create({ baseURL: '/api', timeout: 8000 });
+// Exported: generated pages routinely import { client } and call client.get(...);
+// keeping the handle private made those imports fail the build.
+export const client = axios.create({ baseURL: '/api', timeout: 8000 });
 client.interceptors.request.use((config) => {
   const token = tokenStore.get();
   if (token) config.headers.Authorization = `Bearer ${token}`;

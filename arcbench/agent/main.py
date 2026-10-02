@@ -1945,6 +1945,14 @@ def main(argv: list[str] | None = None) -> int:
             project_dir, TEMPLATES / slug, slug, set(exact_names(nodes_payload)))
         if restored_pages:
             log(f"[arc-agent] kept pages: {restored_pages}")
+            # Restoring a shared module can drop a name the generated pages still
+            # import (r71's Sheet build died on "client is not exported by
+            # src/api/index.ts" right after the restore), so the export sweep
+            # runs again before the entry wiring is redone.
+            repaired_exports = ensure_named_exports(project_dir)
+            if repaired_exports:
+                log(f"[arc-agent] exports completed after the page restore: "
+                    f"{repaired_exports[:6]}")
             routed_again = ensure_app_router(project_dir)
             if routed_again:
                 log(f"[arc-agent] re-ran the entry wiring: {routed_again}")
