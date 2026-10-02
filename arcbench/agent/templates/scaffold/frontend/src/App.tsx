@@ -1,33 +1,161 @@
-import { useEffect, useState } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, Route, Routes, useNavigate } from 'react-router-dom';
+import type { User } from './api';
+import * as api from './api';
+import AuthPage from './pages/AuthPage';
+import ComparePage from './pages/ComparePage';
+import HomePage from './pages/HomePage';
+import OrgPage from './pages/OrgPage';
+import OrgsPage from './pages/OrgsPage';
+import RepoPage from './pages/RepoPage';
+import RepoSearchPage from './pages/RepoSearchPage';
+import RepoSettingsPage from './pages/RepoSettingsPage';
+import SettingsPage from './pages/SettingsPage';
+import TeamPage from './pages/TeamPage';
 
-// Placeholder surface. The generating agent replaces this file (and adds pages)
-// with the task-specific application described by the requirements.
-function Placeholder() {
-  const [health, setHealth] = useState<string>('checking');
-
-  useEffect(() => {
-    fetch('/api/health')
-      .then((response) => response.json())
-      .then((payload) => setHealth(payload?.message || 'ok'))
-      .catch(() => setHealth('unavailable'));
-  }, []);
+function Header({ user, onLogout }: { user: User | null; onLogout: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 
   return (
-    <section className="panel">
-      <h1>Application scaffold</h1>
-      <p>Backend health: {health}</p>
-      <p>This surface is generated from the task requirements.</p>
-    </section>
+    <header className="app-header">
+      <Link to="/" className="brand">
+        GitHub Clone
+      </Link>
+      <nav>
+        {user ? (
+          <div className="account-menu">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              Account menu
+            </button>
+            {menuOpen && (
+              <div className="account-menu-popover" role="menu">
+                <span className="username">{user.username}</span>
+                <Link to="/orgs" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  Your organizations
+                </Link>
+                <Link to="/settings" role="menuitem" onClick={() => setMenuOpen(false)}>
+                  Settings
+                </Link>
+                <a
+                  href="#signout"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setMenuOpen(false);
+                    setConfirmingSignOut(true);
+                  }}
+                >
+                  Sign out
+                </a>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <Link to="/auth?mode=signin">Sign in</Link>
+            <Link to="/auth?mode=signup">Sign up</Link>
+          </>
+        )}
+      </nav>
+
+      {confirmingSignOut && (
+        <div className="dialog-backdrop">
+          <div className="dialog" role="dialog" aria-modal="true" aria-label="Sign out">
+            <p>Sign out of this browser session only?</p>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmingSignOut(false);
+                onLogout();
+              }}
+            >
+              Confirm sign out
+            </button>
+            <button type="button" onClick={() => setConfirmingSignOut(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </header>
   );
 }
 
-export default function App() {
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!api.tokenStore.get()) {
+      setReady(true);
+      return undefined;
+    }
+    api
+      .me()
+      .then((current) => setUser(current))
+      .catch(() => api.tokenStore.clear())
+      .finally(() => setReady(true));
+    return undefined;
+  }, []);
+
+  const handleAuth = useCallback((current: User) => setUser(current), []);
+
+  const handleLogout = useCallback(() => {
+    api
+      .logout()
+      .catch(() => undefined)
+      .finally(() => {
+        api.tokenStore.clear();
+        setUser(null);
+        navigate('/');
+      });
+  }, [navigate]);
+
   return (
     <div className="app-shell">
-      <Routes>
-        <Route path="*" element={<Placeholder />} />
-      </Routes>
+      <Header user={user} onLogout={handleLogout} />
+      {!ready ? (
+        <p className="loading">Loading…</p>
+      ) : (
+        <main className="page">
+          <Routes>
+            <Route path="/" element={<HomePage user={user} />} />
+            <Route path="/auth" element={<AuthPage user={user} onAuth={handleAuth} />} />
+            <Route path="/orgs" element={<OrgsPage />} />
+            <Route path="/orgs/:name" element={<OrgPage />} />
+            {/* REQ-2-2-1 / REQ-2-2-2: organization team detail page */}
+            <Route path="/orgs/:name/teams/:team" element={<TeamPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/:owner/:name/compare" element={<ComparePage />} />
+            {/* REQ-4-2-3: code search results with a unique "Code" filter link */}
+            <Route path="/:owner/:name/search" element={<RepoSearchPage />} />
+            {/* REQ-3-4 / REQ-4-3-3 / REQ-6-1 repository settings surface */}
+            <Route path="/:owner/:name/settings" element={<RepoSettingsPage section="general" />} />
+            <Route
+              path="/:owner/:name/settings/general"
+              element={<RepoSettingsPage section="general" />}
+            />
+            <Route
+              path="/:owner/:name/settings/branches"
+              element={<RepoSettingsPage section="branches" />}
+            />
+            <Route
+              path="/:owner/:name/settings/access"
+              element={<RepoSettingsPage section="access" />}
+            />
+            <Route path="/:owner/:name" element={<RepoPage />} />
+          </Routes>
+        </main>
+      )}
     </div>
   );
 }
+
+export default App;

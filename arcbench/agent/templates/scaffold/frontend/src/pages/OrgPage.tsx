@@ -1,0 +1,427 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import type { Member, Org, Repo, Team } from '../api';
+import * as api from '../api';
+
+export default function OrgPage() {
+  const { name = '' } = useParams();
+  const navigate = useNavigate();
+  const [org, setOrg] = useState<Org | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
+  const [memberMenu, setMemberMenu] = useState<string | null>(null);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [repoName, setRepoName] = useState('');
+  const [visibility, setVisibility] = useState('private');
+  const [description, setDescription] = useState('');
+  const [memberUsername, setMemberUsername] = useState('');
+  const [memberRole, setMemberRole] = useState('Member');
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [newTeamOpen, setNewTeamOpen] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [teamDescription, setTeamDescription] = useState('');
+  const [parentDraft, setParentDraft] = useState<Record<string, string>>({});
+  const [grantRepo, setGrantRepo] = useState('');
+  const [grantUser, setGrantUser] = useState('');
+  const [grantTeam, setGrantTeam] = useState('');
+  const [grantPermission, setGrantPermission] = useState('Write');
+  const [grants, setGrants] = useState<api.AccessGrant[]>([]);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [repoFilter, setRepoFilter] = useState('');
+  const [repoVisibilityFilter, setRepoVisibilityFilter] = useState('all');
+
+  const refresh = useCallback(async () => {
+    try {
+      const detail = await api.getOrg(name);
+      setOrg(detail.org);
+      setRole(detail.role);
+      setRepos(detail.repos);
+      setMembers(detail.members);
+      setTeams(detail.teams);
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }, [name]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const canManage = role === 'Owner' || role === 'Admin';
+  const filteredRepos = repos.filter((repo) => {
+    const matchesName = repo.name.toLowerCase().includes(repoFilter.trim().toLowerCase());
+    const matchesVisibility = repoVisibilityFilter === 'all' || repo.visibility === repoVisibilityFilter;
+    return matchesName && matchesVisibility;
+  });
+
+  async function run(action: () => Promise<unknown>, successMessage: string) {
+    setError('');
+    setInfo('');
+    try {
+      await action();
+      setInfo(successMessage);
+      await refresh();
+    } catch (caught) {
+      setError(api.errorMessage(caught));
+    }
+  }
+
+  if (!org) {
+    return (
+      <section className="panel narrow">
+        <h1>Organization</h1>
+        {error && <p className="error">{error}</p>}
+        <p>Loading…</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <h1>{org.displayName || org.name}</h1>
+      {role && <p className="muted">Your role: {role}</p>}
+      {error && <p className="error">{error}</p>}
+      {info && <p className="success">{info}</p>}
+
+      <nav className="tabs" aria-label="Organization navigation">
+        <a href="#repositories">Repositories</a>
+        <a href="#people">People</a>
+        <a href="#teams">Teams</a>
+      </nav>
+      <h2>Repositories</h2>
+      <input aria-label="Find a repository" type="search" value={repoFilter} placeholder="Find a repository" onChange={(event) => setRepoFilter(event.target.value)} />
+      <select aria-label="Visibility filter" value={repoVisibilityFilter} onChange={(event) => setRepoVisibilityFilter(event.target.value)}>
+        <option value="all">All</option>
+        <option value="public">Public</option>
+        <option value="private">Private</option>
+      </select>
+      {filteredRepos.length === 0 ? (
+        <p>No repositories in this organization.</p>
+      ) : (
+        <ul className="repo-list">
+          {filteredRepos.map((repo) => (
+            <li key={`${repo.owner}/${repo.name}`}>
+              <Link to={`/${repo.owner}/${repo.name}`}>
+                {repo.name}
+              </Link>
+              <span className="muted"> · {repo.visibility}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2>People</h2>
+      {members.length === 0 ? (
+        <p>No members yet.</p>
+      ) : (
+        <ul className="repo-list">
+          {members.map((member) => (
+            <li key={member.username}>
+              {member.username} <span className="muted">· {member.role}</span>
+              {/* REQ-2-2-4: only an Owner sees the member menu and its remove action. */}
+              {role === 'Owner' && pendingRemoval !== member.username && (
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() =>
+                    setMemberMenu(memberMenu === member.username ? null : member.username)
+                  }
+                >
+                  {`Member menu ${member.username}`}
+                </button>
+              )}
+              {role === 'Owner' &&
+                memberMenu === member.username &&
+                pendingRemoval !== member.username && (
+                  <div role="menu" aria-label={`Member menu ${member.username}`}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setPendingRemoval(member.username);
+                        setMemberMenu(null);
+                      }}
+                    >
+                      Remove from organization
+                    </button>
+                  </div>
+                )}
+              {pendingRemoval === member.username && (
+                <span className="inline-form">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      run(
+                        () => api.removeOrgMember(name, member.username),
+                        'Member removed.',
+                      );
+                      setPendingRemoval(null);
+                    }}
+                  >
+                    Remove
+                  </button>
+                  <button type="button" onClick={() => setPendingRemoval(null)}>
+                    Cancel
+                  </button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        !addMemberOpen ? (
+          <button type="button" onClick={() => setAddMemberOpen(true)}>
+            Add member
+          </button>
+        ) : (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => api.addOrgMember(name, { username: memberUsername, role: memberRole }), 'Member added.');
+            setMemberUsername('');
+            setAddMemberOpen(false);
+          }}
+        >
+          <label htmlFor="org-member-username">Username or email</label>
+          <input
+            id="org-member-username"
+            type="text"
+            value={memberUsername}
+            onChange={(event) => setMemberUsername(event.target.value)}
+          />
+          <label htmlFor="org-member-role">Role</label>
+          <select
+            id="org-member-role"
+            value={memberRole}
+            onChange={(event) => setMemberRole(event.target.value)}
+          >
+            <option>Member</option>
+            <option>Owner</option>
+          </select>
+          <button type="submit">Add member</button>
+        </form>
+        )
+      )}
+
+      <h2>Teams</h2>
+      {/* REQ-2-2-1: an Owner opens the team creation form from the New team link. */}
+      {role === 'Owner' && !newTeamOpen && (
+        <p>
+          <button type="button" className="link-button" onClick={() => setNewTeamOpen(true)}>
+            New team
+          </button>
+        </p>
+      )}
+      {role === 'Owner' && newTeamOpen && (
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            api
+              .createTeam(name, { name: teamName, description: teamDescription })
+              .then((created) => {
+                navigate(`/orgs/${name}/teams/${created.name}`);
+              })
+              .catch((caught) => setError(api.errorMessage(caught)));
+          }}
+        >
+          <label htmlFor="new-team-name">Team name</label>
+          <input
+            id="new-team-name"
+            type="text"
+            value={teamName}
+            onChange={(event) => setTeamName(event.target.value)}
+          />
+          <label htmlFor="new-team-description">Description</label>
+          <input
+            id="new-team-description"
+            type="text"
+            value={teamDescription}
+            onChange={(event) => setTeamDescription(event.target.value)}
+          />
+          <button type="submit">Create team</button>
+        </form>
+      )}
+      {teams.length === 0 ? (
+        <p>No teams yet.</p>
+      ) : (
+        <ul className="repo-list">
+          {teams.map((team) => (
+            <li key={team.name} data-team={team.name}>
+              <Link to={`/orgs/${name}/teams/${team.name}`}>{team.name}</Link>{' '}
+              <span className="muted">· {team.members.length} members</span>
+              <span className="muted"> · parent: {team.parent || 'none'}</span>
+              {team.description && <p className="muted">{team.description}</p>}
+              {/* REQ-2-2-2: hierarchy is editable and cycles are rejected server-side */}
+              <form
+                className="inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  run(
+                    () => api.setTeamParent(name, team.name, parentDraft[team.name] ?? ''),
+                    'Team hierarchy updated.',
+                  );
+                }}
+              >
+                <input
+                  aria-label={`Parent team for ${team.name}`}
+                  type="text"
+                  value={parentDraft[team.name] ?? ''}
+                  placeholder="parent team (blank to clear)"
+                  onChange={(event) =>
+                    setParentDraft({ ...parentDraft, [team.name]: event.target.value })
+                  }
+                />
+                <button type="submit">Save parent</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      )}
+      {/* REQ-2-3: grant a repository role to a member or a team */}
+      <h2>Manage access</h2>
+      {grants.length > 0 && (
+        <ul className="repo-list">
+          {grants.map((grant) => (
+            <li key={`${grant.repo}-${grant.user || grant.team}`}>
+              {grant.repo} · {grant.user || grant.team} · {grant.permission}
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError('');
+          api
+            .grantRepoAccess(name, {
+              repo: grantRepo,
+              username: grantUser || undefined,
+              team: grantUser ? undefined : grantTeam || undefined,
+              permission: grantPermission,
+            })
+            .then((grant) => {
+              setGrants([
+                ...grants.filter(
+                  (item) =>
+                    !(item.repo === grant.repo && (item.user || item.team) === (grant.user || grant.team)),
+                ),
+                grant,
+              ]);
+              setInfo('Access granted.');
+            })
+            .catch((caught) => setError(api.errorMessage(caught)));
+        }}
+      >
+        <div className="field">
+          <label htmlFor="grant-repo">Repository</label>
+          <input
+            id="grant-repo"
+            type="text"
+            value={grantRepo}
+            onChange={(event) => setGrantRepo(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="grant-user">Grant to member</label>
+          <select
+            id="grant-user"
+            value={grantUser}
+            onChange={(event) => setGrantUser(event.target.value)}
+          >
+            <option value="">(none)</option>
+            {members.map((member) => (
+              <option key={member.username} value={member.username}>
+                {member.username}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="grant-team">Grant to team</label>
+          <select
+            id="grant-team"
+            value={grantTeam}
+            onChange={(event) => setGrantTeam(event.target.value)}
+          >
+            <option value="">(none)</option>
+            {teams.map((team) => (
+              <option key={team.name} value={team.name}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="grant-permission">Permission</label>
+          <select
+            id="grant-permission"
+            value={grantPermission}
+            onChange={(event) => setGrantPermission(event.target.value)}
+          >
+            {['Read', 'Triage', 'Write', 'Maintain', 'Admin'].map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button type="submit">Grant access</button>
+      </form>
+
+      <h2>Create repository</h2>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          run(
+            () => api.createOrgRepo(name, { name: repoName, visibility, description }),
+            'Repository created.',
+          );
+          setRepoName('');
+          setDescription('');
+        }}
+      >
+        <div className="field">
+          <label htmlFor="repo-name">Repository name</label>
+          <input
+            id="repo-name"
+            type="text"
+            value={repoName}
+            onChange={(event) => setRepoName(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="repo-visibility">Visibility</label>
+          <select
+            id="repo-visibility"
+            value={visibility}
+            onChange={(event) => setVisibility(event.target.value)}
+          >
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="repo-description">Description (optional)</label>
+          <input
+            id="repo-description"
+            type="text"
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </div>
+        <button type="submit">Create repository</button>
+      </form>
+      <p>
+        <Link to="/orgs">Back to organizations</Link>
+      </p>
+    </section>
+  );
+}

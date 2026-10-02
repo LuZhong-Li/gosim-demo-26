@@ -1,21 +1,24 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
-// The backend serves the built frontend on one port; in dev the /api prefix is
-// proxied so both servers can run side by side.
+const backendPort = Number(process.env.ARC_WEB_PORT || 3000)
+
+// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
-  server: {
-    proxy: {
-      '/api': {
-        target: `http://127.0.0.1:${process.env.PORT || 3000}`,
-        changeOrigin: true,
-      },
-    },
-  },
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
   test: {
     environment: 'jsdom',
-    setupFiles: ['./test/setup.ts'],
     globals: true,
+    setupFiles: './test/setup.ts',
+    include: ['tests/**/*.{test,spec}.{js,jsx,ts,tsx}'],
   },
-});
+  server: {
+    proxy: {
+      '/api': `http://127.0.0.1:${backendPort}`
+    }
+  }
+})
