@@ -311,3 +311,37 @@ guard.py:2965 def ensure_startup_seed_world(...)
 2. **Sheet 独立脚手架**（工作簿 / 工作表 / 列表路由）—— r68/r69 都因"没有列表路由"全 0。
 3. 全局长期风险：`gh_store.js` / `sheet_store.js` 内存存储，进程重启丢全部种子；
    播种只解决启动初始化，持久化尚未做。
+
+---
+
+## r70 Sheet 脚手架：前后端都已落地（用户快照说"前端未实现"，此处更新）
+
+| 部分 | 状态 | commit |
+|---|---|---|
+| 后端 `templates/sheet/backend/` | ✅ store / formula / seed / app 全套，本地 express shim **36/36** | `5c31bc3` 之后 |
+| 前端 `templates/sheet/frontend/` | ✅ 首页列表 + 网格编辑器，`vite build` 通过（45 modules） | 本次提交 |
+| 模板被 agent 正确选中 | ✅ `task_slug("hackathon--sheet") = "sheet"`，`copy_template` 成功，受保护文件 `guard.validate` 全 ok | `893a1ed` |
+
+### 真浏览器端到端验证（本地后端 + vite preview，按 grader 的方式取元素）
+
+```
+link "Q3 Sales" ✓            grid aria-label "Worksheet grid" ✓
+gridcell "A1"/"C3" (exact) ✓  rowheader "Row 1" ✓   columnheader "C" ✓
+button "New blank workbook" / "Import CSV" / "Add worksheet" / "Sort range" /
+       "Data validation" / "Create pivot table" / "Clear filter" ✓
+link "Export CSV" ✓           button "Sheet1"/"Sheet2"/"Worksheet options for Sheet1" ✓
+公式栏写入 B2=1500 → =B2+B3 自动重算 D1=2300 ✓
+三个对话框的控件名（Sort by / Order、Rule type、Rows / Values / Summarize by）全在 ✓
+```
+
+### 本轮修掉的一个新风险
+
+`ensure_app_router` 原来在"入口缺少 ARC 登录契约"时**整体重写 App.tsx**。Sheet 模板不需要
+GitHub 那套登录契约，于是被重写成扁平 kebab 路由表，`/workbooks/:id` 会丢失 ——
+首页点 `Q3 Sales` 就打不开编辑器。现在改成：**入口已经挂上页面（referenced ≥ 2）就保留**，
+只补缺失路由；只有"完全没接线"的入口才整体重写（commit `893a1ed`）。
+
+### 读数陷阱（已写进 checklist）
+
+`/running` 先渲染空状态再加载数据：`0 active / No runs are currently active.` 是**假读数**，
+必须等 `RUNNING` 或 run id 出现再判断。20:24 复查：5 个 r69 run **仍在 RUNNING**。
