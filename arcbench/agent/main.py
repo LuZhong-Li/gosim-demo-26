@@ -1716,6 +1716,13 @@ def main(argv: list[str] | None = None) -> int:
                 if not missing_names or time.time() >= deadline:
                     break
                 if previous is not None and len(missing_names) >= previous:
+                    if len(missing_names) > previous:
+                        # r63 Stage 1: a round that rewrote 42 files pushed the
+                        # missing count from 46 to 85. A worse round is never
+                        # worth repeating.
+                        log(f"[selfcheck] missing-name repair made it worse "
+                            f"({previous} -> {len(missing_names)}); stopping")
+                        break
                     stalled_rounds += 1
                     if stalled_rounds >= 2:
                         log(f"[selfcheck] missing-name repair stalled at {len(missing_names)}")
