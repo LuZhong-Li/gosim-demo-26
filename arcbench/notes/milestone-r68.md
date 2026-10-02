@@ -604,3 +604,46 @@ REQ-2-1-2-create-organization …`（Stage-1 共 30 条），可做"需求号 �
 | hackathon--sheet | `46641881ce99` |
 
 预算：r72 花掉约 ¥10.9（r33-insurance 为 ¥0），余量约 ¥345。
+
+---
+
+# 🎉 r73 破零 + r74 起跑（2026-10-03 01:1x）
+
+## r73 官方成绩：**0.69 / 1.0%（2/200）** —— 生成型路线首次非 0
+
+| 任务 | Score | Tests | 耗时 | Cost |
+|---|---|---|---|---|
+| GitHub 原题 | **1.54** | 2.0% | 43m36s | ¥2.9257 |
+| GitHub Stage 2 | **5.35** | 6.9% | 53m18s | ¥2.8476 |
+| Stage 1 / Stage 3 / Sheet | 0.00 | 0% | 33m50s / 36m40s / — | ¥2.2868 / ¥2.5670 / — |
+| **提交合计** | **0.69** | **1.0%（2/200）** | 195m36s | ¥4.9868 |
+
+两个 P0 修复（`0465e99` SPA 接线 + `02926ac` collection 守卫）在 r73 里**确认生效**：
+Stage 2 从 0 → 5.35、原题从 0 → 1.54（r66 之后第一次有非 0 的生成型成绩）。
+
+## r73 Stage-1 日志证据（四类崩溃全部归零）
+
+```
+front-end serving        2   store accessor guard  2   app.use() runtime guard  2
+kept pages               2   Backend listening     1   world seed finished      1
+argument handler  0 | ENOENT 0 | is not a function 0 | Cannot read properties of null 0
+```
+
+但 `exact-name coverage: 158/178 (20 missing)`，缺的正是 REQ-1-2 那组：
+`Account menu` / `Sign out` / `Confirm sign out`（另有 `Replacement-password-456!`）。
+→ harness 层已干净，剩下的 0 分是**页面/行为层**。
+
+## r74 起跑（01:12，含 REQ-1-2 修复）
+
+新增 `ensure_account_menu_contract(project_dir)`：当 `Account menu` / `Sign out` /
+`Confirm sign out` 在前端源码里缺失时，自动写 `__arc_auth__.tsx`（含 `ArcSessionBar`）
+并把入口包一层 `ArcMenuShell`（`<ArcSessionBar /> + <原 App />`），幂等、不重声明。
+本地断言 `_scratch_r74_menu.py` 通过。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `f20ebcdd161b` |
+| hackathon--github-stage-1 | `7524159c1b3f` |
+| hackathon--github-stage-2 | `f1630a0faffb` |
+| hackathon--github-stage-3 | `247eaab2d162` |
+| hackathon--sheet | `7f09e6cef049` |

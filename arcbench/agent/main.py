@@ -64,6 +64,7 @@ from guard import accessibility_contract_issues
 from guard import ensure_app_router
 from guard import guard_app_use
 from guard import ensure_frontend_serving
+from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
 from guard import restore_keep_pages
 from guard import mount_orphan_routers
@@ -1968,6 +1969,12 @@ def main(argv: list[str] | None = None) -> int:
         serving = ensure_frontend_serving(project_dir)
         if serving:
             log(f"[arc-agent] front-end serving: {serving}")
+        # r73 Stage 1: the four crash classes are gone, but "Account menu" /
+        # "Sign out" / "Confirm sign out" (REQ-1-2) were missing from 20 absent
+        # names - the generated entry has no account-menu header, so it is mounted.
+        menu = ensure_account_menu_contract(project_dir)
+        if menu:
+            log(f"[arc-agent] account menu contract: {menu}")
         # r71's runtime 500s: a generated store answers undefined for an unknown
         # key, and the first route that calls Object.values(...) or .find(...) on
         # it throws - so sign-in/sign-up answered 500 and every scenario that

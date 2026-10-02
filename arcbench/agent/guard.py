@@ -3701,6 +3701,84 @@ def _app_file(project_dir: Path) -> Path | None:
 #: Every ``app.use(...)`` call in the application module.
 APP_USE_CALL = re.compile(r"(?<![\w$.]){name}\.use\(")
 
+#: Names REQ-1-2 asserts on: the account menu button, its sign-out link and the
+#: confirmation dialog. Our ARC auth module renders all three (``ArcSessionBar``).
+ACCOUNT_MENU_NAMES = ("Account menu", "Sign out", "Confirm sign out")
+
+ARC_MENU_SHELL = '''
+
+// ARC agent: REQ-1-2 needs a visible "Account menu" button whose menu holds the
+// "Sign out" link and a "Sign out" dialog with "Confirm sign out" / "Cancel".
+// The generated entry rarely renders that header, so it is mounted here.
+function ArcMenuShell() {
+  return (
+    <>
+      <ArcSessionBar />
+      <__ARC_INNER__ />
+    </>
+  );
+}
+
+export default ArcMenuShell;
+'''
+
+
+def ensure_account_menu_contract(project_dir: Path) -> list[str]:
+    """Mount the REQ-1-2 account-menu / sign-out contract in the entry point."""
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return []
+    app = next((src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
+                if (src / f"App{suffix}").is_file()), None)
+    if app is None:
+        return []
+    body = _source_text(app)
+    if not body:
+        return []
+    haystack = "\n".join(_source_text(path) for path in _frontend_sources(project_dir))
+    if all(name in haystack for name in ACCOUNT_MENU_NAMES):
+        return []
+    if "ArcMenuShell" in body:
+        return []
+    auth_module = _ensure_arc_auth_module(project_dir)
+
+    inner = None
+    patterns = (
+        re.compile(r"^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$", re.M),
+        re.compile(r"^export\s+default\s+function\s+([A-Za-z_$][\w$]*)", re.M),
+        re.compile(r"^export\s+default\s+class\s+([A-Za-z_$][\w$]*)", re.M),
+    )
+    patched = body
+    for pattern in patterns:
+        match = pattern.search(patched)
+        if match is None:
+            continue
+        inner = match.group(1)
+        if pattern is patterns[0]:
+            patched = patched[:match.start()] + patched[match.end():]
+        else:
+            patched = patched[:match.start()] + "function" + patched[match.start() + len("export default function"):] \
+                if pattern is patterns[1] else patched
+        break
+    if not inner:
+        return []
+    imports = re.finditer(r"^\s*import\b[^\n]*$", patched, re.M)
+    last = None
+    for last in imports:
+        pass
+    line = "import { ArcSessionBar } from './__arc_auth__';\n"
+    if last is not None:
+        patched = patched[:last.end()] + "\n" + line.rstrip("\n") + patched[last.end():]
+    else:
+        patched = line + patched
+    patched = patched.rstrip() + "\n" + ARC_MENU_SHELL.replace("__ARC_INNER__", inner)
+    if not _write_text(app, patched):
+        return []
+    relative = str(app.relative_to(project_dir)).replace(chr(92), "/")
+    changed = list(auth_module)
+    changed.append(f"{relative}: mounted ArcMenuShell (account menu + sign out)")
+    return changed
+
 #: Middleware filter injected ahead of the first ``app.use`` call.
 ARC_USE_HELPER = '''
 
