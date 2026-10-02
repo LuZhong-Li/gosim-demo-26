@@ -2662,7 +2662,15 @@ def find_register_route(project_dir: Path) -> str | None:
 #: acme-docs and private repository secret-research", "... is Owner of the
 #: existing organization Acme Demo", "Organization team frontend-team exists".
 WORLD_ORG_NAME = re.compile(
-    r"organi[sz]ation\s+([A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9]*){0,3})"
+    r"""organi[sz]ation\s+[`'"]?([A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9]*){0,3})[`'"]?"""
+)
+
+#: The raw requirement payload wraps the names in backticks ("the organization
+#: `Acme Demo`"), which the rendered page strips. r69 shipped the capitalised
+#: pattern only, so the org lookup found nothing, ``requirement_world`` returned
+#: an empty world and the whole seeding step was skipped without a word.
+WORLD_ORG_NAME_LOOSE = re.compile(
+    r"""organi[sz]ation\s+[`'"]?([A-Za-z][A-Za-z0-9]*(?:[ _-][A-Za-z][A-Za-z0-9]*){1,3})[`'"]?"""
 )
 WORLD_VISIBLE_REPO = re.compile(
     r"\b(public|private)\s+repositor(?:y|ies)\s+`?([a-z0-9][a-z0-9._-]{0,60})"
@@ -2776,6 +2784,18 @@ def requirement_world(text: str, accounts: list[dict]) -> dict:
             continue
         tallies[name] = tallies.get(name, 0) + 1
     org_display = max(tallies, key=lambda key: (tallies[key], len(key)), default="")
+    if not org_display:
+        # "the organization `acme-demo`" / "organization Acme Demo" written in
+        # any case: take the most repeated candidate instead of giving up.
+        loose: dict[str, int] = {}
+        for candidate in WORLD_ORG_NAME_LOOSE.findall(body):
+            name = candidate.strip().strip("`'\"")
+            if not name or name.lower() in WORLD_ORG_STOPWORDS:
+                continue
+            loose[name] = loose.get(name, 0) + 1
+        org_display = max(loose, key=lambda key: (loose[key], len(key)), default="")
+        if org_display and org_display.islower():
+            org_display = org_display.replace("-", " ").replace("_", " ").title()
     if not org_display:
         return {}
 
