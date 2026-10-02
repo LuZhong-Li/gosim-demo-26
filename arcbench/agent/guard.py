@@ -3758,6 +3758,66 @@ def guard_app_use(project_dir: Path) -> list[str]:
 #: must never be treated as an orphaned router.
 ORPHAN_ROUTER_SKIP = {"app.js", "index.js", "arc-seed-auth.js", "server.js"}
 
+ARC_COLLECTION_GUARD = '''
+
+// --- collection() null/undefined guard added by the ARC agent ----------------
+// A ``collection(name)`` call without a default returns whatever the store kept
+// for that key, and a store that answers ``undefined`` makes the first route that
+// writes ``Object.values(...)`` or ``.find(...)`` throw:
+//   TypeError: Cannot convert undefined or null to object
+//   TypeError: Cannot read properties of null (reading 'find')
+// which turns every sign-in / sign-up request into a 500 and fails every
+// scenario that needs a session. Wrapping the accessor here fixes every caller at
+// once and leaves an intact store untouched.
+(function (api) {
+  if (!api || typeof api.collection !== 'function' || api.collection.__arcGuarded) return;
+  const __arcOriginalCollection = api.collection;
+  const __arcGuardedCollection = function (name, fallback) {
+    const value = __arcOriginalCollection.call(api, name, fallback);
+    if (value === null || value === undefined) {
+      return fallback === undefined ? [] : fallback;
+    }
+    return value;
+  };
+  __arcGuardedCollection.__arcGuarded = true;
+  api.collection = __arcGuardedCollection;
+})(module.exports);
+'''
+
+
+def ensure_collection_never_empty(project_dir: Path) -> list[str]:
+    """Wrap ``collection()`` in every backend store so it never returns null.
+
+    r71's logs are full of "Cannot convert undefined or null to object" and
+    "Cannot read properties of null (reading 'find')" from the generated auth /
+    organization routes: they call ``store.collection('accounts')`` without a
+    default and the generated store answers ``undefined`` for an unknown key, so
+    the request throws before it can answer anything.
+    """
+    backend = project_dir / "backend" / "src"
+    if not backend.is_dir():
+        return []
+    changed: list[str] = []
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        body = _source_text(path)
+        if not body or "collection" not in body:
+            continue
+        if "collection.__arcGuarded" in body or "collection() null/undefined guard" in body:
+            continue
+        if not re.search(r"function\s+collection\s*\(|collection\s*[:=]\s*(?:async\s*)?(?:function|\()",
+                         body):
+            continue
+        if not re.search(r"module\.exports\s*=", body):
+            continue
+        if _write_text(path, body.rstrip() + ARC_COLLECTION_GUARD):
+            changed.append(str(path.relative_to(project_dir)).replace(chr(92), "/"))
+    if not changed:
+        return []
+    return [f"collection() guarded in {len(changed)} store module(s): "
+            f"{', '.join(changed[:4])}"]
+
 #: A ``sendFile`` whose root is the app module itself - the browser then gets
 #: "ENOENT ... backend/src/frontend/dist/index.html" instead of the app.
 WRONG_DIST_ROOT = re.compile(

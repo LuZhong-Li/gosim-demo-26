@@ -64,6 +64,7 @@ from guard import accessibility_contract_issues
 from guard import ensure_app_router
 from guard import guard_app_use
 from guard import ensure_frontend_serving
+from guard import ensure_collection_never_empty
 from guard import restore_keep_pages
 from guard import mount_orphan_routers
 from llm import LlmClient
@@ -1967,6 +1968,13 @@ def main(argv: list[str] | None = None) -> int:
         serving = ensure_frontend_serving(project_dir)
         if serving:
             log(f"[arc-agent] front-end serving: {serving}")
+        # r71's runtime 500s: a generated store answers undefined for an unknown
+        # key, and the first route that calls Object.values(...) or .find(...) on
+        # it throws - so sign-in/sign-up answered 500 and every scenario that
+        # needs a session failed.
+        collection_guard = ensure_collection_never_empty(project_dir)
+        if collection_guard:
+            log(f"[arc-agent] store accessor guard: {collection_guard}")
         late_contract = backend_store_contract(project_dir)
         if late_contract:
             log(f"[arc-agent] store contract issues after repair: {late_contract[:4]}")
