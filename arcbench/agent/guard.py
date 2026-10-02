@@ -3679,6 +3679,62 @@ def _app_file(project_dir: Path) -> Path | None:
     return None
 
 
+#: Every ``app.use(...)`` call in the application module.
+APP_USE_CALL = re.compile(r"(?<![\w$.]){name}\.use\(")
+
+#: Middleware filter injected ahead of the first ``app.use`` call.
+ARC_USE_HELPER = '''
+
+// ARC agent: a mount expression that evaluates to undefined makes express throw
+// "argument handler must be a function" while this file is still loading, so the
+// server never binds the port and every scenario scores zero (r68 Stage 1 and
+// r70 Stage 1 both died exactly this way, at app.js:15 and app.js:227).
+// Every mount in this file therefore goes through the filter below.
+function __arcUse(target, ...middleware) {
+  const safe = middleware.filter((entry) => entry !== undefined && entry !== null
+    && (typeof entry === 'function' || typeof entry === 'string' || Array.isArray(entry)));
+  if (safe.length !== middleware.length) {
+    console.error('arc: dropped ' + (middleware.length - safe.length)
+      + ' non-function middleware argument(s) instead of crashing');
+  }
+  return target.use(...safe);
+}
+'''
+
+
+def guard_app_use(project_dir: Path) -> list[str]:
+    """Route every ``app.use`` in the application module through a type filter.
+
+    The express router throws when a mount argument is not a handler, and it
+    throws while the module is being loaded - the process exits 1, the runner
+    reports "template application server exited before becoming ready", and the
+    task scores zero no matter how good the pages are. The mounted modules that
+    the agent injects are already type-checked; this covers the call sites the
+    generated code owns, where a factory returning ``undefined`` is the usual
+    culprit and cannot be predicted statically.
+    """
+    app_file = _app_file(project_dir)
+    if app_file is None:
+        return []
+    body = _source_text(app_file)
+    if not body or "__arcUse" in body:
+        return []
+    created = APP_CREATE.search(body)
+    if created is None:
+        return []
+    name = created.group("name")
+    pattern = re.compile(APP_USE_CALL.pattern.replace("{name}", re.escape(name)))
+    calls = pattern.findall(body)
+    if not calls:
+        return []
+    rewritten = pattern.sub(f"__arcUse({name}, ", body)
+    patched = rewritten[:created.end()] + ARC_USE_HELPER + rewritten[created.end():]
+    if not _write_text(app_file, patched):
+        return []
+    relative = str(app_file.relative_to(project_dir)).replace(chr(92), "/")
+    return [f"{relative}: {len(calls)} app.use() call(s) type-checked"]
+
+
 #: Files that build the application or are mounted by the ARC guard itself; they
 #: must never be treated as an orphaned router.
 ORPHAN_ROUTER_SKIP = {"app.js", "index.js", "arc-seed-auth.js", "server.js"}

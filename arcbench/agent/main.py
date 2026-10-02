@@ -62,6 +62,7 @@ from guard import static_list_issues
 from guard import unrouted_pages
 from guard import accessibility_contract_issues
 from guard import ensure_app_router
+from guard import guard_app_use
 from guard import mount_orphan_routers
 from llm import LlmClient
 from prompts import (
@@ -1933,6 +1934,12 @@ def main(argv: list[str] | None = None) -> int:
         # the graded run answered "store.hashPassword is not a function" to every
         # auth request while the app itself started cleanly. The contract pass
         # therefore runs once more, after every repair turn, right before submit.
+        # r68/r70 Stage 1 never booted at all: an ``app.use`` argument evaluated
+        # to a non-function and express threw while loading app.js. Every mount in
+        # the application module now goes through a type filter.
+        guarded_use = guard_app_use(project_dir)
+        if guarded_use:
+            log(f"[arc-agent] app.use() runtime guard: {guarded_use}")
         late_contract = backend_store_contract(project_dir)
         if late_contract:
             log(f"[arc-agent] store contract issues after repair: {late_contract[:4]}")
