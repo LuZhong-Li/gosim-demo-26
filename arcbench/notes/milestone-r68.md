@@ -467,3 +467,76 @@ Stage2/3 第二文本源）+ `ee77443`（误报修复）+ `templates/sheet` 前�
 同时把恢复逻辑从"成套恢复"改成**按文件**：只有名字真的丢了的那份文件会被换回脚手架版本
 （sheet 用例实测现在只恢复 `WorkbookHomePage.tsx`，不再误伤 `Grid.tsx`）。
 本地 7 个断言脚本全绿。
+
+---
+
+# 真机产物分析 + r33 保险生效 + r72 起跑（2026-10-02 23:1x）
+
+## 1. 用户提供的 5 份 run 工作区（`C:\Users\HW\Downloads\r71-project\*`）
+
+解压到 `arcbench/runs/_r71_artifacts/<runid>/template/`，这是我们第一次拿到**评测实际驱动的应用**：
+`requirements/requirements.yaml`（真机 payload，Stage-1 59,787 字节）、`.arc/`（运行期追溯）、
+完整 frontend/backend 源码。**没有 Playwright spec**（与群聊"不公开"一致）。
+
+### 用真机 payload 验证播种链路（`_scratch_r72_artifact_gap.py`）
+
+```
+accounts(15): …, org-owner, team-maintainer, bob-reviewer, new-member, existing-member,
+              org-member, protected-member, repo-admin, alice-dev
+world: org Acme Demo / owner org-owner / 7 members / acme-docs(public)+secret-research(private)
+       / frontend-team+platform-team+frontend-child+access-role-team
+       / access-role-team Write + repo-admin Admin
+```
+→ `f04fe83`（反引号解析）在**真实 payload** 上完全正确。
+
+### 逐名缺口（payload 引号名 vs 产物前端源码）
+
+- **Stage-1**：69 个名字，缺 13 → `Access denied`、`Account is already a member`、
+  `Account not found`、`Add people or teams`、`Create organization`、`Create team`、
+  `Cyclic team hierarchy is not allowed`、`Member menu existing-member`、
+  `Member menu protected-member`、`New team`、`Remove bob-reviewer`、
+  `Remove from organization`、`Sign up`
+  （多数是后端文案 + 组织/团队页面交互 → REQ-2 的缺口清单）
+- **Sheet**：70 个名字，缺 9 → `Paste`、`New worksheet`、`Pivot table editor`、
+  `Value field requires numeric values`、`Pivot field is no longer available. Select a new field.`、
+  `Please delete or rebuild dependent pivot tables first`、`A workbook must contain at least one worksheet`、
+  `Worksheet name already exists`、`Worksheet name cannot be empty`
+  （前 6 个已在本轮补进脚手架）
+
+## 2. Sheet 透视表工作流（REQ-5-3-1）按 payload 原文补齐（commit `10f8e43`）
+
+需求原文要求：Data 菜单里的 `Create pivot table` → 对话框 `Create pivot table` 显示
+`Source range: <range>`、`New worksheet` 单选、`Create` 按钮（第一个未用的 `PivotN`）；
+一个叫 `Pivot table editor` 的区域提供 `Rows`/`Columns`/`Values`/`Summarize by` 组合框 + `Apply`；
+刷新时字段消失 → `Pivot field is no longer available. Select a new field.`；
+SUM/AVERAGE 遇到非数值列 → `Value field requires numeric values`（保留上次结果）。
+
+后端新增 `createPivotWorksheet` / `removePivot` / 非数值校验，前端新增单选 + `Create` +
+`Pivot table editor` 区域。本地 smoke **38/38**、vite build 通过。
+
+## 3. r33 保险生效（榜单恢复非零）
+
+新提交 `arc-agent-r33-insurance`（14:48:54）→ 起跑五题（1s / 0 token / ¥0）：
+
+| 任务 | Score | Tests |
+|---|---|---|
+| GitHub 原题 | **11.31** | 8.0% |
+| GitHub Stage 2 | **39.01** | 27.6% |
+| Stage 1 / Stage 3 / Sheet | 0.00 | 0% |
+| **提交合计** | **5.66** | **4.0%（8/200）** |
+
+→ 榜单不再是 0，兜底完成；且**零删除**。
+
+## 4. r72 已起跑（23:05，含本轮全部修复）
+
+包 `arc-agent-r72.zip`（0.41MB / 118 项）：
+`d70ba51`（client 导出 + 恢复后补 export）、`832b4db`（collection 数组方法）、
+`60b81cd`（GitHub 页面按文件恢复）、`0d1e2b8` + `10f8e43`（Sheet 控件与透视表工作流）。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `f1433dd03622` |
+| hackathon--github-stage-1 | `b687b5ea1abd` |
+| hackathon--github-stage-2 | `556ca66978e3` |
+| hackathon--github-stage-3 | `fac5c3aceb68` |
+| hackathon--sheet | `5d0d3a855645` |
