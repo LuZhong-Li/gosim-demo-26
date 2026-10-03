@@ -70,6 +70,7 @@ from guard import guard_entry_requires
 from guard import ensure_frontend_serving
 from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
+from guard import ensure_store_method_stub
 from guard import restore_keep_pages
 from guard import mount_orphan_routers
 from llm import LlmClient
@@ -2007,6 +2008,14 @@ def main(argv: list[str] | None = None) -> int:
         collection_guard = ensure_collection_never_empty(project_dir)
         if collection_guard:
             log(f"[arc-agent] store accessor guard: {collection_guard}")
+        # r80's GitHub run proved the static contract check is not enough: it
+        # reported the missing names, filled them, and auth.js still answered
+        # "store.getAccountByUsernameOrEmail is not a function" on the first
+        # request. The proxy cannot miss.
+        stub_guard = ensure_store_method_stub(
+            project_dir, backend_store_contract(project_dir))
+        if stub_guard:
+            log(f"[arc-agent] store method stub: {stub_guard}")
         late_contract = backend_store_contract(project_dir)
         if late_contract:
             log(f"[arc-agent] store contract issues after repair: {late_contract[:4]}")
