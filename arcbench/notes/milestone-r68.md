@@ -1112,6 +1112,12 @@ TypeError: store.getAccountByUsernameOrEmail is not a function   @ auth.js:26
 |---|---|
 | 待补 | `4624cdef94c5` / `246c58ade4e5` / `fd4e5daaa80f` / `82e02d87dcdc` / `ad73f480452b` |
 
+（保险跑完后再按任务页把 run-id 对齐；届时若保险 = 7/200 则榜单恢复，
+若我们想继续迭代就用 r81 覆盖它 —— 每次覆盖都会把"最新提交"切走，因此**只在结束时**把保险留在最后。）
+
+r81 包已备好：`arcbench/dist/arc-agent-r81.zip`，**119 项 / 427.9 KB / sha256 `1E2F2621…C13C`**
+（含参数化 store 契约 + eager/Proxy 双保险），等保险五题归零即可上传。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
