@@ -155,25 +155,39 @@ def main() -> int:
         project = build_project(tmp, "already", CONTRACT_ENTRY)
         entry = project / "frontend" / "src" / "App.tsx"
         snapshot = entry.read_text(encoding="utf-8")
-        changed = restore_entry_route_contract(project, TEMPLATE)
+        note = []
+        changed = restore_entry_route_contract(project, TEMPLATE, note)
         print(f"[2] correct entry -> {changed or 'untouched'}")
         if changed:
             failures.append("an entry that already satisfies the contract was rewritten")
         if entry.read_text(encoding="utf-8") != snapshot:
             failures.append("an entry that already satisfies the contract was modified")
+        if not note or "already routes" not in note[0]:
+            failures.append(f"a healthy entry was not reported as healthy: {note!r}")
+        else:
+            print(f"        note: {note[0]}")
 
         # ---------------------------------------------------------------- 3
         # A restore that cannot build must not happen: TeamPage is imported by the
-        # scaffold entry, so with it gone the restore is refused.
+        # scaffold entry, so with it gone the restore is refused - and the reason
+        # must be recorded, because a silent refusal is exactly what left r79-r83
+        # undiagnosable.
         project = build_project(tmp, "incomplete", FLAT_ENTRY, prune_pages=True)
         entry = project / "frontend" / "src" / "App.tsx"
         before = entry.read_text(encoding="utf-8")
-        changed = restore_entry_route_contract(project, TEMPLATE)
+        note: list[str] = []
+        changed = restore_entry_route_contract(project, TEMPLATE, note)
         print(f"[3] scaffold page missing -> {changed or 'refused (correct)'}")
         if changed:
             failures.append("restored the entry even though a page it imports was absent")
         if entry.read_text(encoding="utf-8") != before:
             failures.append("the entry changed despite the refusal")
+        if not note:
+            failures.append("the refusal was silent: no diagnostic was recorded")
+        elif "TeamPage" not in note[0] or "NOT restored" not in note[0]:
+            failures.append(f"the refusal diagnostic is not actionable: {note[0]!r}")
+        else:
+            print(f"        note: {note[0]}")
 
         # ---------------------------------------------------------------- 4
         # Idempotence: running the guard again must be a no-op.

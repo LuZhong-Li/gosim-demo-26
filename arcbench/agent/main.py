@@ -2023,13 +2023,20 @@ def main(argv: list[str] | None = None) -> int:
         # with no parameterised route, which builds and serves perfectly while
         # making the suite's first navigation impossible. This is the last entry
         # writer, so the contract is restored here.
-        contract = restore_entry_route_contract(project_dir, TEMPLATES / slug)
+        contract_notes: list[str] = []
+        contract = restore_entry_route_contract(project_dir, TEMPLATES / slug,
+                                               contract_notes)
         if contract:
             log(f"[arc-agent] entry route contract: {contract}")
             repaired = ensure_named_exports(project_dir)
             if repaired:
                 log(f"[arc-agent] exports completed after the route restore: "
                     f"{repaired[:6]}")
+        # Log the decision even when nothing was restored. r79-r83 spent five
+        # rounds unable to tell "the guard did not fire" from "the guard fired and
+        # did not help"; this line removes that ambiguity from the next round.
+        for line in contract_notes:
+            log(f"[arc-agent] entry route contract (no change): {line}")
         # r80's GitHub run proved the static contract check is not enough: it
         # reported the missing names, filled them, and auth.js still answered
         # "store.getAccountByUsernameOrEmail is not a function" on the first

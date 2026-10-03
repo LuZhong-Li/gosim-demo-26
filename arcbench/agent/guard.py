@@ -4899,7 +4899,8 @@ REQUIRED_ENTRY_ROUTES = (
 )
 
 
-def restore_entry_route_contract(project_dir: Path, template_dir: Path) -> list[str]:
+def restore_entry_route_contract(project_dir: Path, template_dir: Path,
+                                 note: list[str] | None = None) -> list[str]:
     """Put the scaffold entry back when the generated one loses the URL contract.
 
     ``ensure_app_router`` exists to make sure the generated *pages* are mounted,
@@ -4917,28 +4918,44 @@ def restore_entry_route_contract(project_dir: Path, template_dir: Path) -> list[
     and generation's *extra* pages stay on disk for the other passes to mount.
     Returns ``[]`` when the entry already routes by parameter, or when there is
     no scaffold entry to fall back to.
+
+    ``note`` receives one line per decision point. A silent decline is how the
+    r79-r83 rounds stayed undiagnosable, so every "we looked and did nothing"
+    outcome is recorded: without it a zero tells us nothing about whether this
+    guard fired, was refused, or found nothing to do.
     """
+    def _say(message: str) -> None:
+        if note is not None:
+            note.append(message)
+
     src = project_dir / "frontend" / "src"
     template_src = template_dir / "frontend" / "src"
     if not src.is_dir() or not template_src.is_dir():
+        _say("no frontend/src on one side; nothing to compare")
         return []
     live = next((src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
                  if (src / f"App{suffix}").is_file()), None)
     if live is None:
+        _say("the project has no App entry file")
         return []
     body = _source_text(live)
     if not body:
+        _say(f"{_relative(project_dir, live)} is empty or unreadable")
         return []
     missing = [route for route in REQUIRED_ENTRY_ROUTES if route not in body]
     if not missing:
+        _say(f"{_relative(project_dir, live)} already routes all "
+             f"{len(REQUIRED_ENTRY_ROUTES)} required parameterised route(s)")
         return []
     template_entry = next(
         (template_src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
          if (template_src / f"App{suffix}").is_file()), None)
     if template_entry is None:
+        _say("the scaffold ships no App entry to restore from")
         return []
     original = _source_text(template_entry)
     if not original:
+        _say("the scaffold App entry is empty or unreadable")
         return []
     # Only commit the restore when every module the scaffold entry imports is
     # present in the LIVE project: a missing page turns this into a build
@@ -4955,8 +4972,16 @@ def restore_entry_route_contract(project_dir: Path, template_dir: Path) -> list[
         if not any(candidate.is_file() for candidate in candidates):
             absent.append(specifier)
     if absent:
+        # This is the outcome that must never be silent: the entry is broken, a
+        # scaffold entry exists, and we declined because restoring would not
+        # build. A zero after this line needs the missing modules, not a rerun.
+        _say(f"{_relative(project_dir, live)} lost {len(missing)}/"
+             f"{len(REQUIRED_ENTRY_ROUTES)} route(s) and the scaffold entry was "
+             f"NOT restored because {len(absent)} module(s) it imports are "
+             f"missing from the project: {', '.join(sorted(absent)[:6])}")
         return []
     if not _write_text(live, original):
+        _say(f"could not write {_relative(project_dir, live)}")
         return []
     changed = [f"{_relative(project_dir, live)}: restored the scaffold route contract "
                f"(the generated entry had lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} "
