@@ -1393,3 +1393,37 @@ React mount 自动登录会**确定性地污染前置状态**（不是"收益不
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
+
+---
+
+## r83 出分：五题全 0，主因第一次被我们的**自己的日志**钉死（2026-10-03 17:2x 北京）
+
+分数：原题 / S1 / S2 / S3 / Sheet **全 0.00**（0-of-200），合计 165m 8s、1.965M tokens、4.0985 CNY。
+五份 stdout 已落盘 `arcbench/runs/_r83_<task>_stdout.txt`，标记统计：
+
+| 日志 | Backend listening | `[arc-seed]` | `[arc-routes]` | `rehearsal] FAILED` |
+|---|---|---|---|---|
+| `_r83_github_stdout.txt` | 0 | 0 | 0 | 16 |
+| `_r83_stage1_stdout.txt` | 0 | 0 | 0 | 16 |
+| `_r83_stage2_stdout.txt` | 1 | 0 | 1 | 2 |
+| `_r83_stage3_stdout.txt` | 0 | 0 | 0 | 16 |
+| `_r83_sheet_stdout.txt` | 1 | 0 | 1 | 8 |
+
+三件事同时成立：
+
+1. **`[arc-seed]` 五题全 0** → 世界播种器从未执行。之前 H1/H2 的争论到此结束：不是"路由没挂"也不是"token 被拒"，
+   而是**根本没走到播种**。
+2. **`ENOENT` 五题全 0** → r83 的"任何 `sendFile(...)` 都改指解析后的 dist"生效了，SPA 路径问题解决。
+3. **主因是我们自己的 rehearsal**：`backend `npm start` exited early (rc=1)`，重试 2–16 次**之后仍然发车**。
+   日志里那句 `[rehearsal] FAILED in 8s: backend `npm start` exited early (rc=1):` 冒号后**什么都没有** ——
+   我们没有把子进程的 stderr 带出来，所以这一整轮的失败其实是"可观测性缺口"。
+
+另外两条（原题日志）：`sign-in store not seeded: ['backend/src/auth.js: unsupported password hashing']`，
+以及 `store contract issues: … store.collection() is called but backend/src/store.js never defines collection`。
+即：种子账号没种进去（密码哈希不认识），store 契约缺口仍在，但这些都排在"后端起不来"之后。
+
+**结论**：r84 的 A1'/A2'/A3（写操作抛错、谓词 fail closed、播种后回读 verify）都建立在"应用已经跑起来"的前提上，
+而 r83 证明这个前提不成立 —— 所以这一轮**不再发 r84**，改为：
+
+1. 先把保险包回档（`arc-agent-r33-insurance6`，snapshot #58，起跑五题）锁住 9.65；
+2. r85 只做三件事：捕获 rehearsal 子进程 stderr → 交给已有 repair turn → 仍然失败时兜底入口至少 `listen(3000)` 并挂上已生成的 router。
