@@ -4884,6 +4884,85 @@ LOGIN_ENTRY = re.compile(
 )
 SIGNOUT_ENTRY = re.compile(r"""sign\s*out|log\s*out""", re.IGNORECASE)
 
+#: Routes the published suite navigates to by URL. They are parameterised
+#: because a repository is addressed as ``/<owner>/<name>``; the scaffold entry
+#: ships them all. The real suite's report (extracted from the graded template
+#: zip) shows what losing them costs: 29/29 specs failed, 12 of them with
+#: ``Could not find a visible navigation target named "acme-docs"`` because no
+#: route could ever render a repository.
+REQUIRED_ENTRY_ROUTES = (
+    "/:owner/:name",
+    "/:owner/:name/search",
+    "/:owner/:name/settings",
+    "/orgs/:name",
+    "/orgs/:name/teams/:team",
+)
+
+
+def restore_entry_route_contract(project_dir: Path, template_dir: Path) -> list[str]:
+    """Put the scaffold entry back when the generated one loses the URL contract.
+
+    ``ensure_app_router`` exists to make sure the generated *pages* are mounted,
+    and when the entry does not already reference two of them it rewrites the
+    whole route table from scratch - flat, kebab-cased paths derived from
+    component names (``/repo``, ``/repo-search``, ``/new-repository``) with no
+    parameterised route at all. That entry builds and serves, so every
+    "does it start" probe passes, while the suite cannot reach a single
+    repository page. r72's Stage-2 report is the measurement: 0 of 29 passed,
+    17 on ``getByRole('searchbox', {name:'Search', exact:true})`` and 12 on a
+    navigation target that no route could render.
+
+    The scaffold entry was written for exactly this URL contract and its pages
+    ship unchanged, so when the contract is gone the scaffold copy is restored
+    and generation's *extra* pages stay on disk for the other passes to mount.
+    Returns ``[]`` when the entry already routes by parameter, or when there is
+    no scaffold entry to fall back to.
+    """
+    src = project_dir / "frontend" / "src"
+    template_src = template_dir / "frontend" / "src"
+    if not src.is_dir() or not template_src.is_dir():
+        return []
+    live = next((src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
+                 if (src / f"App{suffix}").is_file()), None)
+    if live is None:
+        return []
+    body = _source_text(live)
+    if not body:
+        return []
+    missing = [route for route in REQUIRED_ENTRY_ROUTES if route not in body]
+    if not missing:
+        return []
+    template_entry = next(
+        (template_src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
+         if (template_src / f"App{suffix}").is_file()), None)
+    if template_entry is None:
+        return []
+    original = _source_text(template_entry)
+    if not original:
+        return []
+    # Only commit the restore when every module the scaffold entry imports is
+    # present in the LIVE project: a missing page turns this into a build
+    # failure, which is a guaranteed zero - strictly worse than a wrong route
+    # table. The check has to read the project, not the template: the template
+    # always has its own pages, so validating against it would pass every time
+    # and restore an entry whose imports the generator never produced.
+    absent: list[str] = []
+    for specifier in re.findall(r"""from\s+['"](\.[^'"]+)['"]""", original):
+        target = (src / specifier).resolve()
+        candidates = [target.with_suffix(suffix) for suffix in (".tsx", ".ts", ".jsx", ".js")]
+        candidates.append(target / "index.tsx")
+        candidates.append(target / "index.ts")
+        if not any(candidate.is_file() for candidate in candidates):
+            absent.append(specifier)
+    if absent:
+        return []
+    if not _write_text(live, original):
+        return []
+    relative = _relative(project_dir, live)
+    return [f"{relative}: restored the scaffold route contract "
+            f"(the generated entry had lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} "
+            f"parameterised route(s): {', '.join(missing[:3])})"]
+
 
 def accessibility_contract_issues(project_dir: Path) -> list[str]:
     """Static read of the generated front end against the role contract.

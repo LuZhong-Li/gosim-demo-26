@@ -73,6 +73,7 @@ from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
 from guard import ensure_store_method_stub
 from guard import restore_keep_pages
+from guard import restore_entry_route_contract
 from guard import mount_orphan_routers
 from llm import LlmClient
 from prompts import (
@@ -2015,6 +2016,20 @@ def main(argv: list[str] | None = None) -> int:
         collection_guard = ensure_collection_never_empty(project_dir)
         if collection_guard:
             log(f"[arc-agent] store accessor guard: {collection_guard}")
+        # r72's Stage-2 graded report is the only per-spec measurement we have:
+        # 0 of 29 passed, 12 of them because no route could render a repository
+        # ("Could not find a visible navigation target named \"acme-docs\"").
+        # ensure_app_router rewrites a badly-wired entry into a flat kebab table
+        # with no parameterised route, which builds and serves perfectly while
+        # making the suite's first navigation impossible. This is the last entry
+        # writer, so the contract is restored here.
+        contract = restore_entry_route_contract(project_dir, TEMPLATES / slug)
+        if contract:
+            log(f"[arc-agent] entry route contract: {contract}")
+            repaired = ensure_named_exports(project_dir)
+            if repaired:
+                log(f"[arc-agent] exports completed after the route restore: "
+                    f"{repaired[:6]}")
         # r80's GitHub run proved the static contract check is not enough: it
         # reported the missing names, filled them, and auth.js still answered
         # "store.getAccountByUsernameOrEmail is not a function" on the first

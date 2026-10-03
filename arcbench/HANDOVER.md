@@ -316,7 +316,7 @@ robocopy "arcbench\agent" $stage /E /XD node_modules dist __pycache__ .venv .git
 | 删掉 store 兜底代理（"它就是 0 分元凶"） | **不删** | 删了会退回 `is not a function` 的**崩溃式 0 分**；现在至少是"静默 0 分"。方向不是撤守卫，而是**让失败可见**（r84：缺失写方法抛错 + 播种后回读 `verify … items=N`） |
 | 让 `api/**` 的占位导出把构建直接搞失败 | **不做** | 构建失败 = **保证 0 分**（会把其他页面一起赔进去）。折中：占位函数自我声明 `arc-api: 'X' is a placeholder …`，构建仍通过但问题可见 |
 | 整段吸收外部给的 GX-Sheet Python 审计代码 | **不吸收** | 那份分析针对 `web/app.py` / `ServiceBus(LocalXlsxStorage(...))` / `X-GX-Actor`，与我们的 Node/Express + Vite/React 不是同一个代码库。但三条诊断思路逐条对照后：**每请求新建实例**（我们是 Node 模块级单例，无此问题）、**专用播种登录路由**（= 我们的 P9-H1，保留）、**空世界读操作兜底**（= 我们的 C 方案，保留） |
-| 继续叠新守卫 vs 先读 `.arc/playwright-report.json` | **先读报告** | 结论：**该文件不存在**（r82 stage-2 / r78 原题 / r73 sheet 三处都查过）。平台只给 `test pass (x/200)` 一个总分，stdout 在评测前截断；逐条 pass/fail 只能靠自测站（剩 2 次配额）。这条否掉了"再叠一层守卫"的惯性 |
+| 继续叠新守卫 vs 先读 `.arc/playwright-report.json` | **先读报告（已纠正）** | 原文写"该文件不存在（查过 r82 stage-2 / r78 原题 / r73 sheet 三处）"，**这条结论是错的**。2026-10-03 17:5x 复核：`arcbench/downloads/runs/r72-project/556ca66978e3-template.zip` 内的 `template/.arc/playwright-report.json`（94 KB）就是官方 Playwright JSON 报告，`stats.expected=0 / unexpected=29`，逐条 spec 名、状态、报错、耗时齐全。之前"查过三处"是**找错了位置**——它在 `template/` 子目录下，不在 zip 根。**这是唯一一份逐条判据，动手改代码前必须先读它和同批的另外三份。** |
 | 收尾时把生成型留在"最新提交"位置 | **不保留** | 排行榜只看最后一次保存的提交。收尾前必须把 `arc-agent-r33.zip` 重传为最新提交并起跑，锁住 9.65（￥0 / 约 20 分钟） |
 
 ---
@@ -341,6 +341,74 @@ robocopy "arcbench\agent" $stage /E /XD node_modules dist __pycache__ .venv .git
 
 其余中间产物（`stage-*`、`_rNN_*_stdout.txt`、历史 zip、下载的日志）仍然不入库。
 新增探针若没被自动跟踪，用 `git add -f` 显式加进来。
+
+## 14. r85（2026-10-03 17:5x，接手后第一轮）
+
+**先纠正一条会误导后人的结论**：§12 原先写"`.arc/playwright-report.json` 不存在"。它存在，
+位置是 `arcbench/downloads/runs/r72-project/<runid>-template.zip` **内部的 `template/.arc/`**。
+该报告是官方 Playwright 的 JSON 输出，含逐条 spec 名、状态、报错、耗时，是本项目**唯一**
+的逐条判据。把它当作"平台不给逐条结果"的依据会直接导致把力气花错地方（r79–r83 就是）。
+
+### 14.1 r72 Stage-2 报告给出的真实失败分布
+
+```
+stats: {expected: 0, unexpected: 29, flaky: 0, skipped: 0, duration: 206025}
+```
+
+| 次数 | 报错 |
+|---|---|
+| **17** | `Test timeout of 10000ms exceeded` — `waiting for getByRole('searchbox', {name:'Search', exact:true})` |
+| **9** | `Could not find a visible navigation target named "acme-docs"` |
+| 2 | `… named "branch-switch-demo"` |
+| 1 | `… named "Document search flow"` |
+
+同批四份 zip 里只有这一份带报告；另外三份（Stage-1 / 原题 / Stage-3）**没有报告**，
+说明它们的评测根本没跑到测试阶段。
+
+### 14.2 这三类失败都指向同一处：入口路由表
+
+`template/.arc/playwright-report.json` 对应项目的 `frontend/src/App.tsx` 是 `ensure_app_router`
+重写出来的**扁平 kebab 表**（`/repo`、`/repo-search`、`/new-repository`、`/org`、`/team`），
+**没有任何参数化路由**；而它替换掉的脚手架入口路由的是
+`/:owner/:name`、`/:owner/:name/search`、`/orgs/:name`、`/orgs/:name/teams/:team`。
+
+* 仓库页面永远打不开 → 12 条 "Could not find a visible navigation target"；
+* `/` 指向模型自己生成的 `Home`（无 searchbox），脚手架 `HomePage`（有 `aria-label="Search"`）
+  被同一路径上后注册的 `<Route path="/home">` 遮蔽 → 17 条 searchbox 超时。
+
+关键点：**这套扁平表能构建、能启动、能服务**，所以"是否起来"的探针全绿，而测试 0/29。
+这正是 r78 原题"构建 ✓ + `Backend listening` ✓ + `world seed finished` ✓ 却只有 1.59"的原因；
+也说明 **P9（世界播种）不是 0 分的充分解释**。
+
+### 14.3 r85 的两处改动（都带探针）
+
+| # | 改动 | 解决的证据 | 探针 |
+|---|---|---|---|
+| C2 | `verify.startup_diagnosis()` + 接到 `rehearse_startup` 两处失败分支 | r83 五题 `backend npm start exited early (rc=1):` **冒号后是空的**，`npm` 在该容器不产出任何输出 → 整轮无法诊断 | `_scratch_r85_startup_diag.py`（语法错 / 运行期抛错 / 健康服务不误报 / 包装式 start 脚本 / 无入口 五种形态） |
+| C3 | `guard.restore_entry_route_contract()` + 在 `main.py` 最后一个入口写入者之后调用 | r72 报告：入口丢参数化路由 → 29/29 全败 | `_scratch_r85_route_contract.py`（扁平表修复 / 正确表不动 / 缺页面则拒绝 / 幂等） |
+
+C3 的安全边界：只在**脚手架入口 import 的模块在真实工程里全部存在**时才恢复；
+缺任何一个就放弃（恢复成构建失败 = 保证 0 分，比路由错更糟）。
+
+### 14.4 包与门禁
+
+* `arcbench/dist/arc-agent-r85.zip`，**119 项 / 433.8 KB / sha256 `F8C90E66…DC1C`**；
+* 本地门禁：`_scratch_*.py` 共 32 个，**30 通过 / 2 预存在失败**
+  （`_scratch_r70_world_e2e.py`、`_scratch_r74_menu.py`；已在 pristine HEAD 上复核，
+  两者同样失败，与 r85 改动无关——后者对应 r74"菜单注入停用"的决策）；`py_compile` rc=0；
+* 跑探针要先把 node 放到 PATH：
+  `C:\Users\HW\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin`。
+
+### 14.5 下一步（按顺序）
+
+1. 等保险 `arc-agent-r33-insurance6` 归零；确认榜单回到 9.65；
+2. 上传 r85 → 起跑五题。**判读顺序更新为**：
+   `grep -c "Backend listening"` → `grep "entry route contract"` → `grep -c "\[arc-seed\]"` →
+   `grep -c ENOENT` → `grep "verify .* items="`；
+   若再出现 `npm start exited early`，**这次冒号后面应该有 `node` 给出的真实原因**；
+3. 出分后**无论结果**，收尾前把 `arc-agent-r33.zip` 重传为最新提交并起跑（￥0，锁 9.65）。
+
+---
 
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——

@@ -383,6 +383,95 @@ def _spawn_server(backend: Path, port: int, log_file: Path) -> subprocess.Popen:
     )
 
 
+BACKEND_ENTRY_CANDIDATES = ("src/index.js", "src/server.js", "src/app.js", "index.js", "server.js")
+
+
+def backend_entry(backend: Path) -> Path | None:
+    """The module ``npm start`` runs, best effort.
+
+    r83 lost a whole round to invisible failures: the rehearsal reported
+    ``backend `npm start` exited early (rc=1):`` with an EMPTY body on all five
+    tasks, so there was no way to tell a missing dependency from a syntax error
+    from a business-logic throw. ``npm`` produced no output at all in that
+    container, which means the only reliable way to surface the error is to run
+    the entry module with ``node`` directly and keep what it prints.
+    """
+    package = backend / "package.json"
+    if package.is_file():
+        try:
+            manifest = json.loads(package.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError):
+            manifest = {}
+        script = str(((manifest.get("scripts") or {}).get("start")) or "")
+        match = re.search(r"(?:node|nodejs)\s+(?:--[^\s]+\s+)*([^\s&|;]+\.(?:js|mjs|cjs))", script)
+        if match:
+            candidate = (backend / match.group(1)).resolve()
+            try:
+                candidate.relative_to(backend.resolve())
+            except ValueError:
+                candidate = None
+            if candidate is not None and candidate.is_file():
+                return candidate
+    for relative in BACKEND_ENTRY_CANDIDATES:
+        candidate = backend / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def startup_diagnosis(backend: Path, port: int, timeout: int = 25) -> str:
+    """Why the backend dies before it binds, in ``node``'s own words.
+
+    Runs ``node --check`` first (a syntax error is the commonest cause and prints
+    a precise location), then boots the entry module on the smoke port with the
+    same environment ``npm start`` would get. Returns ``""`` when the entry looks
+    healthy - the caller then keeps the original, less specific message.
+    """
+    entry = backend_entry(backend)
+    if entry is None:
+        return ("the backend has no entry module to run: neither package.json's "
+                "start script nor any of "
+                + ", ".join(BACKEND_ENTRY_CANDIDATES)
+                + " exists")
+    node = shutil.which("node") or shutil.which("node.exe")
+    if not node:
+        return ""
+    try:
+        relative = entry.relative_to(backend)
+    except ValueError:
+        relative = entry
+    rc, out = _run([node, "--check", str(relative)], backend, timeout)
+    if rc != 0:
+        return f"`node --check {relative}` reports a syntax error:\n{out}"
+
+    env = dict(os.environ, PORT=str(port))
+    env.setdefault("ARC_EXTRA_PORTS", "0")
+    try:
+        result = subprocess.run(
+            [node, str(relative)], cwd=backend, env=env,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = ""
+        for stream in (exc.stdout, exc.stderr):
+            if isinstance(stream, bytes):
+                partial += stream.decode("utf-8", "replace")
+            elif isinstance(stream, str):
+                partial += stream
+        if "listen" in partial.lower() or not partial:
+            # Still running: that is a *healthy* backend, not a diagnosis.
+            return ""
+        return f"`node {relative}` did not exit and printed:\n{partial[-1200:]}"
+    except OSError as exc:
+        return f"could not run `node {relative}`: {exc}"
+    if result.returncode == 0:
+        return ""
+    output = ((result.stdout or "") + (result.stderr or "")).strip()
+    return (f"`node {relative}` exited rc={result.returncode} before binding "
+            f"port {port}:\n{output[-1200:] or '<no output>'}")
+
+
 def frontend_build(project_dir: Path, timeout: int = 240) -> str | None:
     """Run just the frontend build, the way the grading container will.
 
@@ -472,6 +561,14 @@ def rehearse_startup(
             while time.time() < deadline:
                 if proc.poll() is not None:
                     out = log_file.read_text(encoding="utf-8", errors="replace")
+                    if not out.strip():
+                        # r83: `npm start` exited rc=1 with no output at all on
+                        # all five tasks, which left the whole round undiagnosable
+                        # and cost five zeros. Recover the reason from `node`.
+                        diagnosis = startup_diagnosis(backend, smoke_port)
+                        if diagnosis:
+                            out = (f"`npm start` printed nothing; the entry module "
+                                   f"answers for itself:\n{diagnosis}")
                     return (f"backend `npm start` exited early (rc={proc.returncode}):\n"
                             f"{out[-1500:]}")
                 if _wait_for_port(smoke_port, 1.0):
@@ -508,6 +605,10 @@ def rehearse_startup(
                                     f"renaming it does not satisfy this check.")
                     return None
             out = log_file.read_text(encoding="utf-8", errors="replace")
+            if not out.strip():
+                diagnosis = startup_diagnosis(backend, smoke_port)
+                out = (f"`npm start` printed nothing; the entry module answers for "
+                       f"itself:\n{diagnosis or '<no diagnosis available>'}")
             return f"backend did not bind port {smoke_port} within 45s:\n{out[-1500:]}"
         finally:
             _stop(proc)
