@@ -34,7 +34,7 @@
 | **r76** | `arc-agent-r76` | 跑分中 | — | — | — | — | — | 09:45 人工点击起跑，5 active；日志抓完补入 `r76日志/` |
 | 保险 | `arc-agent-r33-insurance2` | ≈（7/200） | **9.77** | 0 | — | — | — | 榜单兜底 |
 
-## 3. 关键标记逐日志统计（脚本生成）TEST
+## 3. 关键标记逐日志统计（脚本生成）
 
 列含义：`crash`=`argument handler must be a function`；`listen`=`Backend listening`；
 `seed`=`world seed finished`；`notfn`=`is not a function`；`nullread`=`Cannot read properties of null`；
@@ -77,7 +77,10 @@ r75 从未起跑（目录里只有 `README.txt`）；r76 五题 09:45 起跑、�
 **这张表说明的五件事**
 
 1. `crash`（`argument handler must be a function`）：r68/r70 的 Stage-1 各 2 次 → r71–r73 为 **0**
-   → **r74 的 Stage-1、Stage-3 又各回到 2 次**（`app.use()` 类型过滤跑在了孤儿挂载注入之前）；
+   → **r74 的 Stage-1、Stage-3 又各回到 2 次**。r74 的栈是
+   `Route.<computed> [as post] → backend/src/pr.js:67`，即**模块内的 `router.post()`**，
+   不是 `app.use()`（同一个日志里 `app.use() runtime guard` 明明成功）→ 已由 r77 的
+   `ensure_router_call_guard()` 覆盖；
 2. `notfn`（`is not a function`）：r69 是 195/117 次 → r70 降到 1/7 次 → r71–r73 为 **0**
    → **r74 的 Stage-2 又飙到 140 次**，与第 1 条同源；
 3. `enoent`（前端取不到 index.html）：r69 github / r71 stage1 各 **119** 次 → r73 起为 **0** ——
