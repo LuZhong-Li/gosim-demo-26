@@ -1356,6 +1356,40 @@ React mount 自动登录会**确定性地污染前置状态**（不是"收益不
 
 包：`arcbench/dist/arc-agent-r84.zip`，**119 项 / 430.8 KB / sha256 `7CDBA671…DB84`**（待 r83 归零后上传）。
 
+---
+
+## 17:2x P0 核实（`.arc/playwright-report.json` 不存在）+ P1/P2 落地
+
+### P0：逐条用例结果的 ¥0 通道**不成立**（三处证据）
+
+| run | File 树里 `.arc/` | `playwright-report.json` |
+|---|---|---|
+| r82 Stage-2 `bcd4b93d3fe9` | ❌ | ❌ |
+| r78 原题 `c5bcec3102f5`（唯一三项全绿样本） | ❌ | ❌ |
+| r73 Sheet `46641881ce99` | ✅ 有 `.arc/` | ❌（只有 `preflight.json` / `runner-events.jsonl` / `runner-image.json` / `stdout.log` / `traceability/`） |
+
+结论：run 页 File 树（以及 `project.zip`）里**没有** playwright 报告；平台 stdout 也在评测开始前就截断了。
+目前能拿到逐条 pass/fail 的只有**自测站**（0/30 那次就是它给的，剩 2 次配额、每天 8:00 重置），
+平台侧只有 `test pass (x/200)` 这一个总分。
+
+### P1：写操作不再假装成功（r84）
+
+`arc-store` 兜底里缺失的**写方法**现在 `console.error` + **抛错**（`arc-store: \`X\` is not implemented by this store`），
+不再返回 undefined；**谓词**（`is*/has*/can*`）保持 fail closed（返回 false）并打同款警告；
+播种器每个成功写请求后**回读同路径**（`[arc-seed] verify <path> -> 200 items=N`，0 时标注 `(the write did not persist)`）。
+
+### P2：占位导出"响亮但不炸构建"（r84）
+
+没有采纳"对 api/** 让构建直接失败"——构建失败是**保证 0 分**（连其他页面一起赔进去）。
+折中：占位函数在模块加载时打印 `arc-api: \`name\` is a placeholder - the module never implemented it`，
+所以"少了哪个 API"在浏览器 console / 构建产物里可见，而构建仍然通过。
+（"给 api/** 生成真正调用后端的实现"记为待办 —— 需要端点命名假设，暂不做。）
+
+探针：`_scratch_r81_store_stub.py` 增加"缺失 writer 必须抛错"断言、`_scratch_r81_seed_log.py` 增加
+"占位导出必须自我声明"断言；本地门禁仍 **15/15** + `py_compile`。
+
+包（重打）：`arcbench/dist/arc-agent-r84.zip`，**119 项 / 431.1 KB / sha256 `A31FE614…2EE0`**。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。

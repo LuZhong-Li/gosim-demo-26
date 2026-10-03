@@ -2032,12 +2032,20 @@ def _placeholder_export(name: str, suffix: str) -> str:
             "   but the module never exported it, which renders nothing (or aborts\n"
             "   the bundle) and costs every test that needs this screen. */\n"
             f"function __arc_{name}() {{\n"
+            f"  console.warn('arc-api: `{name}` is a placeholder - the module never "
+            "implemented it');\n"
             f"  return <section><h1>{name}</h1></section>;\n"
             "}\n"
         )
     return (
-        f"\n\n/* Placeholder export written by the ARC agent for {name}. */\n"
-        f"function __arc_{name}() {{ return null; }}\n"
+        f"\n\n/* Placeholder export written by the ARC agent for {name}. A missing\n"
+        "   API export used to be silent (the build stayed green and the button did\n"
+        "   nothing); it now says so the first time the module is loaded. */\n"
+        f"function __arc_{name}() {{\n"
+        f"  console.warn('arc-api: `{name}` is a placeholder - the module never "
+        "implemented it');\n"
+        "  return null;\n"
+        "}\n"
     )
 
 
@@ -4449,6 +4457,13 @@ ARC_STORE_STUB = '''
       .test(prop);
     return () => {
       __arcWarn(prop, write ? 'writer' : 'method');
+      if (write) {
+        // A missing writer must not answer 2xx: the seeder used to receive a
+        // "success" for a write that never happened, which made the platform log
+        // look healthy while the world stayed empty. Throwing turns that into a
+        // visible 500 the seeder logs as a failure.
+        throw new Error('arc-store: `' + prop + '` is not implemented by this store');
+      }
       return undefined;
     };
   }
