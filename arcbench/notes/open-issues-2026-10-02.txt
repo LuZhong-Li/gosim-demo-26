@@ -442,3 +442,34 @@ P8（已缓解）拿不到官方逐条用例 → 现已通过自测站拿到
     arcbench/runs/_scratch_r73_collection_guard.py   修复前 undefined / 修复后 []
     arcbench/runs/_scratch_r72_artifact_gap.py       真机产物逐名缺口统计
     arcbench/runs/_scratch_sheet/smoke.js            Sheet 后端 38/38
+
+--------------------------------------------------------------------------------
+P9 —— r76 的第三种失败形态：进程起来了，但世界没播种成功（原题 / Stage-1 / Stage-3 全 0）
+--------------------------------------------------------------------------------
+
+证据（arcbench/downloads/logs/r76日志/r76-1.txt，原题 run 822270b65bf1）：
+
+    [arc-seed] no route answered for "/sign-up"          x35
+    [arc-seed] could not sign in; the world seed runs unauthenticated from here
+    [arc-seed] no route answered for "/orgs"
+    [arc-seed] POST /api/orgs/acme-demo/members -> 401   x6
+    [arc-seed] POST /api/repos -> 401                    x7
+    [arc-seed] world seed finished
+
+即：后端已 listening（同一日志有 `Backend listening`），但**播种器没拿到 token**，
+于是所有需要鉴权的播种（组织/成员/仓库/团队授权）全部 401 → 世界是空的 →
+需要预置账号/仓库的场景全挂 → 0.00。
+
+对照：r73 的原题日志里 **一条 `[arc-seed]` 都没有**（r73 原题 1.54），
+说明这条链路在 r73 上要么没跑、要么跑通了 —— 需要下一轮把两份日志按时间轴对齐再定性。
+
+注意时间戳错位：播种行是 02:10:42，而生成期的注入汇总行是 02:13:17（更晚），
+所以要先确认这些 `[arc-seed]` 是 **rehearsal 冒烟启动**留下的，还是正式评测那次启动留下的，
+再决定是改播种器（候选路径/取 token 规则）还是改目录里的注入顺序。
+
+下一步（r79 方向，等 r78 出分后定）：
+  1. 把 `__arcSeedSignIn` 的候选路径与实际注入的路由（`find_frontend_login_paths` +
+     `SEED_AUTH_PATHS`）逐条对齐，补上 `/sign-up` 这类注册路径（现在只覆盖登录路径）；
+  2. 取 token 失败时不要只依赖响应体形状，允许「cookie/session 建立成功」也算成功；
+  3. 播种失败时把原因写进一行结构化日志（状态码 + 路径 + 响应体前 120 字符），
+     免得下一轮还要靠猜。
