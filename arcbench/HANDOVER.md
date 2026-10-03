@@ -539,6 +539,52 @@ data.json 落盘结果：users=6 repos=1{branches,commits,pull_requests 各 1} a
 > 会因 pnpm 的 `.pnpm/` 链接而 `MODULE_NOT_FOUND`（实验已记录）。**要真验证 r87，需要在能
 > `npm install` 的环境里跑**——这正是交给 codex 的那件事。
 
+### 14.10 r85 出分（2026-10-03 19:1x）：全 0，但拿到了三件硬事实
+
+| task | listen | contract | pages | buildclean | seed | ENOENT | rehearseFAIL |
+|---|---|---|---|---|---|---|---|
+| github | 1 | 2 | 0 | 2 | **172** | 0 | 16 |
+| stage1 | 1 | 2 | 0 | 2 | **219** | 0 | 2 |
+| stage2 | **0** | 2 | 0 | 2 | 0 | 0 | 16 |
+| stage3 | 1 | 2 | 0 | 2 | **115** | 0 | 0 |
+| sheet | 1 | 2 | 0 | 2 | 0 | 0 | 8 |
+
+1. **守卫在平台上真的触发了，而且没伤构建**：五题全命中
+   `[arc-agent] entry route contract: ['frontend/src/App.tsx: restored the scaffold route contract
+   (the generated entry had lost 5/5 parameterised route(s) …)']`，同时 `final frontend build: clean` ×2。
+   最担心的"恢复把构建搞坏"没有发生。`pages=0` 符合预期（r85 不做页面恢复，那是 r86 的）。
+2. **播种器第一次真的跑起来了**（`[arc-seed]` 从 r83 的五题全 0 → 172/219/115 行），
+   **然后死在 store 形状上**：
+   ```
+   [arc-seed] POST /auth/sign-up -> 500 | TypeError: accounts.some is not a function
+   ```
+   已定位到源码（真实工程 `a128c4309297`）：
+   `auth.js:35` 拿 `store.collection('accounts', {})`（**字典**）→ `accounts.some(...)`（**当数组用**）；
+   `issues.js:13-14` 又当**嵌套数组**用（`accounts.users.find`）；
+   而 `gh_store.js` 用的是**顶层数组**（`state.users.find/.push`）。
+   一个集合三种形状 → **第一笔写入就抛错，世界建到一半停住** → 这正好解释 r72 的
+   `data.json` 里有 `acme-docs` 却没有 `frontend-team`/`secret-research`/`Acme Demo`。
+   **H1/H2（鉴权假设）彻底作废**：不是鉴权，是形状。
+3. **r85 新加的诊断被日志吞了**：`main.py` 只打 `error.splitlines()[0]`，而 `node` 的栈在第 2 行之后。
+
+### 14.11 r86 最终内容（四件事一起上）
+
+> 结论：**r86 单独发车不够**——页面恢复能消掉那 17 条 searchbox 超时，但
+> `accounts.some` 会让世界依然建不起来。所以四件一起带：
+
+| # | 内容 | 证据 | 探针 |
+|---|---|---|---|
+| 1 | **页面恢复**（入口 + 它渲染的脚手架页面） | r72 报告 17 条 searchbox | `_scratch_r85_route_contract.py` 场景 5/6 |
+| 2 | **集合形状兜底** `ensure_collection_shape` | r85 `accounts.some is not a function` | `_scratch_r87_collection_shape.py` |
+| 3 | **rehearsal 完整诊断打进日志** | r85 冒号后为空 | 同上（日志行） |
+| 4 | **入口路由契约恢复 + 拒绝诊断** | r85 已证实在平台触发 | `_scratch_r85_route_contract.py` |
+
+包：`arcbench/dist/arc-agent-r86.zip`，**119 项 / 436.8 KB /
+sha256 `082D3787E5BC866FB72CD0011BC7EC809462F418F63DA0DE5239CDC5468D1FF7`**（从未上传）。
+门禁 **33/35 探针 + `py_compile` rc=0**（两个失败仍是预存在的）。
+
+**判读新增两行**：`collection shape guard:` 与 `[rehearsal]   <node 的栈>`。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。

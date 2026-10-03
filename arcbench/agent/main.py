@@ -71,6 +71,7 @@ from guard import ensure_route_dump
 from guard import ensure_frontend_serving
 from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
+from guard import ensure_collection_shape
 from guard import ensure_store_method_stub
 from guard import restore_keep_pages
 from guard import restore_entry_route_contract
@@ -1449,6 +1450,15 @@ def run_rehearsal(project_dir: Path, smoke_port: int, web_port: int, llm: LlmCli
             return error
         log(f"[rehearsal] FAILED in {time.time() - started:.0f}s: "
             f"{error.splitlines()[0][:200]}")
+        # r85 added startup_diagnosis() so a pre-listen death would finally explain
+        # itself, and the platform log still showed
+        #     [rehearsal] FAILED in 8s: backend `npm start` exited early (rc=1):
+        # with nothing after the colon - because only the FIRST line is logged and
+        # `node` puts the stack trace on the lines after it. Print the whole block
+        # (capped) so the diagnosis is actually readable in the platform log.
+        for line in error.splitlines()[1:16]:
+            if line.strip():
+                log(f"[rehearsal]   {line[:400]}")
         # Keep a reserve: closing the run, the traceability report and the
         # commit all still need to happen, and an unfinished run is worse than a
         # repaired-but-unverified one.
@@ -2016,6 +2026,14 @@ def main(argv: list[str] | None = None) -> int:
         collection_guard = ensure_collection_never_empty(project_dir)
         if collection_guard:
             log(f"[arc-agent] store accessor guard: {collection_guard}")
+        # r85 was the first round where the injected world seeder actually ran, and
+        # it died on `accounts.some is not a function` at POST /auth/sign-up: one
+        # collection (`accounts`) is used as a keyed dict by auth.js and as an
+        # array by gh_store.js/issues.js, so the seed aborts on its first write and
+        # the world stops halfway. The accessor now answers both shapes.
+        shape_guard = ensure_collection_shape(project_dir)
+        if shape_guard:
+            log(f"[arc-agent] collection shape guard: {shape_guard}")
         # r72's Stage-2 graded report is the only per-spec measurement we have:
         # 0 of 29 passed, 12 of them because no route could render a repository
         # ("Could not find a visible navigation target named \"acme-docs\"").

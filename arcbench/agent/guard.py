@@ -4583,6 +4583,125 @@ def ensure_collection_never_empty(project_dir: Path) -> list[str]:
     return [f"collection() guarded in {len(changed)} store module(s): "
             f"{', '.join(changed[:4])}"]
 
+#: A collection that the generated code uses as BOTH a keyed object and an array.
+#: r85 is the evidence: it was the first round where the injected world seeder
+#: actually ran, and it died immediately with
+#:     [arc-seed] POST /auth/sign-up -> 500 | TypeError: accounts.some is not a function
+#: In that project ``auth.js`` does ``store.collection('accounts', {})`` (a KEYED
+#: DICT, then ``accounts[username] = ...``) while ``gh_store.js`` does
+#: ``state.users.find(...)`` / ``.push(...)`` (an ARRAY) and ``issues.js`` does
+#: ``accounts.users.find(...)``. One collection, three incompatible expectations,
+#: so the seed aborts on its first write and the world stops halfway - which is
+#: also why r72's persisted data.json holds acme-docs but not frontend-team,
+#: secret-research or Acme Demo.
+ARC_COLLECTION_SHAPE_GUARD = '''
+
+// --- collection shape guard added by the ARC agent -------------------------
+// A generated collection is reached through the SAME `collection()` call from
+// modules that disagree about its type: one writes `accounts[username] = ...`,
+// another calls `accounts.some(...)`, a third calls `accounts.users.find(...)`.
+// Whichever the store hands back, some caller throws and the seed dies halfway.
+// This wrapper makes every collection answer BOTH shapes at once, so no caller
+// can be the one that aborts the world build.
+const __arcARRAY_METHODS = new Set(['some', 'find', 'findIndex', 'filter', 'map',
+  'forEach', 'reduce', 'push', 'pop', 'shift', 'unshift', 'slice', 'splice',
+  'sort', 'reverse', 'indexOf', 'includes', 'join', 'every', 'flatMap', 'flat',
+  'keys', 'values', 'entries']);
+
+// A callable dummy so `collection().users.find(...)` and friends are harmless.
+function __arcSoftValue() {
+  const soft = function () { return soft; };
+  return new Proxy(soft, {
+    get(target, prop) {
+      if (prop === 'length') return 0;
+      if (prop === Symbol.toPrimitive || prop === 'toString') return () => '';
+      if (prop === 'then' || prop === 'toJSON') return undefined;
+      return soft;
+    },
+    apply() { return soft; },
+  });
+}
+
+function __arcArrayView(source) {
+  const values = () => (Array.isArray(source) ? source : Object.values(source || {}));
+  return new Proxy(source, {
+    get(target, prop, receiver) {
+      if (prop === '__arcArrayView') return true;
+      if (prop === 'length') return values().length;
+      if (typeof prop === 'string' && __arcARRAY_METHODS.has(prop)) {
+        const list = values();
+        const fn = Array.prototype[prop];
+        if (typeof fn === 'function') return fn.bind(list);
+      }
+      const value = Reflect.get(target, prop, receiver);
+      // `accounts.users` when `accounts` is a keyed dict of accounts: answer a
+      // harmless dummy rather than undefined so the caller's `.find()` cannot
+      // throw. Returning the real value when there is one keeps working code.
+      if (value === undefined && typeof prop === 'string') return __arcSoftValue();
+      return value;
+    },
+    has(target, prop) {
+      if (prop === 'length') return true;
+      if (typeof prop === 'string' && __arcARRAY_METHODS.has(prop)) return true;
+      return prop in target;
+    },
+    ownKeys(target) { return Reflect.ownKeys(target); },
+    getOwnPropertyDescriptor(target, prop) {
+      if (prop === 'length') return { value: values().length, configurable: true };
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    },
+  });
+}
+
+(function (api) {
+  if (!api || typeof api.collection !== 'function' || api.collection.__arcShapeGuarded) return;
+  const original = api.collection;
+  const guarded = function (name, fallback) {
+    let value = original.call(api, name, fallback);
+    if (value === null || value === undefined) {
+      value = fallback === undefined ? [] : fallback;
+    }
+    if (value && typeof value === 'object' && !value.__arcArrayView) {
+      value = __arcArrayView(value);
+    }
+    return value;
+  };
+  guarded.__arcShapeGuarded = true;
+  api.collection = guarded;
+})(module.exports);
+'''
+
+
+def ensure_collection_shape(project_dir: Path) -> list[str]:
+    """Make every generated collection answer both the keyed and the array shape.
+
+    See ``ARC_COLLECTION_SHAPE_GUARD``. This complements
+    ``ensure_collection_never_empty`` (which only handles null/undefined): here the
+    value exists but is the wrong *kind* of object for the caller, which is a
+    mismatch no amount of guarding the accessor can fix - the accessor has to hand
+    back something both kinds of caller can use.
+    """
+    backend = project_dir / "backend" / "src"
+    if not backend.is_dir():
+        return []
+    changed: list[str] = []
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        body = _source_text(path)
+        if not body or "__arcShapeGuarded" in body:
+            continue
+        if "function collection" not in body and "collection =" not in body:
+            continue
+        if "module.exports" not in body:
+            continue
+        if _write_text(path, body.rstrip() + ARC_COLLECTION_SHAPE_GUARD):
+            changed.append(str(path.relative_to(project_dir)).replace(chr(92), "/"))
+    if not changed:
+        return []
+    return [f"collection() answers both shapes in {len(changed)} store module(s): "
+            f"{', '.join(changed[:4])}"]
+
 #: A ``sendFile`` whose root is the app module itself - the browser then gets
 #: "ENOENT ... backend/src/frontend/dist/index.html" instead of the app.
 WRONG_DIST_ROOT = re.compile(
