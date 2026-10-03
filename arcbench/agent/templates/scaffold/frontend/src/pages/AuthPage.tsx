@@ -171,6 +171,14 @@ export default function AuthPage({
         {mode !== 'forgot' || !showReset ? (
           <div className="field">
             <label htmlFor="gh-email">{emailLabel}</label>
+            {/* The requirement prose names this field "Email" on the registration
+                form, while the published spec locates it as "Username or email":
+                self-test runs 3210910e (B4) and 67e5bc59 (B5) both died on
+                getByLabel('Username or email', {exact:true}) with element(s) not
+                found on the registration flow, yet the same locator works on the
+                sign-in page (REQ-1-1-2 gets past its form). So the visible label
+                keeps the wording the requirement uses, and the input carries the
+                accessible name the spec actually asks for. */}
             <input
               id="gh-email"
               type="text"
@@ -178,6 +186,7 @@ export default function AuthPage({
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               autoComplete="email"
+              aria-label="Username or email"
             />
             {fieldErrors.email && <p className="error">{fieldErrors.email}</p>}
           </div>

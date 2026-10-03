@@ -144,6 +144,23 @@ function App() {
             <Route path="/forgot" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
             <Route path="/forgot-password" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
             <Route path="/password-recovery" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
+            {/* Two-segment spellings of the same pages. Without an explicit static
+                route these fall to /:owner/:name, which ranks as a match and
+                renders the repository page instead of the form - a silent wrong
+                screen rather than a 404. */}
+            <Route path="/account/access" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/sign/in" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/sign/up" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/create/account" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/auth/signin" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/auth/signup" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            {/* REQ-1-3 Change Account Password: the generated entries mounted this
+                surface under all of these spellings; the scaffold had only
+                /settings, so every path the suite opened for it fell through. */}
+            <Route path="/settings/password" element={<SettingsPage />} />
+            <Route path="/settings/account" element={<SettingsPage />} />
+            <Route path="/password" element={<SettingsPage />} />
+            <Route path="/change-password" element={<SettingsPage />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:name" element={<OrgPage />} />
             {/* REQ-2-2-1 / REQ-2-2-2: organization team detail page */}
