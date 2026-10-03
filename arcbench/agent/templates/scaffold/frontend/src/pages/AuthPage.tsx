@@ -18,12 +18,18 @@ function fieldErrorsFrom(caught: unknown): FieldErrors | null {
 
 export default function AuthPage({
   onAuth,
+  initial,
 }: {
   user: User | null;
   onAuth: (user: User) => void;
+  initial?: 'signin' | 'signup' | 'forgot';
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const rawMode = searchParams.get('mode') || 'signin';
+  // The published suite reaches the sign-in page by URL, and it uses whichever
+  // canonical path the task names - /signin, /login, /sign-in, /sign-up, ... .
+  // The entry mounts every alias on this one component, so `initial` says which
+  // form the alias stands for when there is no ?mode= to read.
+  const rawMode = searchParams.get('mode') || initial || 'signin';
   const mode = rawMode === 'signup' ? 'signup' : rawMode === 'forgot' ? 'forgot' : 'signin';
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');

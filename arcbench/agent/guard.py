@@ -5087,6 +5087,17 @@ REQUIRED_ENTRY_ROUTES = (
     "/orgs/:name/teams/:team",
 )
 
+#: Auth paths the suite may open directly. The requirement describes every
+#: scenario around "the sign-in page" without naming a URL, so the spec has to
+#: navigate to a canonical one - and the generated entry (via the injected auth
+#: module) used to mount all of them. Self-test 3210910e showed what losing them
+#: costs: the restored scaffold entry matched only /auth, so a spec that opened
+#: /signin or /sign-up got the shell with an EMPTY <Routes> and died on
+#: getByLabel('Username or email') - element(s) not found.
+REQUIRED_ENTRY_AUTH_ROUTES = (
+    "/signin", "/sign-in", "/login", "/sign-up", "/signup", "/create-account",
+)
+
 
 def restore_entry_route_contract(project_dir: Path, template_dir: Path,
                                  note: list[str] | None = None) -> list[str]:
@@ -5132,9 +5143,14 @@ def restore_entry_route_contract(project_dir: Path, template_dir: Path,
         _say(f"{_relative(project_dir, live)} is empty or unreadable")
         return []
     missing = [route for route in REQUIRED_ENTRY_ROUTES if route not in body]
-    if not missing:
+    missing_auth = [route for route in REQUIRED_ENTRY_AUTH_ROUTES if route not in body]
+    # Every entry the generator produced mounted the auth aliases; only flat,
+    # wholly rewritten entries drop them. Either loss means the suite cannot reach
+    # the page its first assertion needs, so both count as a broken contract.
+    if not missing and not missing_auth:
         _say(f"{_relative(project_dir, live)} already routes all "
-             f"{len(REQUIRED_ENTRY_ROUTES)} required parameterised route(s)")
+             f"{len(REQUIRED_ENTRY_ROUTES)} required parameterised route(s) and "
+             f"{len(REQUIRED_ENTRY_AUTH_ROUTES)} auth alias(es)")
         return []
     template_entry = next(
         (template_src / f"App{suffix}" for suffix in (".tsx", ".jsx", ".ts", ".js")
@@ -5165,16 +5181,23 @@ def restore_entry_route_contract(project_dir: Path, template_dir: Path,
         # scaffold entry exists, and we declined because restoring would not
         # build. A zero after this line needs the missing modules, not a rerun.
         _say(f"{_relative(project_dir, live)} lost {len(missing)}/"
-             f"{len(REQUIRED_ENTRY_ROUTES)} route(s) and the scaffold entry was "
-             f"NOT restored because {len(absent)} module(s) it imports are "
-             f"missing from the project: {', '.join(sorted(absent)[:6])}")
+             f"{len(REQUIRED_ENTRY_ROUTES)} route(s) and {len(missing_auth)}/"
+             f"{len(REQUIRED_ENTRY_AUTH_ROUTES)} auth alias(es), and the scaffold "
+             f"entry was NOT restored because {len(absent)} module(s) it imports "
+             f"are missing from the project: {', '.join(sorted(absent)[:6])}")
         return []
     if not _write_text(live, original):
         _say(f"could not write {_relative(project_dir, live)}")
         return []
+    why = []
+    if missing:
+        why.append(f"lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} parameterised "
+                   f"route(s): {', '.join(missing[:3])}")
+    if missing_auth:
+        why.append(f"lost {len(missing_auth)}/{len(REQUIRED_ENTRY_AUTH_ROUTES)} "
+                   f"auth alias(es): {', '.join(missing_auth[:3])}")
     changed = [f"{_relative(project_dir, live)}: restored the scaffold route contract "
-               f"(the generated entry had lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} "
-               f"parameterised route(s): {', '.join(missing[:3])})"]
+               f"({' ; '.join(why)})"]
 
     # The entry is only half of the contract: it renders the scaffold's *pages*,
     # and a generated page of the same name shadows the scaffold one. The graded

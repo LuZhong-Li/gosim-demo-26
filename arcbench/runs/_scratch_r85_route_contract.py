@@ -85,8 +85,10 @@ function AppShell() {
 export default AppShell;
 """
 
-#: A correct entry: it already routes by parameter, so the guard must not touch it.
+#: A correct entry: it routes by parameter AND mounts the auth aliases, so the
+#: guard must not touch it.
 CONTRACT_ENTRY = """import { Route, Routes } from 'react-router-dom';
+import AuthPage from './pages/AuthPage';
 import HomePage from './pages/HomePage';
 import RepoPage from './pages/RepoPage';
 import RepoSearchPage from './pages/RepoSearchPage';
@@ -98,6 +100,40 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
+      <Route path="/auth" element={<AuthPage initial="signin" />} />
+      <Route path="/signin" element={<AuthPage initial="signin" />} />
+      <Route path="/sign-in" element={<AuthPage initial="signin" />} />
+      <Route path="/login" element={<AuthPage initial="signin" />} />
+      <Route path="/sign-up" element={<AuthPage initial="signup" />} />
+      <Route path="/signup" element={<AuthPage initial="signup" />} />
+      <Route path="/create-account" element={<AuthPage initial="signup" />} />
+      <Route path="/orgs/:name" element={<OrgPage />} />
+      <Route path="/orgs/:name/teams/:team" element={<TeamPage />} />
+      <Route path="/:owner/:name/search" element={<RepoSearchPage />} />
+      <Route path="/:owner/:name/settings" element={<RepoSettingsPage />} />
+      <Route path="/:owner/:name" element={<RepoPage />} />
+    </Routes>
+  );
+}
+"""
+
+#: The self-test 3210910e shape: the parameterised routes are present but every
+#: auth alias is gone, so a spec that opens /signin gets an empty <Routes> and
+#: dies on getByLabel('Username or email').
+AUTH_LESS_ENTRY = """import { Route, Routes } from 'react-router-dom';
+import AuthPage from './pages/AuthPage';
+import HomePage from './pages/HomePage';
+import RepoPage from './pages/RepoPage';
+import RepoSearchPage from './pages/RepoSearchPage';
+import OrgPage from './pages/OrgPage';
+import TeamPage from './pages/TeamPage';
+import RepoSettingsPage from './pages/RepoSettingsPage';
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/auth" element={<AuthPage />} />
       <Route path="/orgs/:name" element={<OrgPage />} />
       <Route path="/orgs/:name/teams/:team" element={<TeamPage />} />
       <Route path="/:owner/:name/search" element={<RepoSearchPage />} />
@@ -237,6 +273,31 @@ def main() -> int:
             failures.append("the restored HomePage carries no search control")
         if not any("restored pages" in line for line in changed):
             failures.append("the change report does not mention the page restore")
+
+        # ---------------------------------------------------------------- 5b
+        # Self-test 3210910e: parameterised routes fine, auth aliases gone. The
+        # suite's first assertion needs the sign-in form, so this alone is fatal.
+        project = build_project(tmp, "auth-less", AUTH_LESS_ENTRY)
+        entry = project / "frontend" / "src" / "App.tsx"
+        before = entry.read_text(encoding="utf-8")
+        if "/signin" in before or "/sign-up" in before:
+            failures.append("the auth-less fixture still contains an alias")
+        note = []
+        changed = restore_entry_route_contract(project, TEMPLATE, note)
+        after = entry.read_text(encoding="utf-8")
+        print(f"[5b] auth aliases missing -> {len(changed)} change group(s)")
+        for line in changed:
+            print(f"        {line}")
+        if not changed:
+            failures.append("an entry with no auth aliases was not restored")
+        for alias in ("/signin", "/sign-up", "/login"):
+            if alias not in after:
+                failures.append(f"the restored entry still lacks {alias}")
+        # And the shipped scaffold must carry them, since that is what gets restored.
+        scaffold_entry = (TEMPLATE / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        for alias in ("/signin", "/sign-in", "/login", "/sign-up", "/signup", "/create-account"):
+            if alias not in scaffold_entry:
+                failures.append(f"the scaffold entry lacks the {alias} alias")
 
         # ---------------------------------------------------------------- 6
         # End to end against the REAL graded project, when it is on disk. This is

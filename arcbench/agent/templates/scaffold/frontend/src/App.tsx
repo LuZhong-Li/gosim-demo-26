@@ -128,6 +128,22 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage user={user} />} />
             <Route path="/auth" element={<AuthPage user={user} onAuth={handleAuth} />} />
+            {/* The suite reaches the sign-in / registration / recovery pages by URL,
+                and it uses whichever canonical path the task names. Before this,
+                only /auth matched, so a spec that opened /signin or /sign-up got
+                the shell with an EMPTY route table and failed on
+                getByLabel('Username or email') - element(s) not found. */}
+            <Route path="/login" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/signin" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/sign-in" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/account-access" element={<AuthPage user={user} onAuth={handleAuth} initial="signin" />} />
+            <Route path="/register" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/signup" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/sign-up" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/create-account" element={<AuthPage user={user} onAuth={handleAuth} initial="signup" />} />
+            <Route path="/forgot" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
+            <Route path="/forgot-password" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
+            <Route path="/password-recovery" element={<AuthPage user={user} onAuth={handleAuth} initial="forgot" />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:name" element={<OrgPage />} />
             {/* REQ-2-2-1 / REQ-2-2-2: organization team detail page */}
