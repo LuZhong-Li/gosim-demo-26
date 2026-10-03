@@ -906,7 +906,7 @@ r77 那层运行期 shim 的 `hasMiddleware` 判定则是同类兜底。同时�
 `r75_use_sweep`、`r77_router_guard`（含 `/live` 合法路由回归断言）、`r77_store_contract`、
 `r78_appuse_pathonly`（r76 崩点复现→修复）、`r78_store_exports`（旧规则盲区→新规则检出→填充→启动）。
 
-起跑（10:52）：
+起跑（10:35:05 北京 = run 页 `Started 2026/10/3 02:35:05` UTC）：
 
 | 任务 | run id |
 |---|---|
