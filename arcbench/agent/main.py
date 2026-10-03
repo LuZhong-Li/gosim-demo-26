@@ -1927,6 +1927,12 @@ def main(argv: list[str] | None = None) -> int:
         orphaned = mount_orphan_routers(project_dir)
         if orphaned:
             log(f"[arc-agent] mounted orphaned backend routers: {orphaned}")
+        # r74 Stage 1 died with "argument handler must be a function" again: the
+        # type filter had run before the orphan-router mounts were injected. The
+        # sweep therefore runs a second time here, after every injection pass.
+        late_use = guard_app_use(project_dir)
+        if late_use:
+            log(f"[arc-agent] late app.use() sweep: {late_use[:4]}")
         final_exports = ensure_named_exports(project_dir)
         final_defaults = ensure_default_exports(project_dir)
         if final_exports or final_defaults:
@@ -1969,12 +1975,12 @@ def main(argv: list[str] | None = None) -> int:
         serving = ensure_frontend_serving(project_dir)
         if serving:
             log(f"[arc-agent] front-end serving: {serving}")
-        # r73 Stage 1: the four crash classes are gone, but "Account menu" /
-        # "Sign out" / "Confirm sign out" (REQ-1-2) were missing from 20 absent
-        # names - the generated entry has no account-menu header, so it is mounted.
-        menu = ensure_account_menu_contract(project_dir)
-        if menu:
-            log(f"[arc-agent] account menu contract: {menu}")
+        # r74 scored 0.00 where r73 (without this injection) scored 0.69, so the
+        # ArcMenuShell wrapper is disabled until it can be proven safe: wrapping
+        # the whole app in a second root is exactly the kind of change that turns a
+        # working bundle into a blank page. The function is kept for a future,
+        # narrower attempt (mount the bar inside the existing header only).
+        log("[arc-agent] account menu contract: skipped (r74 regression)")
         # r71's runtime 500s: a generated store answers undefined for an unknown
         # key, and the first route that calls Object.values(...) or .find(...) on
         # it throws - so sign-in/sign-up answered 500 and every scenario that
