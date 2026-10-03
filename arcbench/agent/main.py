@@ -63,6 +63,7 @@ from guard import unrouted_pages
 from guard import accessibility_contract_issues
 from guard import ensure_app_router
 from guard import guard_app_use
+from guard import ensure_router_call_guard
 from guard import ensure_frontend_serving
 from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
@@ -1968,6 +1969,13 @@ def main(argv: list[str] | None = None) -> int:
         guarded_use = guard_app_use(project_dir)
         if guarded_use:
             log(f"[arc-agent] app.use() runtime guard: {guarded_use}")
+        # r74's Stage 1 died while backend/src/pr.js was still loading:
+        # "argument handler must be a function" from Route.<computed> [as post].
+        # guard_app_use only rewrites app.use(...) text, so routers created inside
+        # a module need the runtime filter that this shim installs.
+        router_guard = ensure_router_call_guard(project_dir)
+        if router_guard:
+            log(f"[arc-agent] router-call guard: {router_guard}")
         # r71 Stage 1 booted, seeded and still scored zero because its app.js
         # answered the browser with "ENOENT .../backend/src/frontend/dist/index.html".
         # The suite drives the product in a browser, so the built front end has to

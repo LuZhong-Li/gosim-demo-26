@@ -2010,6 +2010,14 @@ def _write_text(path: Path, body: str) -> bool:
     return True
 
 
+def _relative(project_dir: Path, path: Path) -> str:
+    """The POSIX-style path used in the agent's log lines."""
+    try:
+        return str(path.relative_to(project_dir)).replace(chr(92), "/")
+    except ValueError:
+        return str(path).replace(chr(92), "/")
+
+
 def _placeholder_export(name: str, suffix: str) -> str:
     if suffix in (".tsx", ".jsx"):
         return (
@@ -3842,6 +3850,174 @@ def guard_app_use(project_dir: Path) -> list[str]:
         if _write_text(path, rewritten):
             relative = str(path.relative_to(project_dir)).replace(chr(92), "/")
             changed.append(f"{relative}: {len(calls)} {name}.use() call(s) type-checked")
+    return changed
+
+
+#: Runtime shim that keeps a bad handler argument from killing the process.
+#:
+#: r74's Stage 1 died while ``backend/src/pr.js`` was still loading:
+#:     router/lib/route.js:228
+#:     TypeError: argument handler must be a function
+#:         at Route.<computed> [as post] (router/lib/route.js:228:15)
+#:         at Router.<computed> [as post] (router/index.js:448:19)
+#:         at Object.<anonymous> (/workspace/template/backend/src/pr.js:67:8)
+#: The generated module registered a route whose handler expression evaluated to
+#: undefined; express 5 throws from ``Route.prototype[method]`` and the whole
+#: process exits before the port is bound, so every scenario scores zero however
+#: good the pages are. ``guard_app_use`` only rewrites ``app.use(...)`` call sites
+#: in the files it can see, so this covers everything else at runtime: the HTTP
+#: verbs of every route (app, router and ``router.route(path).post(...)`` all
+#: funnel through the same ``Route.prototype``) and the mount arguments of
+#: ``app.use`` / ``router.use``.
+ARC_ROUTER_GUARD_MODULE = '''// --- router-call guard added by the ARC agent --------------------------------
+// Express throws while a generated module is still loading when a route or a
+// mount is registered with something that is not a handler:
+//   r68/r70 Stage 1  app.js       "argument handler must be a function" (use)
+//   r74 Stage 1      pr.js:67     the same TypeError from router.post()
+// The runner then reports "template application server exited before becoming
+// ready" and the task scores zero. A handler factory that returns undefined is
+// always possible in generated code, so every route/mount call is filtered here
+// instead of being allowed to crash the process.
+// This module is required as the very first statement of the backend entry, so
+// the prototypes are patched before any generated module creates an app.
+'use strict';
+
+(function () {
+  const express = require('express');
+  const MARK = '__arcGuarded';
+  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'all', 'head', 'options',
+    'checkout', 'connect', 'copy', 'lock', 'merge', 'mkactivity', 'mkcol', 'move',
+    'm-search', 'notify', 'purge', 'report', 'search', 'subscribe', 'trace', 'unlock',
+    'unsubscribe'];
+
+  function isHandler(entry) {
+    return typeof entry === 'function'
+      || (Array.isArray(entry) && entry.length > 0
+        && entry.every((item) => typeof item === 'function'));
+  }
+
+  function isMountable(entry) {
+    if (entry === undefined || entry === null) return false;
+    if (typeof entry === 'function' || typeof entry === 'string') return true;
+    if (Array.isArray(entry)) return true;
+    return typeof entry === 'object' && typeof entry.handle === 'function';
+  }
+
+  function isMiddleware(entry) {
+    if (typeof entry === 'function') return true;
+    if (Array.isArray(entry)) return entry.length > 0;
+    return typeof entry === 'object' && entry !== null && typeof entry.handle === 'function';
+  }
+
+  function guardRoutes(proto, label) {
+    if (!proto) return;
+    for (const method of METHODS) {
+      const original = proto[method];
+      if (typeof original !== 'function' || original[MARK]) continue;
+      const guarded = function (...args) {
+        const handlers = args.filter(isHandler);
+        if (handlers.length !== args.length) {
+          console.error('arc: dropped ' + (args.length - handlers.length) + ' non-function '
+            + 'handler(s) from ' + label + '.' + method + '() instead of letting express throw');
+        }
+        // Registering nothing is strictly better than exit(1) while loading.
+        if (handlers.length === 0) return this;
+        return original.apply(this, handlers);
+      };
+      guarded[MARK] = true;
+      proto[method] = guarded;
+    }
+  }
+
+  function guardMounts(proto, label) {
+    if (!proto) return;
+    const original = proto.use;
+    if (typeof original !== 'function' || original[MARK]) return;
+    const guarded = function (...args) {
+      const safe = args.filter(isMountable);
+      if (safe.length !== args.length) {
+        console.error('arc: dropped ' + (args.length - safe.length) + ' non-function '
+          + 'middleware argument(s) from ' + label + '.use() instead of letting express throw');
+      }
+      // A bare path is not a middleware: express answers "app.use() requires a
+      // middleware function", which is the same exit(1) by another name.
+      const hasMiddleware = safe.some(isMiddleware);
+      if (!hasMiddleware) {
+        if (safe.length) {
+          console.error('arc: skipped a ' + label + '.use() call that had no middleware left');
+        }
+        return this;
+      }
+      return original.apply(this, safe);
+    };
+    guarded[MARK] = true;
+    proto.use = guarded;
+  }
+
+  try {
+    // Every route registration ends up in Route.prototype[method] (express 5.2.1
+    // router/lib/route.js:214), including app.get/post and router.route().post().
+    guardRoutes(express.Route && express.Route.prototype, 'route');
+    guardRoutes(express.Router && express.Router.prototype, 'router');
+    guardMounts(express.Router && express.Router.prototype, 'router');
+    // Applications are built by mixing express.application into a new function,
+    // so patching the prototype before the first express() call is enough.
+    guardMounts(express.application, 'app');
+  } catch (error) {
+    console.error('arc: router-call guard could not be installed: ' + error.message);
+  }
+})();
+'''
+
+ROUTER_GUARD_FILENAME = "__arc_router_guard__.js"
+
+
+def ensure_router_call_guard(project_dir: Path) -> list[str]:
+    """Install the runtime router-call guard and load it before anything else.
+
+    ``guard_app_use`` rewrites the ``app.use(...)`` call sites it can see, but the
+    router that crashed r74's Stage 1 was built inside ``backend/src/pr.js`` and
+    registered with ``router.post(path, undefined)`` - text rewriting cannot see
+    that. The shim is written into ``backend/src`` and required from the first
+    line of the module that calls ``.listen()`` (and of the module that builds the
+    app), which is enough: node evaluates that require before the generated
+    modules are loaded, so the prototypes are patched first.
+    """
+    backend = project_dir / "backend"
+    src = backend / "src"
+    if not src.is_dir():
+        return []
+    creates_router = False
+    for path in sorted(src.rglob("*.js")):
+        if "node_modules" in path.parts or path.name == ROUTER_GUARD_FILENAME:
+            continue
+        if "Router(" in _source_text(path):
+            creates_router = True
+            break
+    if not creates_router:
+        return []
+
+    changed: list[str] = []
+    shim = src / ROUTER_GUARD_FILENAME
+    if _source_text(shim) != ARC_ROUTER_GUARD_MODULE:
+        if not _write_text(shim, ARC_ROUTER_GUARD_MODULE):
+            return []
+        changed.append(f"{_relative(project_dir, shim)}: router-call guard installed")
+
+    for target in (src / "index.js", _app_file(project_dir)):
+        if target is None or not target.is_file():
+            continue
+        body = _source_text(target)
+        if not body or "require(" not in body or "__arc_router_guard__" in body:
+            continue
+        specifier = _relative_specifier(target, shim)
+        line = (f"require('{specifier}'); // ARC agent: filter non-function route "
+                f"handlers before express throws\n")
+        lines = body.splitlines(keepends=True)
+        insert_at = 1 if lines and lines[0].startswith("#!") else 0
+        patched = "".join(lines[:insert_at]) + line + "".join(lines[insert_at:])
+        if _write_text(target, patched):
+            changed.append(f"{_relative(project_dir, target)}: loads the router-call guard first")
     return changed
 
 
