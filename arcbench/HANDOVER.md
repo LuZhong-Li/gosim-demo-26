@@ -617,6 +617,40 @@ sha256 `082D3787E5BC866FB72CD0011BC7EC809462F418F63DA0DE5239CDC5468D1FF7`**（�
 - B 的页面不再是 `App`、失败从"整条超时"变成具体断言 → **r86 的恢复机制被独立验证**；
 - 仍渲染 `App` → 恢复在真实产物上没生效，回头看判定条件。
 
+### 14.13 B 组自测把"恢复生效"钉死了，并暴露出脚手架自己的 strict-mode bug
+
+自测第 2 次（`94b0b227`）：**0/30，但失败性质变了**——不再是"整条 60s 超时"，而是：
+
+```
+Error: locator.click: strict mode violation:
+getByRole('link', { name: 'Sign in', exact: true }) resolved to 2 elements:
+  1) <a data-discover="true" href="/auth?mode=signin">Sign in</a>
+  2) <a data-discover="true" href="/auth?mode=signin">Sign in</a>
+```
+
+这条证明 **`restore_entry_route_contract` 在真实产物 + 官方 spec 上有效**：
+`App.tsx` 286 → 5,572 字节 → 398 kB bundle → 浏览器里出现真实脚手架 UI。
+"占位入口"这个机制被切断，不再是假设。
+
+**但第一个卡点是 UI 结构，而且是我们自己的**：同一条 `Sign in` 链接触发了两次渲染并存的
+strict-mode 冲突。来源已定位——
+
+| 渲染点 | 内容 |
+|---|---|
+| `frontend/src/App.tsx`（脚手架 Header） | `<Link to="/auth?mode=signin">Sign in</Link>`（未登录分支） |
+| `frontend/src/pages/HomePage.tsx` | **同样一句 `<Link to="/auth?mode=signin">Sign in</Link>`**，而 `/` 挂的正是 HomePage |
+
+**即脚手架模板自身违反官方 UI 契约的 UNIQUENESS 规则**（§14.9：任何回显到页面的值只能有
+一个可见元素匹配）。这条也解释了为什么连保险包（手工成品）在平台也只有 8%：
+它带着同一个重复链接。
+
+**修法（便宜、低风险）**：把 `HomePage.tsx` 里那个 `Sign in` 从 `<Link>` 降为纯文本，
+保留唯一的 `Create an account` 链接（它在页面上只出现一次，不与 Header 冲突）；
+Header 仍提供跳转入口，用例仍能用 `getByRole('link', {name:'Sign in'})` 唯一定位。
+
+> ⚠️ 注意：r85/r86 的**恢复**会把 `HomePage.tsx` 换成这个带 bug 的脚手架版本，
+> 所以**不修脚手架，r86 之后仍会被这条卡住**。这是 r86 之后必须进 r87 的第一条。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。
