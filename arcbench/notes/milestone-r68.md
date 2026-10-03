@@ -1210,6 +1210,30 @@ blocking 的真正瓶颈始终是 P9 —— **世界没被播种**（场景 GIVE
 
 倾向于：再打 1–2 轮 r82/r83 验证 P9 思路（纯探索价值），其余时间保持保险在榜。
 
+### 7. r82 已上传并起跑（16:0x）
+
+用户同意继续一轮探索。r82 = r81 + **播种器 4xx 诊断**（只有 `guard.py` 变了，已核对哈希）。
+
+- 包：`arcbench/dist/arc-agent-r82.zip`，**119 项 / 428.0 KB / sha256 `28518646…54E5`**；
+- 上传：snapshot **#56**（History 55 → 56），名字 `arc-agent-r82`；
+- 起跑：一次点击报 CDP 超时、`/running` 当时还是 0，但几分钟后历史页显示这五个 run 已经 "running" ——
+  **再次验证"点击报错 ≠ 没生效"，判定必须看历史页/`/running` 的最终状态**；
+- run id：
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `77ce0e8f1a5b` |
+| hackathon--github-stage-1 | `305de2a32f10` |
+| hackathon--github-stage-2 | `bcd4b93d3fe9` |
+| hackathon--github-stage-3 | `d789f637ace0` |
+| hackathon--sheet | `fd3776183629` |
+
+- **平台剩余预算：￥240.72**（"MY REMAINING BUDGET"），远高于 ¥40 的止损线。
+
+> 注意：r82 已把"最新提交"从保险5（9.65）切走，**收尾前必须再放回保险**
+> （上传 `arc-agent-r33.zip` + 起跑，￥0 / 约 20 分钟）。我打算在 r82 出分后立刻做这件事，
+> 除非 r82 出现非 0 分并且明显值得继续迭代。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
