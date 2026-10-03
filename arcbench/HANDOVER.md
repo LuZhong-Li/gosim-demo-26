@@ -651,6 +651,52 @@ Header 仍提供跳转入口，用例仍能用 `getByRole('link', {name:'Sign in
 > ⚠️ 注意：r85/r86 的**恢复**会把 `HomePage.tsx` 换成这个带 bug 的脚手架版本，
 > 所以**不修脚手架，r86 之后仍会被这条卡住**。这是 r86 之后必须进 r87 的第一条。
 
+### 14.14 本地构建与工作副本：两个会反复咬人的坑（2026-10-03 19:4x 实测）
+
+本机没有 `npm`，runtime 只带 `node.exe` + `pnpm`。要把一份真实产物构建起来，按下面的配方走，
+**这两条都是踩过才写下来的**：
+
+**坑 1：`robocopy` 会跟穿符号链接，把 pnpm 的 `node_modules` 毁掉。**
+复制一份工作副本后，`frontend/node_modules` 从 **8,783 个文件膨胀到 33,249**（`.pnpm/` 里的
+symlink 被展开成实体），构建随即 `ERR_MODULE_NOT_FOUND`。
+**修法：复制时排除 `node_modules`，到目标目录重新 `pnpm install`**，不要指望 robocopy 带过来。
+
+**坑 2：pnpm 在无 TTY 时拒绝清空 `node_modules`。**
+报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，提示设 `CI=true`。设了之后就通过。
+
+**可用配方**：
+
+```powershell
+$bin = "C:\Users\HW\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
+$py  = "C:\Users\HW\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+$env:PATH = "$bin;" + $env:PATH
+
+# 1) 复制工作副本，排除 node_modules（坑 1）
+robocopy $src $dst /E /XD node_modules /NFL /NDL /NJH /NJS /NP
+
+# 2) 在目标目录重新安装（坑 2：必须 CI=true）
+$env:CI = "true"
+cd "$dst\frontend"; pnpm install
+
+# 3) 绕过 npm 直接构建（esbuild 的 build-script 警告不影响 vite 自身）
+node node_modules/vite/bin/vite.js build
+```
+
+> 这三行（`CI=true` + 目标目录重装 + `node .../vite.js build`）是"本地不装 npm 也能构建"的关键，
+> 自测站 A/B 对照全靠它。
+
+**自测包的四项自检**（缺一项就别传）：
+
+```
+frontend/dist/index.html   frontend/ 里预构建产物
+backend/node_modules       backend/  自带依赖
+requirements/              平台模板的一部分
+Dockerfile                 FROM node:20-bookworm + CMD ["node","/app/backend/src/index.js"]
+```
+
+打包时 **含 `frontend/dist`、不含 `frontend/node_modules`**（对照：B3 = 696 项 / 2.45 MB，
+B4 = 696 项 / 2.56 MB）。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。
