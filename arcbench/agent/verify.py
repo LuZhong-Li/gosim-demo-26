@@ -130,6 +130,24 @@ def _store_definitions(store_text: str) -> set[str]:
     return {name for name in defined if name not in {"if", "for", "while", "switch", "catch"}}
 
 
+def _canonical_store(project_dir: Path) -> Path | None:
+    """The module that holds the shared state, for callers that never import it.
+
+    A generated entry often hands the store to a seed as a parameter
+    (``function seed(store) { store.findWorkbook(...) }``), so there is no
+    ``require()`` to bind an alias to. The conventional filename is the one the
+    scaffold ships; falling back to the first ``*store*.js`` keeps the check
+    useful when the model renamed it.
+    """
+    backend = project_dir / "backend"
+    preferred = backend / "src" / "store.js"
+    if preferred.is_file():
+        return preferred.resolve()
+    candidates = [path for path in sorted(backend.rglob("*store*.js"))
+                  if "node_modules" not in path.parts]
+    return candidates[0].resolve() if candidates else None
+
+
 def backend_store_contract(project_dir: Path) -> list[str]:
     """Report store methods the generated modules call but the store never defines."""
     backend = project_dir / "backend"
@@ -155,7 +173,21 @@ def backend_store_contract(project_dir: Path) -> list[str]:
             if target.is_file():
                 aliases[alias] = target.resolve()
         if not aliases:
-            continue
+            # r78's Sheet run crashed on ``store.findWorkbook`` and r79's on
+            # ``store.createWorksheet`` (called from app.js) with no
+            # "[arc-agent] store contract issues" line anywhere: the module held
+            # the store as a *parameter* - ``function seed(store) { ... }`` - or
+            # reached it through a helper, so there was no `require()` to bind.
+            # Any store-ish identifier used with a call is therefore attributed to
+            # the project's canonical store module.
+            canonical = _canonical_store(project_dir)
+            if canonical is None:
+                continue
+            implicit = {name for name in ("store", "db", "data", "storage", "persistence")
+                        if re.search(rf"\b{name}\s*\.", text)}
+            if not implicit:
+                continue
+            aliases = {name: canonical for name in implicit}
         relative = path.relative_to(project_dir)
         for lineno, line in enumerate(text.splitlines(), 1):
             stripped = line.strip()

@@ -1032,6 +1032,24 @@ Stage-1/Stage-3 的共同点：**最后一次前端构建校验发生在 late pa
 > 结论：Run 按钮在提交刚保存后的几分钟内会"假死"（点击无副作用），**等 3–5 分钟再点即可**，
 > 不必立刻叫人工；人工介入只在连续多次重试（≥3 次、间隔 5 分钟）都无效时才需要。
 
+### 4. 追加修复：Sheet 的"契约静默"（用户点名，12:5x）
+
+用户指出 r78/r79 的 Sheet 崩在 `findWorkbook` / `createWorksheet` 上，但日志里**没有**契约检查行 —— 
+原因是 `backend_store_contract()` 只把 `const store = require('./store')` 这种**导入别名**绑定到 store 模块；
+而生成的 seed 往往把 store 当**参数**收（`function seed(store) { store.findWorkbook(...) }`），
+或者干脆在 app.js 里用另一个名字持有它 → 调用点全部逃过检查。
+
+修法（`verify.py`）：
+
+* 新增 `_canonical_store()`：优先 `backend/src/store.js`，否则第一个 `*store*.js`；
+* 当某模块**没有任何 store require**、但出现了 `store` / `db` / `data` / `storage` / `persistence`
+  这类标识符的方法调用时，把该标识符绑定到 canonical store —— 于是 `store.findWorkbook()` 会被检查并补齐；
+* 探针 `_scratch_r80_store_param.py`：种子用参数收 store，先跑 `contract issues: 2`
+  （`findWorkbook`、`createWorksheet`）→ `complete_store_methods` 填充 → `rc=0 Backend listening`。
+
+> 这三处（入口调用守卫、Express 5 通配符、参数化 store 契约）合起来进 r81；r80 包里只有前两处。
+> 本地门禁现在是 **12/12** + `py_compile`。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
