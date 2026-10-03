@@ -919,3 +919,65 @@ r77 那层运行期 shim 的 `hasMiddleware` 判定则是同类兜底。同时�
 > 平台细节：`Run 5 remaining tasks` 的 Playwright 点击报了 `Timed out running CDP command
 > "Input.dispatchMouseEvent"`，但**点击其实已经生效**——随后 `/running` 就是 5 active。
 > 以后遇到这个报错，先复查 `/running` 再决定是否重试，避免重复起跑。
+
+---
+
+## 11:45–11:56 r78 出分 1.59（历史最好生成轮）→ r79 已上传起跑
+
+### 1. r78 五题终值与成本（snapshot 卡片视图）
+
+| 任务 | 分数 | Tests | Time | Cost |
+|---|---|---|---|---|
+| **GitHub 原题** | **1.59** | 2.0% | 34m53s | ￥2.49 |
+| Stage 1 | 0.00 | 0.0% | 44m28s | ￥3.19 |
+| Stage 2 | 0.00 | 0.0% | 34m05s | ￥2.51 |
+| Stage 3 | 0.00 | 0.0% | 33m57s | ￥2.48 |
+| Sheet | 0.00 | 0.0% | 22m52s | ￥1.70 |
+
+- 排行榜当前显示 **0.80 / 1.0%**（r78 的原题 1.59 换算），**首次高于 r73 的 0.69**；
+- 原题日志里 `Backend listening` ✓、`world seed finished` ✓ —— 两个 P0 修复（mount 守卫、契约导出面）
+  确实把它从 0.0 拉到了 1.59；
+- r78 合计成本 ≈ ￥12.4，预算余量约 ￥317。
+
+### 2. 另外四题的三种新失败形态（每条都有行号）
+
+| 任务 | 形态 | 证据 |
+|---|---|---|
+| Stage-2 | **import 期种子崩溃** | `TypeError: repos.find is not a function` @ `seed.js:34` ← `index.js:7`，进程 exit(1)，`listen=0` |
+| Sheet | **import 期种子崩溃（契约又漏了）** | `TypeError: store.findWorkbook is not a function` @ `seed.js:35` ← `index.js:7`；该 run 日志里**没有** `store contract issues` 行 |
+| Stage-1 | **平台构建失败（JSX 语法）** | `[vite:esbuild] PullRequestsPage.tsx:51:70: ERROR: The character ">" is not valid inside a JSX element`；rehearsal 2 时反而是绿的 |
+| Stage-3 | **平台构建失败（缺导出）** | `"listPulls" / "listMilestones" / "getPull" / "getPullComments" / "getPullFiles" is not exported by "src/api/index.ts"`（PullsTab.tsx）；生成期只补了 `getBlob/getCommit` |
+
+Stage-1/Stage-3 的共同点：**最后一次前端构建校验发生在 late pass 之前**，之后的 pass
+（keep-pages 恢复、入口接线、导出补齐……）又把坏文件写回去了，而没有人再跑一次构建。
+
+### 3. r79 的两处修复（都带探针）
+
+1. **`guard_entry_requires()`**（`guard.py` + `main.py`）：
+   把入口文件里除 app 模块以外的所有顶层 `require('<相对路径>')` 套上 try/catch，
+   失败时回落到 `__arcStubModule()`（任何属性都是返回自身/undefined 的可调用体），
+   所以 `const { seed } = require('./seed')` 崩了也只是种子没跑，服务器照样 `app.listen()`。
+   探针 `_scratch_r79_entry_require.py`：before `rc=1`（`repos.find is not a function`）→ after `rc=0` + `Backend listening`，且 app 的 require 原样保留、幂等。
+2. **最终前端构建闸门**（`verify.frontend_build()` + `main.py`）：
+   在所有写入型 pass 之后再跑一次 `npm run build`，失败则依次调用
+   `complete_missing_exports()`（补缺失导出）与 `stub_unparseable_sources()`（占位无法解析的文件），
+   最多两轮，并把结果写进日志（`final frontend build: clean` / `still failing`）。
+
+> 说明：本机没有 npm/vite，构建闸门只做到"接线正确 + 依赖现有两个修复函数"，端到端要等 r79 的日志验证。
+
+本地门禁 **10/10 通过**（新增 `_scratch_r79_entry_require.py`）+ `py_compile`。
+
+### 4. r79 包与起跑
+
+- 包：`arcbench/dist/arc-agent-r79.zip`，**119 项 / 425.1 KB / sha256 `0198C76E…94DD`**，
+  条目名与 r76 完全一致，`.arc` = 0；
+- 上传：snapshot #51（History 50 → 51），名字 `arc-agent-r79`，勾选"使用比赛额度评测"；
+- 起跑 11:55:46（北京）：
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `3c9d2dea9f3d` |
+| hackathon--github-stage-1 | `08fb0d90df7b` |
+| hackathon--github-stage-2 | `66cfdc438ebc` |
+| hackathon--github-stage-3 | `62b838522c12` |
+| hackathon--sheet | `70698d662be4` |

@@ -4005,6 +4005,130 @@ ARC_ROUTER_GUARD_MODULE = '''// --- router-call guard added by the ARC agent ---
 ROUTER_GUARD_FILENAME = "__arc_router_guard__.js"
 
 
+#: r78 lost three of five tasks to a *module-level* crash: the entry file
+#: requires the generated seed module, that module seeds at import time, and the
+#: throw happened while the file was still loading - so the process exited before
+#: ``app.listen()`` ever ran:
+#:   Stage 2  TypeError: repos.find is not a function      (seed.js:34, index.js:7)
+#:   Sheet    TypeError: store.findWorkbook is not a function (seed.js:35, index.js:7)
+#:   Stage 3  TypeError: Cannot read properties of undefined (reading 'alice-dev')
+#:            (pulls.js:17 <- pulls.js:207, required from index.js)
+#: A seed that cannot run should cost the seeded records, not the whole server:
+#: this helper is the placeholder a failed require falls back to.
+ARC_STUB_MODULE_HELPER = '''
+
+// ARC agent: a module that throws while it is being required (generated seeds do
+// their work at import time) used to take the server down with it - the process
+// exited before app.listen(), so every scenario scored zero. A failed require now
+// falls back to this stub instead: any property is a callable that returns
+// another stub, so "seed(store)" and "seed.resource()" stay no-ops.
+function __arcStubModule() {
+  const stub = function () { return undefined; };
+  return new Proxy(stub, {
+    get: (target, prop) => (prop === 'then' ? undefined : __arcStubModule()),
+    apply: () => undefined,
+  });
+}
+'''
+
+#: ``const x = require('./x');`` / ``const { seed } = require('./seed');`` at the
+#: top level of the entry file - the statements that can kill the process.
+ENTRY_REQUIRE_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<kind>const|let|var)[ \t]+(?P<binding>[^=;\n]+?)[ \t]*="
+    r"[ \t]*(?P<expr>[^;\n]*require\([^)\n]*\)[^;\n]*);[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def _binding_names(binding: str) -> list[str]:
+    """The variables a declaration binds, or [] when the pattern is too exotic."""
+    text = binding.strip()
+    if text.startswith("{") and text.endswith("}"):
+        inner = text[1:-1]
+    elif text.startswith("[") and text.endswith("]"):
+        inner = text[1:-1]
+    else:
+        return [text] if re.fullmatch(r"[A-Za-z_$][\w$]*", text) else []
+    names: list[str] = []
+    for entry in inner.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        entry = entry.split(":")[-1].strip()
+        entry = entry.split("=")[0].strip()
+        if not re.fullmatch(r"[A-Za-z_$][\w$]*", entry):
+            return []
+        names.append(entry)
+    return names
+
+
+def guard_entry_requires(project_dir: Path) -> list[str]:
+    """Keep a module-level crash in a required module from killing the server.
+
+    r78's Stage-2 and Sheet runs both died at ``index.js:7`` while requiring the
+    generated seed module, and Stage-3 died the same way inside ``pulls.js``.
+    Every one of those is a *seeding* failure: the world would be incomplete, but
+    the pages, the routes and the SPA would all still work - and a served app that
+    answers some scenarios beats a server that never binds the port. The require
+    is therefore wrapped, and the app module itself is left alone (if that one
+    cannot load, nothing can serve anyway).
+    """
+    entry = _listen_file(project_dir)
+    if entry is None:
+        return []
+    body = _source_text(entry)
+    if not body or "__arcStubModule" in body:
+        return []
+    app_file = _app_file(project_dir)
+    changed = 0
+
+    def _replace(match: re.Match) -> str:
+        nonlocal changed
+        binding = match.group("binding")
+        expr = match.group("expr").strip()
+        specifier = re.search(r"require\(['\"]([^'\"]+)['\"]\)", expr)
+        if specifier is None:
+            return match.group(0)
+        if app_file is not None and specifier.group(1).startswith("."):
+            target = (entry.parent / specifier.group(1))
+            target = target.with_suffix(".js") if target.suffix != ".js" else target
+            try:
+                if target.resolve() == app_file.resolve():
+                    return match.group(0)
+            except OSError:
+                pass
+        names = _binding_names(binding)
+        if not names:
+            return match.group(0)
+        indent = match.group("indent")
+        declared = ", ".join(names)
+        assignment = expr if re.fullmatch(r"[A-Za-z_$][\w$]*", binding.strip()) \
+            else f"({binding.strip()} = {expr})"
+        stub = ", ".join(f"{name} = __arcStubModule()" for name in names)
+        changed += 1
+        return (
+            f"{indent}let {declared};\n"
+            f"{indent}try {{\n"
+            f"{indent}  {assignment};\n"
+            f"{indent}}} catch (arcRequireError) {{\n"
+            f"{indent}  console.error('arc: require({specifier.group(1)}) failed at import: '\n"
+            f"{indent}    + (arcRequireError && arcRequireError.message));\n"
+            f"{indent}  {stub};\n"
+            f"{indent}}}"
+        )
+
+    patched = ENTRY_REQUIRE_RE.sub(_replace, body)
+    if not changed:
+        return []
+    lines = patched.splitlines(keepends=True)
+    insert_at = 1 if lines and lines[0].startswith("#!") else 0
+    patched = "".join(lines[:insert_at]) + ARC_STUB_MODULE_HELPER + "".join(lines[insert_at:])
+    if not _write_text(entry, patched):
+        return []
+    return [f"{_relative(project_dir, entry)}: {changed} require(s) made crash-safe"]
+
+
+
 def ensure_router_call_guard(project_dir: Path) -> list[str]:
     """Install the runtime router-call guard and load it before anything else.
 

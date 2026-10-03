@@ -351,6 +351,30 @@ def _spawn_server(backend: Path, port: int, log_file: Path) -> subprocess.Popen:
     )
 
 
+def frontend_build(project_dir: Path, timeout: int = 240) -> str | None:
+    """Run just the frontend build, the way the grading container will.
+
+    Returns ``None`` when it is fine (or cannot be attempted here), otherwise the
+    failure text, which is what ``complete_missing_exports`` and
+    ``stub_unparseable_sources`` consume. The rehearsal used to be the last word
+    on "does the front end build", but the passes after it rewrite files: r78's
+    Stage-1 and Stage-3 both passed their rehearsal and then failed the grader's
+    own ``npm run build`` - a JSX parse error at ``PullRequestsPage.tsx:51:70``
+    and six names "not exported by src/api/index.ts". Re-running the same build
+    at the very end gives the repair loop a chance to see it.
+    """
+    npm = _npm()
+    frontend = project_dir / "frontend"
+    if npm is None or not (frontend / "package.json").exists():
+        return None
+    if not (frontend / "node_modules").is_dir():
+        return None          # the grading container installs and builds for itself
+    rc, out = _run([npm, "run", "build"], frontend, timeout)
+    if rc == 0:
+        return None
+    return f"frontend `npm run build` failed:\n{out}"
+
+
 def rehearse_startup(
     output_dir: Path, smoke_port: int, *, timeout: int = 600, install: bool = True,
     seed: dict | None = None,
