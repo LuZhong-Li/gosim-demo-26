@@ -1,10 +1,12 @@
 # ARC-Bench 参赛工作交接文档
 
-> 更新：2026-10-03 17:40（北京时间）｜作者：本次无人值守迭代的完整记录
+> 更新：2026-10-03 18:45（北京时间）｜作者：本次无人值守迭代的完整记录
 > 适用范围：`D:\gosim-demo-26\arcbench\**`（本仓库里的 ARC-Bench 子项目，**与 GX-Sheet 主线产品无关**）
 > 先读这份，再按第 9 节的"交接清单"上手；细节都在第 10 节列出的笔记里。
 > 17:40 补写：§11 无人值守自动化与通知策略、§12 决策记录、§13 命名与目录约定；
 > 同时把**探针、打包脚本与保险包**纳入版本库（此前它们在 gitignore 里，新克隆会丢）。
+> 18:45 补写：§8 更新到当前状态（r85 在跑 / r86 待发 / 保险6 = 9.65）并新增 §8.1
+> **包与运行版本的对应关系**（r85 从未被覆盖，新代码进的是 r86）。
 
 ---
 
@@ -198,30 +200,41 @@ robocopy "arcbench\agent" $stage /E /XD node_modules dist __pycache__ .venv .git
 
 ---
 
-## 8. 当前状态与未决问题（2026-10-03 17:2x）
+## 8. 当前状态与未决问题（2026-10-03 18:45 更新）
 
-* **正在跑**：r83（snapshot #57，5 active：原题 `9c6d7ddaccf5` / S1 `2900587c2fe8` /
-  S2 `616b2833e842` / S3 `164e8e5741aa` / Sheet `ce08f599a1b9`）。
-* **待发**：r84（`arcbench/dist/arc-agent-r84.zip`，119 项 / 431.2 KB / sha256 `02E35D24…84A7`），
-  在 r83 归零后上传；它同时含 **B（种子登录私有头旁路）** 与 **A（写操作响亮失败 + 回读校验）**。
-* **榜单最佳**：保险包 `arc-agent-r33.zip` = **9.65 / 13-of-200**（原题 11.31），最新提交是 `arc-agent-r33-insurance5`。
-* **预算**：约 ￥240（单轮生成型 ≈￥12，保险 ￥0）。
-* **自测配额**：剩 2 次（每天北京 8:00 重置）—— 自测站是**唯一**能拿逐条 pass/fail 的通道。
+* **正在跑**：r85（snapshot #59，5 active，10:12 UTC 起跑）——
+  原题 `81d2a40fd270` / Stage 1 `26c16d454887` / Stage 2 `a2f4e7514ea5` / Stage 3 `0425d1e015ee` / Sheet `a2a02c7ce23d`。
+* **待发**：r86（`arcbench/dist/arc-agent-r86.zip`，119 项 / 434.3 KB / sha256 `B9F4EFD2…2E44`）——
+  等 r85 归零、按判读结果决定是否上传。
+* **榜单**：最新提交 = `arc-agent-r85`（跑分中）；**当前最佳 = 保险包** `arc-agent-r33.zip` =
+  **9.65 / 13-of-200**（保险6 读数：原题 11.31 / 8.0%、**Stage 2 33.68 / 24.1%**、Sheet 6.75、
+  Stage 1/3 为 0、0 token / ￥0）。**r85 若 ≤ 9.65，收尾前必须把 `arc-agent-r33.zip` 重传为最新提交并起跑**（￥0，锁榜）。
+* **预算**：￥217.65（单轮生成型 ≈￥12；保险 ￥0）。
+* **自测配额**：剩 2 次（每天北京 8:00 重置）—— 自测站是逐条结果的**第二**通道，第一通道见 §14.6（官方报告）。
 
-> 17:40 复看：`/running` 显示 r83 的 4 条还在跑（Sheet `ce08f599a1b9` / Stage-2 `616b2833e842` /
-> Stage-1 `2900587c2fe8` / 原题 `9c6d7ddaccf5`，08:54 UTC 起跑），Stage-3 `164e8e5741aa` 已先结束。
+### 8.1 包与运行版本的对应关系（重要，别记混）
+
+| 包 | 打包时间 | sha256 | 内容 |
+|---|---|---|---|
+| `arc-agent-r85.zip` | 17:58 | `F8C90E66…DC1C` | **入口路由恢复**（不含页面恢复）。**这就是 10:12 UTC 上传、平台正在跑的那份**；复核确认该文件此后**没有被覆盖**（mtime 仍是 17:58、字节数 444234） |
+| `arc-agent-r86.zip` | 18:29 | `B9F4EFD2…2E44` | r85 + **页面恢复**（把入口渲染到的脚手架页面一起恢复）+ 修掉 r85 里两个真 bug |
+
+> 复盘规则：给某一轮打分做记录时，**以平台实际跑的包为准**，不要拿 `dist/` 里当前的文件去反推。
+> 上面的时间戳/sha256 就是为此保留的锚点。
 
 未决问题（按优先级）：
 
-1. **P9 世界播种**：应用自带 seed 常崩、我们的注入播种器常拿不到登录态 → 世界空 → 全 0。
-   r83 的私有头 + r84 的回读校验就是为它准备的判据。
-2. **空世界下的运行时 500**：路由里 `collection().find()` / `undefined[user]` 之类读操作应降级而不是 500。
-3. **Stage-1 REQ-2 的 13 个 accessible name**（`New team` / `Create team` / `Create organization` /
+1. **入口被占位或被扁平化改写**（§14.6 已用官方报告锁定为 0/100 的直接原因）：
+   r85 修入口路由表、r86 连"入口渲染到的页面"一起修。判读看 `entry route contract` 与
+   `restored pages the entry renders:` 两行。
+2. **P9 世界播种**：应用自带 seed 常崩、我们的注入播种器常拿不到登录态 → 世界空 → 全 0。
+   r83 的私有头 + r84 的回读校验是它的判据（`[arc-seed]` / `verify … items=`）。
+3. **空世界下的运行时 500**：路由里 `collection().find()` / `undefined[user]` 之类读操作应降级而不是 500。
+4. **Stage-1 REQ-2 的 13 个 accessible name**（`New team` / `Create team` / `Create organization` /
    `Add people or teams` / `Member menu <username>` / `Remove from organization` / `Account not found` /
    `Account is already a member` / `Cyclic team hierarchy is not allowed` / `Access denied` /
    `Remove bob-reviewer` / `Sign up`）。
-4. Sheet 覆盖 54–58/70，透视表工作流未在平台验证。
-5. 生成型天花板：**看不到 spec** + `exact-name coverage` 只是字符串包含 → coverage 高了也可能 0 分。
+5. Sheet 覆盖 54–58/70，透视表工作流未在平台验证。
 
 ---
 

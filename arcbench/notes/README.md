@@ -16,10 +16,17 @@
 
 | 文件 | 内容 |
 |---|---|
+| `evidence/official-report-digest-a128c4309297.md` | **官方逐条报告摘要（GitHub 原题 100 条）**：expected=0 / unexpected=100（73 超时 + 27 找不到导航目标），0 分的直接证据 |
 | `open-issues-2026-10-02.md` / `.txt` | 未解决问题清单（含"错误代码 vs 修复代码"对照） |
 | `logs-index-2026-10-03.md` | 日志总索引 + 逐轮关键标记表 |
 | `_log-stats.md` | 56 份日志的脚本统计（`runs/_log_stats.py` 生成） |
 | `blockers.md`、`known-limitations`（仓库根 `KNOWN-LIMITATIONS.md`） | 阻塞与已知限制 |
+
+> **平台逐条结果从哪来（2026-10-03 更正）**：官方 Playwright 报告**一直存在**，位置是
+> run/提交产物的 zip 里 —— `<runid>-template.zip` → `template/.arc/playwright-report.json`。
+> 早前"平台不给逐条结果"的结论是**错的**（当时只翻了 run 页 File 树和 stdout，没解 zip）。
+> 现在有两份可读报告：`arcbench/downloads/agent-packages/a128c4309297-template.zip`（整题 100 条）
+> 与 r72 Stage-2 的那份（29 条）。解压后用 `arcbench/runs/_report_digest.py <json>` 压成摘要。
 
 ## 平台与需求
 
