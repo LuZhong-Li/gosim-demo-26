@@ -490,6 +490,55 @@ export { App };
 `arcbench/runs/_report_digest.py <playwright-report.json> [...]`
 把官方报告压成"统计 + 状态分布 + 错误指纹 + 逐条失败"。
 
+### 14.9 官方起步包（2026-10-03 18:5x 挖出）——把 P9 的真实机制纠正了
+
+`C:\Users\HW\Downloads\agent-based\` 是官方参考实现：`agent-octos-based` = octos-org/arc-adapter
+（`main.py` + 完整 web 模板 + 38 轮踩坑提示词），另三个（blank / codex / claude-code）是同一
+runtime 的薄壳。**契约与教训可用，代码不必换。**
+
+**官方契约（README §适配包契约）**：`frontend/` + `backend/` 缺一报 `template is incomplete`；
+端口默认 3000、生成期碰 3000 会被 SIGTERM（冒烟用别的口）；日志 stdout+stderr 双写；
+持久化 = **纯 JS 的 JSON 文件，启动读入、每次 mutation 写回，并在为空时播种**
+（明确禁用 sqlite3/bcrypt 等原生模块）。我们 `prompts.py:306` 已经写着同一套。
+
+**纠正 1：不是"没持久化"。** 实测两份生成产物的 store **本来就会落盘**：
+r72 的 `store.js` 有 `DATA_FILE = __dirname/data.json` + `load()/save()`，文件不存在时
+`seed()+save()`；a128 同样。而且 `data.json` **不在交付包里**（查过）→ 世界是启动时现建的。
+
+**纠正 2：真正的机制是"脚手架 seed 跑了，但打在被改写的 store 上，大部分没落下去"。**
+a128 实测（`arcbench/runs/_scratch_r87_world_shape.py`）：
+
+```
+seed.js  与脚手架 templates/scaffold/backend/src/seed.js 逐字节相同（C3F611EB8763294F）
+gh_store.js 也与脚手架逐字节相同
+data.json 落盘结果：users=6 repos=1{branches,commits,pull_requests 各 1} accounts=35 sessions=1
+```
+
+| 测试要的名字 | 在 seed.js | 在 data.json | 结论 |
+|---|---|---|---|
+| `acme-docs` | ✅ | ✅ | 落下来了 |
+| `Acme Demo` / `acme-demo` | ✅ | ❌ | **seed 跑到一半就断了** |
+| `frontend-team` / `secret-research` / `Legacy welcome text` / `Document search flow` | ✅ | ❌ | 同上 |
+| `Improve onboarding` / `src/search.ts` / `bob-reviewer` | ✅ | ✅ | 落下来了 |
+
+即：**世界数据本来就在我们手里**（脚手架 seed.js 就是官方 TASK-011 的世界，第一行注释写着
+`account alice-dev / organization Acme Demo (acme-demo) / repository acme-docs / member bob-reviewer
+/ team frontend-team / branch release …`），但它被拿去喂一个**被模型改写过形状的 store**，
+写一半就停。这解释了 r72 报告里失败次数的分布：`acme-docs` ×9（缺失）、
+`Acme Demo` ×2、`branch-switch-demo` ×2（连 seed 里都没有）。
+
+**这同时解释了 r83 的 `sign-in store not seeded: ['backend/src/auth.js: unsupported password hashing']`
+以及 `sync-state: users=6`**：不是"种子没注入"，是**注入的种子写进了一个半兼容的 store**。
+
+**r87 的方向（据此收窄）**：不要再靠 HTTP 重放 + 鉴权去建世界（那是我们烧了 5 轮的路）。
+要么把**合同世界直接写进 app 的持久化状态**，要么让生成的 store 真正实现脚手架 seed 依赖的那组
+方法（`findUserByUsername` / `createUser` / `findOrg` / `membership` / `state.orgs.push` …）。
+后者的判据是**写后回读**：`data.json` 里必须出现 `Acme Demo`、`frontend-team`、`secret-research`。
+
+> 本次未完成：本地把生成的 app 跑起来做 HTTP 级验证。本机无 `npm`，硬拷单层 `node_modules`
+> 会因 pnpm 的 `.pnpm/` 链接而 `MODULE_NOT_FOUND`（实验已记录）。**要真验证 r87，需要在能
+> `npm install` 的环境里跑**——这正是交给 codex 的那件事。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。
