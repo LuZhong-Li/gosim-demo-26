@@ -67,6 +67,7 @@ from guard import ensure_app_router
 from guard import guard_app_use
 from guard import ensure_router_call_guard
 from guard import guard_entry_requires
+from guard import ensure_route_dump
 from guard import ensure_frontend_serving
 from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
@@ -1988,6 +1989,12 @@ def main(argv: list[str] | None = None) -> int:
         entry_guard = guard_entry_requires(project_dir)
         if entry_guard:
             log(f"[arc-agent] entry require guard: {entry_guard}")
+        # "Was the route mounted at all?" is the question every log review ends
+        # on (r76's `no route answered`, the P9 H1/H2 split). Print the handler
+        # stack once the server is up instead of guessing from 404s.
+        route_dump = ensure_route_dump(project_dir)
+        if route_dump:
+            log(f"[arc-agent] route dump: {route_dump}")
         # r71 Stage 1 booted, seeded and still scored zero because its app.js
         # answered the browser with "ENOENT .../backend/src/frontend/dist/index.html".
         # The suite drives the product in a browser, so the built front end has to

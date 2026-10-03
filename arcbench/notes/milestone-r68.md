@@ -1234,6 +1234,55 @@ blocking 的真正瓶颈始终是 P9 —— **世界没被播种**（场景 GIVE
 > （上传 `arc-agent-r33.zip` + 起跑，￥0 / 约 20 分钟）。我打算在 r82 出分后立刻做这件事，
 > 除非 r82 出现非 0 分并且明显值得继续迭代。
 
+---
+
+## 17:0x r82 出分（全 0）+ 决定性证据 + r83 已起跑
+
+### 1. r82：五题全 0，但日志给出了两条硬信息
+
+| 证据 | 原文 | 含义 |
+|---|---|---|
+| 种子崩了但被守住 | `arc: seed() failed: Cannot read properties of undefined (reading 'findUserByUsername')` | 守卫 4 生效（进程没死） |
+| **SPA 又是 ENOENT** | `Error: ENOENT: no such file or directory, stat '/workspace/template/backend/frontend/dist/index.html'`（连续多行） | **每个页面请求都 500** → 所有场景第一步就失败 |
+| 我方播种器没出声 | 没有任何 `[arc-seed]` 行 | 播种器没跑起来（H1 方向） |
+
+`backend/frontend/dist/...`（少退一级）说明生成的 dist 路径是**另一种拼法**
+（`path.join(__dirname, '..', 'frontend', …)` 之类），老的窄正则 `WRONG_DIST_ROOT`
+只认 `sendFile('frontend/dist/index.html', {root: __dirname})`，所以没被改写 ——
+这正是 r71 修过的"每个场景第一步就死"的同一症状换了件马甲。
+
+### 2. r83 的四项修复（都在同一轮里）
+
+| # | 修复 | 针对 |
+|---|---|---|
+| A1 | 注入模块新增**专用登录路径** `/__arc_seed__/login`，并在播种器候选里**排第一** | P9-H1（没走到路由） |
+| A2 | **私有请求头 `x-arc-seed-token`**：带这个头的请求被当作已登录用户（填 `req.user`/`req.session.user`/`req.session.userId`/`req.auth`/`res.locals.user`，`isAuthenticated()` 返回 true），播种器每个请求都带上它 | P9-H2（合成 token 被应用鉴权拒绝） |
+| B | 入口在 `listen` 后 **dump 全部已注册路由**（`[arc-routes] GET /… \| POST /…`） | 以后"路由到底挂没挂"直接从日志看 |
+| C | store 兜底代理：**集合类属性名**（`organizations/teams/repos/...`）返回**空数组**（不是函数） | r80 Stage-3 `findOrg` 空世界 500 |
+| D | `sendFile(...)` **一律改写为** `sendFile(__arcDistIndex)`（不再只认一种拼法） | r82 的 ENOENT 全线 500 |
+
+探针：新增 `_scratch_r83_p9.py`（真实起服务验证：不带私有头 → **401**；`/__arc_seed__/login` → 200+token；
+**带私有头 → 200 + 用户名**；并断言路由 dump 已打印），`_scratch_r73_frontend_serving.py` 增加 r82 拼法断言，
+`_scratch_r81_store_stub.py` 增加"未播种集合 → 空数组"断言。本地门禁 **15/15** + `py_compile`。
+
+### 3. r83 包与起跑
+
+- 包：`arcbench/dist/arc-agent-r83.zip`，**119 项 / 430.0 KB / sha256 `AD4670E4…2949`**；
+- 上传：snapshot **#57**（History 56 → 57）；
+- 起跑：5 active，run id
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `9c6d7ddaccf5` |
+| hackathon--github-stage-1 | `2900587c2fe8` |
+| hackathon--github-stage-2 | `616b2833e842` |
+| hackathon--github-stage-3 | `164e8e5741aa` |
+| hackathon--sheet | `ce08f599a1b9` |
+
+> r83 是本轮"最有针对性"的试验：如果 D（SPA 路径）生效，至少页面能打开；
+> 如果 A1/A2 生效，注入播种器就能在应用自身 seed 崩掉的情况下把世界建起来。
+> 两者只要有一个成立，Stage-2/3/Sheet 就有机会第一次拿到非 0 分。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
