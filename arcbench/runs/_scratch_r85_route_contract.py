@@ -98,7 +98,8 @@ export default function App() {
 """
 
 
-def build_project(tmp: Path, name: str, entry_source: str, *, prune_pages: bool = False) -> Path:
+def build_project(tmp: Path, name: str, entry_source: str, *, prune_pages: bool = False,
+                  shadow_home: bool = False) -> Path:
     project = tmp / name
     shutil.copytree(TEMPLATE, project)
     pages = project / "frontend" / "src" / "pages"
@@ -107,6 +108,15 @@ def build_project(tmp: Path, name: str, entry_source: str, *, prune_pages: bool 
         "export default function Home() { return <div>Home</div>; }\n", encoding="utf-8")
     if prune_pages:
         (pages / "TeamPage.tsx").unlink()
+    if shadow_home:
+        # Exactly the graded r72 Core-Requirements shape: the generator wrote its
+        # own HomePage.tsx (1,508 bytes there) which has no searchbox. The route
+        # restore alone would still leave the 17 searchbox specs timing out,
+        # because the entry imports './pages/HomePage' and this file shadows the
+        # scaffold one.
+        pages.joinpath("HomePage.tsx").write_text(
+            "export default function HomePage() { return <div>Home</div>; }\n",
+            encoding="utf-8")
     (project / "frontend" / "src" / "App.tsx").write_text(entry_source, encoding="utf-8")
     return project
 
@@ -177,6 +187,31 @@ def main() -> int:
             failures.append("the guard is not idempotent")
         if entry.read_text(encoding="utf-8") != once:
             failures.append("a second run changed the entry")
+
+        # ---------------------------------------------------------------- 5
+        # The graded r72 Core-Requirements project: the entry was replaced by the
+        # bundler placeholder (286 bytes, no Routes at all) and the generator's own
+        # HomePage.tsx shadows the scaffold one. Restoring only the entry would
+        # leave the 17 searchbox specs failing, so the pages must come back too.
+        project = build_project(tmp, "stub-entry", FLAT_ENTRY, shadow_home=True)
+        entry = project / "frontend" / "src" / "App.tsx"
+        live_home = project / "frontend" / "src" / "pages" / "HomePage.tsx"
+        if 'aria-label="Search"' in live_home.read_text(encoding="utf-8"):
+            failures.append("the fixture did not actually shadow the scaffold HomePage")
+        changed = restore_entry_route_contract(project, TEMPLATE)
+        print(f"[5] shadowed HomePage -> {len(changed)} change group(s)")
+        for line in changed:
+            print(f"        {line}")
+        if not changed:
+            failures.append("the shadowed entry was not repaired")
+        home_after = live_home.read_text(encoding="utf-8")
+        if 'aria-label="Search"' not in home_after:
+            failures.append("the scaffold HomePage was not restored, so the 17 "
+                            "searchbox specs would still time out")
+        if "searchbox" not in home_after and 'type="search"' not in home_after:
+            failures.append("the restored HomePage carries no search control")
+        if not any("restored pages" in line for line in changed):
+            failures.append("the change report does not mention the page restore")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -410,6 +410,71 @@ C3 的安全边界：只在**脚手架入口 import 的模块在真实工程里�
 
 ---
 
+### 14.6 第二份官方报告（100 条，2026-10-03 18:3x 挖出）——0/100 的直接原因已锁定
+
+`arcbench/downloads/agent-packages/a128c4309297-template.zip` 里也有一份
+`template/.arc/playwright-report.json`，这是**整题**（"GitHub Collaboration Platform Core
+Requirements"，REQ-1…REQ-6 全覆盖）：
+
+```
+stats: {expected: 0, unexpected: 100, flaky: 0, skipped: 0, duration: 844122}
+statuses: timedOut 73 / failed 27
+```
+
+失败指纹：**73 条整条 10s 超时**，加 27 条
+`Could not find a visible navigation target named "…"`（`acme-docs` ×9、`Improve onboarding` ×3、
+`Pull requests` ×3、`Overview onboarding PR` ×3、`Acme Demo` ×2、`branch-switch-demo` ×2、
+`Issues` ×2，其余各 1），另有 1 条测试自身的 `ReferenceError: uniqueAccount is not defined`。
+
+**直接原因：那份工程的 `frontend/src/App.tsx` 只有 286 字节，是 `stub_unparseable_sources`
+写的占位组件。**
+
+```tsx
+// Placeholder written by the ARC agent: this file could not be
+// parsed by the bundler, and one unparseable file fails the whole
+// build. A visible heading keeps it reachable and resolvable.
+export default function App() {
+  return <section><h1>App</h1></section>;
+}
+export { App };
+```
+
+同一份工程里 `frontend/src/pages/` 下有 **25 个生成页面**（含 `HomePage.tsx`、`RepoPage.tsx`、
+`RepoSearchPage.tsx`…），**一个都挂不上**——入口被替换成只渲染 `<h1>App</h1>` 的占位。
+于是每条用例的第一个 `getByRole` 都找不到东西，全部 10s 超时；27 条走的是另一条断言路径，
+直接报"找不到可见导航目标"。
+
+**这正是 r85/r86 的 C3 要处理的形态，而且已用这份真实工程做过验证：**
+
+| 检查 | 结果 |
+|---|---|
+| 占位入口里含 5 条要求路由中的几条 | **0/5** |
+| 脚手架入口 import 的模块在**该真实工程**里是否齐全 | **11/11 全部存在** |
+| → `restore_entry_route_contract` 是否会触发 | **会** |
+
+但**只恢复入口还不够**：该工程的 `pages/HomePage.tsx` 是它自己生成的 1,508 字节版本（无 searchbox），
+会遮蔽脚手架的同名文件 → 17 条 searchbox 用例照样超时。所以 r86 把
+**入口 + 它渲染的脚手架页面**一起恢复，并加进探针第 5 个场景（用这份真实工程的形态：
+生成的 `HomePage.tsx` 遮蔽脚手架版，断言恢复后 `aria-label="Search"` 回来）。
+
+判读新增一行：`restored pages the entry renders:`。
+
+### 14.7 包一览（当前）
+
+| 包 | 状态 | 说明 |
+|---|---|---|
+| `arc-agent-r33.zip` | **保险，榜单基线** | 9.65 / 13-of-200（保险6 读数：原题 11.31 / 8.0%、**Stage 2 33.68 / 24.1%**、Sheet 6.75、Stage 1/3 为 0） |
+| `arc-agent-r85.zip` | **已上传并起跑**（History 59） | 119 项 / sha256 `F8C90E66…DC1C`；两个新探针版本 = 入口恢复（不含页面恢复） |
+| `arc-agent-r86.zip` | **待发** | 119 项 / 434.3 KB / sha256 `B9F4EFD2…2E44`；= r85 + 页面恢复（+ 修掉 r85 里两个探针抓出的真 bug） |
+
+**Stage 2 = 33.68 这条要记住**：同一套 spec 下保险包能拿 24.1%，说明 runner 与 spec 都是好的，
+分差 100% 来自被测应用。所以 r85/r86 的判据收窄为：**任一任务 > 0 = 方向成立**。
+
+### 14.8 判读工具
+
+`arcbench/runs/_report_digest.py <playwright-report.json> [...]`
+把官方报告压成"统计 + 状态分布 + 错误指纹 + 逐条失败"。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。

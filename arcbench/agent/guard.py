@@ -4958,10 +4958,43 @@ def restore_entry_route_contract(project_dir: Path, template_dir: Path) -> list[
         return []
     if not _write_text(live, original):
         return []
-    relative = _relative(project_dir, live)
-    return [f"{relative}: restored the scaffold route contract "
-            f"(the generated entry had lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} "
-            f"parameterised route(s): {', '.join(missing[:3])})"]
+    changed = [f"{_relative(project_dir, live)}: restored the scaffold route contract "
+               f"(the generated entry had lost {len(missing)}/{len(REQUIRED_ENTRY_ROUTES)} "
+               f"parameterised route(s): {', '.join(missing[:3])})"]
+
+    # The entry is only half of the contract: it renders the scaffold's *pages*,
+    # and a generated page of the same name shadows the scaffold one. The graded
+    # r72 Core-Requirements project is the proof - its generated
+    # frontend/src/pages/HomePage.tsx is 1,508 bytes with no searchbox, so the
+    # 17 specs that wait on getByRole('searchbox', {name:'Search'}) time out even
+    # once the route exists. Whenever the contract had to be restored, the pages
+    # the scaffold entry imports are restored with it.
+    restored_pages: list[str] = []
+    for specifier in sorted(set(re.findall(r"""from\s+['"](\.[^'"]+)['"]""", original))):
+        resolved = _resolve_target(live, specifier)
+        if resolved is None:
+            continue
+        # ``resolved`` is a file in the LIVE project; the same relative path under
+        # the template's src/ is the scaffold original to put back.
+        try:
+            relative_in_src = resolved.relative_to(src)
+        except ValueError:
+            continue
+        template_page = template_src / relative_in_src
+        if not template_page.is_file():
+            continue
+        before = _source_text(resolved)
+        wanted = _source_text(template_page)
+        if not wanted or before == wanted:
+            continue
+        if _write_text(resolved, wanted):
+            restored_pages.append(_relative(project_dir, resolved))
+    if restored_pages:
+        changed.append("restored pages the entry renders: "
+                       + ", ".join(restored_pages[:6])
+                       + (f" (+{len(restored_pages) - 6} more)"
+                          if len(restored_pages) > 6 else ""))
+    return changed
 
 
 def accessibility_contract_issues(project_dir: Path) -> list[str]:
