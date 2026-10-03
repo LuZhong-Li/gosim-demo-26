@@ -72,6 +72,7 @@ from guard import ensure_frontend_serving
 from guard import ensure_account_menu_contract
 from guard import ensure_collection_never_empty
 from guard import ensure_collection_shape
+from guard import ensure_single_signin_link
 from guard import ensure_store_method_stub
 from guard import restore_keep_pages
 from guard import restore_entry_route_contract
@@ -2034,6 +2035,15 @@ def main(argv: list[str] | None = None) -> int:
         shape_guard = ensure_collection_shape(project_dir)
         if shape_guard:
             log(f"[arc-agent] collection shape guard: {shape_guard}")
+        # Self-test 94b0b227: once the entry was restored, ALL 30 Stage-1 specs died
+        # on one duplicate - the shell header and HomePage each rendered a
+        # "Sign in" link, and `/` mounts HomePage. Half the suite clicks it (strict
+        # mode) and half asserts toHaveCount(1), so both signatures come from the
+        # same cause, and it blocks the page before sign-in. That also means the
+        # world/data layer behind it is unobservable until this is clean.
+        signin_guard = ensure_single_signin_link(project_dir)
+        if signin_guard:
+            log(f"[arc-agent] sign-in uniqueness: {signin_guard}")
         # r72's Stage-2 graded report is the only per-spec measurement we have:
         # 0 of 29 passed, 12 of them because no route could render a repository
         # ("Could not find a visible navigation target named \"acme-docs\"").

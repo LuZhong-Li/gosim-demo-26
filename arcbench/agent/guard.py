@@ -4702,6 +4702,76 @@ def ensure_collection_shape(project_dir: Path) -> list[str]:
     return [f"collection() answers both shapes in {len(changed)} store module(s): "
             f"{', '.join(changed[:4])}"]
 
+#: A JSX link whose entire text is a sign-in label: ``<Link to="/auth">Sign in</Link>``.
+#: The published suite opens almost every Stage-1 scenario with
+#: ``getByRole('link', {name:'Sign in', exact:true})``, sometimes ``.click()``
+#: (strict mode) and sometimes ``toHaveCount(1)``, so a second match fails both
+#: ways. Measured on the real artifact (self-test 94b0b227): after the entry was
+#: restored, all 30 spec failed on exactly this and nothing later was observable.
+SIGNIN_LINK_JSX = re.compile(
+    r"<(?P<tag>Link|a)\b(?P<attrs>[^>]*?)>\s*(?P<label>Sign\s*in|Sign\s*In|Log\s*in|Log\s*In|Login)\s*</(?P=tag)>"
+)
+#: ``to="/auth?mode=signin"`` and friends - the target or href of a sign-in link.
+SIGNIN_TARGET = re.compile(
+    r"""(?:to|href)\s*=\s*["'{][^"'}]*(?:mode=sign-?in|/sign-?in\b|/(?:log-?in|login)\b|/auth\b)""",
+    re.IGNORECASE,
+)
+#: Files that legitimately own a sign-in control: the app shell (its header is
+#: the ONE navigable entry) and the auth screens themselves.
+SIGNIN_KEEP_RE = re.compile(
+    r"(?:^|[/\\])(?:App|main|AuthPage|SignInPage|LoginPage|__arc_auth__)\.(?:tsx|jsx)$"
+)
+
+
+def ensure_single_signin_link(project_dir: Path) -> list[str]:
+    """Leave exactly one navigable "Sign in" control on every screen.
+
+    Self-test run 2 (``94b0b227``) restored the entry, rendered real scaffold UI
+    and then lost all 30 Stage-1 specs to one duplicate: the shell's header and
+    ``HomePage`` both rendered ``<Link to="/auth?mode=signin">Sign in</Link>``, and
+    ``/`` mounts HomePage, so both were on the page at once. Half the specs die on
+    a strict-mode violation from ``.click()`` and half on
+    ``toHaveCount(1)`` failing with Received: 2 - two different signatures, one
+    cause, and it blocks the page before sign-in, so the world/data layer behind
+    it is unobservable.
+
+    The shell keeps its header (the one navigable entry the suite expects), the
+    auth screens keep their own controls, and a sign-in *link* on any other page
+    is demoted to plain text: the sentence still reads correctly, and the link
+    count goes back to one. Only whole single-line links are rewritten; anything
+    the pattern cannot parse is left alone, because a half-rewritten element is a
+    build failure and a build failure is a guaranteed zero.
+    """
+    src = project_dir / "frontend" / "src"
+    if not src.is_dir():
+        return []
+    changed: list[str] = []
+    for path in sorted(src.rglob("*")):
+        if path.suffix.lower() not in (".tsx", ".jsx"):
+            continue
+        relative = _relative(project_dir, path)
+        if SIGNIN_KEEP_RE.search(relative):
+            continue
+        body = _source_text(path)
+        if not body or 'to="/auth' not in body and "to='/auth" not in body:
+            continue
+        removed = 0
+
+        def rewrite(match: re.Match) -> str:
+            nonlocal removed
+            if not SIGNIN_TARGET.search(match.group("attrs")):
+                # A sign-in label pointing somewhere else is not the duplicate.
+                return match.group(0)
+            removed += 1
+            # Keep the words, drop the anchor: one fewer link, same sentence.
+            return match.group("label").replace("  ", " ")
+
+        patched = SIGNIN_LINK_JSX.sub(rewrite, body)
+        if removed and _write_text(path, patched):
+            changed.append(f"{relative}: demoted {removed} duplicate sign-in link(s) to text")
+    return changed
+
+
 #: A ``sendFile`` whose root is the app module itself - the browser then gets
 #: "ENOENT ... backend/src/frontend/dist/index.html" instead of the app.
 WRONG_DIST_ROOT = re.compile(

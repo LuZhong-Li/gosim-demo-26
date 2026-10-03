@@ -61,7 +61,14 @@ export default function HomePage({ user }: { user: User | null }) {
       </p>
       {!user && (
         <p>
-          <Link to="/auth?mode=signin">Sign in</Link> ·{' '}
+          {/* UNIQUENESS: the header already renders the one navigable "Sign in"
+              link, and the published suite opens with
+              getByRole('link', {name:'Sign in', exact:true}) - sometimes
+              .click() (strict mode) and sometimes toHaveCount(1). A second one
+              here made every Stage-1 scenario fail before it could reach
+              anything else. Plain text keeps the sentence readable while leaving
+              exactly one link on the page. */}
+          Sign in or{' '}
           <Link to="/auth?mode=signup">Create an account</Link>
         </p>
       )}
