@@ -692,3 +692,55 @@ argument handler  0 | ENOENT 0 | is not a function 0 | Cannot read properties of
 
 同时产出日志总索引 `arcbench/notes/logs-index-2026-10-03.md` + 41 份日志的标记统计
 `arcbench/notes/_log-stats.md`（crash / listen / seed / notfn / nullread / enoent / coverage 逐轮）。
+
+---
+
+## 10:0x–10:3x 等 r76 出分期间：补抓日志 + 落一个 r77 的 P0 修复
+
+### 1. 日志归档补齐（用户要求"按 r69–r72 的方式把后面几个也整理出来"）
+
+- `r73日志/`、`r74日志/` 各 5 份，命名沿用 `rNN-1`（原题）/`rNN-1-1|1-2|1-3`（Stage 1/2/3）/`rNN-2`（Sheet），
+  行数与平台页面显示一致（例：`r73-2.txt` = 319 行，与 run 页 "319 lines" 对上）；
+- `r75日志/README.txt`：包已上传但**从未起跑**（Run 按钮拒绝自动点击），故无 stdout —— 不是漏抓；
+- `r76日志/README.txt`：09:45 起跑，5 个 run id 已记录，抓完补五份 stdout；
+- `logs-index-2026-10-03.md`：把 r73/r74 那几行**估计值换成 `_log_stats.py` 的真实值**（含 51 份日志），
+  并把"只在 r68/r70 崩过"的旧结论改写成 r74 回归的事实（见下）；
+- `downloads-index.md`：`logs/` 从 24 份 2.2MB 更新为 39 份 3.4MB，写明逐轮命名约定与抓取方式。
+
+### 2. r74 的真实崩点找到了（不是 `app.use`，是 `router.post`）
+
+`r74日志/r74-1-1.txt`（Stage 1）原文：
+
+```
+[template-app.stderr] /workspace/template/backend/node_modules/router/lib/route.js:228
+[template-app.stderr] TypeError: argument handler must be a function
+[template-app.stderr]     at Route.<computed> [as post] (.../router/lib/route.js:228:15)
+[template-app.stderr]     at Router.<computed> [as post] (.../router/index.js:448:19)
+[template-app.stderr]     at Object.<anonymous> (/workspace/template/backend/src/pr.js:67:8)
+[template-app.stderr]     at Object.<anonymous> (/workspace/template/backend/src/app.js:7:18)
+```
+
+即：崩在**模块内的 `router.post(path, <undefined>)`**，`guard_app_use()` 只重写 `app.use(` 文本，看不到它；
+同一个日志里 `app.use() runtime guard: 16 call(s) type-checked` 明明成功，仍然启动失败。
+r74 的 Stage-3 也是同一个洞（`crash=2`）。
+
+### 3. 修复：`ensure_router_call_guard()`（commit 94ddebd，进 r77 包）
+
+- 常量 `ARC_ROUTER_GUARD_MODULE` → 生成期写入 `backend/src/__arc_router_guard__.js`，并在
+  `index.js`（`.listen()` 那个文件）与 `app.js` 的**第一行**插入 `require('./__arc_router_guard__')`，
+  保证在任何生成模块之前打好补丁；`__arcGuarded` 标记 + 内容比对双重幂等；
+- 运行期patch 三个面：`express.Route.prototype.<verb>`（express 5.2.1 里所有 route 注册的必经点，
+  `router/lib/route.js:214` 会抛）、`express.Router.prototype.<verb>`、`Router.prototype.use` 与
+  `express.application.use`；
+- 语义：丢掉 `undefined/null/非函数` 的 handler；**若只剩下路径**（`app.use('/x', undefined)`）就整条跳过，
+  因为 express 会抛 `app.use() requires a middleware function`（本地探针实测就是这么炸的）。
+- 本地断言 `arcbench/runs/_scratch_r77_router_guard.py`（用 `selftest-r71-ghstage1-served.zip` 里
+  hoisted 的真实 express 5.2.1 跑）：
+
+```
+before: rc=1 TypeError reproduced        （未打补丁 → 复现 r74 崩点）
+after : rc=0 Backend listening on 38868  （打补丁 → 正常起服务）
+```
+
+> 注意：**每轮生成的应用是模型重新写的**，所以 r74 的 `pr.js:67` 不会原样出现在下一轮；
+> 这个修复针对的是"这一类崩点"，不是那一行代码。
