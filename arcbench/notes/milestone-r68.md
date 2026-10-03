@@ -861,3 +861,61 @@ r77 那层运行期 shim 的 `hasMiddleware` 判定则是同类兜底。同时�
 > 新增 `_scratch_r78_appuse_pathonly.py`：先用 **r76 时代的 `ARC_USE_HELPER` 副本**跑一遍
 > （`rc=1` + 复现 "requires a middleware function"），再用修好的 helper + 运行期 shim 跑一遍
 > （`rc=0` + `Backend listening`）——两头都有证据，而不是只证明"现在能跑"。
+
+---
+
+## 10:24–10:55 r76 五题全 0 → r78 已上传并起跑
+
+### 1. r76 最终成绩（task 页 Run history，时间戳为 UTC）
+
+| 任务 | run id | 分数 |
+|---|---|---|
+| GitHub 原题 | `822270b65bf1` | 0.0 |
+| Stage 1 | `3d44ceb37119` | 0.0 |
+| Stage 2 | `8a996fc02103` | 0.0 |
+| Stage 3 | `6bfd0c41405d` | 0.0 |
+| Sheet | `72c47d2cd72f` | 0.0 |
+
+同页对照：`arc-agent-r33-insurance2` = 原题 7.0 / Stage-2 27.6；`arc-agent-r73` Stage-2 = 6.9。
+
+五份 stdout 全部落盘到 `arcbench/downloads/logs/r76日志/`（37–53 KB / 各 400+ 行），
+`_log_stats.py` 重算入 `_log-stats.md`（并给它加了 `mwfn` / `typeerr` 两列）。
+
+### 2. 三种失败形态（证据分界清晰）
+
+| 形态 | 任务 | 日志证据 |
+|---|---|---|
+| **启动崩溃 A**：mount 只剩路径 | Stage-2 | `arc: dropped 1 non-function middleware argument(s)` → `TypeError: app.use() requires a middleware function`（`app.js:50` ← `app.js:299`），`listen=0` |
+| **启动崩溃 B**：store 方法没导出 | Sheet | `TypeError: store.createWorksheet is not a function`（`seed.js:38` ← `index.js:7`），`listen=0`、`notfn=1` |
+| **起来了但 0 分** | 原题 / Stage-1 / Stage-3 | `Backend listening` + `world seed finished`，但原题播种期 56 次 `no route answered`+401；Stage-1 连 `world seed finished` 都没有 |
+
+### 3. r78 = r73 基线 + 三处修复（已上传、已起跑）
+
+| 提交 | 名称 | 说明 |
+|---|---|---|
+| `arc-agent-r78` | snapshot #50（History 49→50） | 119 项 / 422.7 KB / sha256 `D787366E…85E6` |
+
+修复清单：
+
+1. **`__arcUse` mountable 判定**（文本级）：过滤后没有任何可挂载中间件时直接跳过，不再把裸路径交给 express；
+2. **运行期 router-call guard**（r77 引入、本轮修掉路径 bug）：`Route.prototype` / `Router.prototype` / `application.use` 三个面；
+3. **store 契约改为"看导出面"**：`module.exports = {...}` 存在时，只有它（加 `exports.x =` / `x.y = function`）
+   算已定义 —— 这正是 r73/r76 Sheet 两轮都崩却查不出来的原因。
+
+本地门禁 **9/9 通过** + `py_compile`：`r69`、`r70_appuse`、`r73_frontend_serving`、`r73_collection_guard`、
+`r75_use_sweep`、`r77_router_guard`（含 `/live` 合法路由回归断言）、`r77_store_contract`、
+`r78_appuse_pathonly`（r76 崩点复现→修复）、`r78_store_exports`（旧规则盲区→新规则检出→填充→启动）。
+
+起跑（10:52）：
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `c5bcec3102f5` |
+| hackathon--github-stage-1 | `5690ba85cc86` |
+| hackathon--github-stage-2 | `9efdcd4ea9de` |
+| hackathon--github-stage-3 | `cea51026e4ec` |
+| hackathon--sheet | `232158cb3a41` |
+
+> 平台细节：`Run 5 remaining tasks` 的 Playwright 点击报了 `Timed out running CDP command
+> "Input.dispatchMouseEvent"`，但**点击其实已经生效**——随后 `/running` 就是 5 active。
+> 以后遇到这个报错，先复查 `/running` 再决定是否重试，避免重复起跑。

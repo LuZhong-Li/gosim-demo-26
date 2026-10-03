@@ -10,7 +10,7 @@
 arcbench/downloads/
 ├── agent-packages/   17 个文件  12.8 MB   历史 agent 包 + 各 run 的工作区 zip
 ├── requirements/     40 个文件  19.8 MB   需求压缩包 + 解开的 hackathon--github / hackathon--sheet
-├── logs/             39 个文件   3.4 MB   r69–r76 逐 run 日志 + 官方群聊记录 + 问题清单
+├── logs/             44 个文件   3.6 MB   r69–r76 逐 run 日志 + 官方群聊记录 + 问题清单
 ├── runs/              9 个文件  23.9 MB   r71-project / r72-project（各 run 的 template.zip）
 └── notes/             3 个文件   0.0 MB   第三方诊断报告 / 规格文档 / 截图
 ```
@@ -46,7 +46,7 @@ arcbench/downloads/
 | `r69日志/` … `r72日志/` | 每轮 5 份 `rNN-x.txt`（用户从 run 页复制的 Stdout），r70 多两份 stage3 续抓 | 
 | `r73日志/`、`r74日志/` | 每轮 5 份，**由我按同一命名补抓**（`_dump` 走 run 页 Stdout 标签），共 10 份、1.07 MB |
 | `r75日志/` | 只有 `README.txt`：包已上传但**从未起跑**（平台 Run 按钮拒绝自动点击），所以没有 stdout |
-| `r76日志/` | 起跑后补抓，格式同 r69–r74 |
+| `r76日志/` | 5 份 stdout 已抓齐（+ `README.txt` 记结论），格式同 r69–r74 |
 | `_write_probe.txt` | 排查"能否写入本目录"时留下的探针文件（0 字节），可忽略 |
 
 > **逐轮命名约定**（r69 起统一）：`rNN-1.txt` = GitHub 原题、`rNN-1-1/1-2/1-3.txt` = Stage 1/2/3、

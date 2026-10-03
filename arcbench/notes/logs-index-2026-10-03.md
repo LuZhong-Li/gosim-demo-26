@@ -31,7 +31,8 @@
 | **r73** | `arc-agent-r73` | **0.69（2/200）** | **1.54** | 0 | **5.35** | 0 | 0 | **两个 P0 修复生效，生成型首次破零** |
 | r74 | `arc-agent-r74` | 0.00 | 0 | 0 | 0 | 0 | 0 | 菜单包装壳回归（`argument handler` 复现） |
 | r75 | `arc-agent-r75` | 未起跑 | — | — | — | — | — | 已上传但从未起跑（平台 Run 按钮拒绝自动点击），被 r76 取代 |
-| **r76** | `arc-agent-r76` | 跑分中 | — | — | — | — | — | 09:45 人工点击起跑，5 active；日志抓完补入 `r76日志/` |
+| r76 | `arc-agent-r76` | **0.00（0/200）** | 0 | 0 | 0 | 0 | 0 | 5 题全 0：Stage-2 / Sheet 是启动崩溃；原题 / Stage-1 / Stage-3 起了但世界没建起来 |
+| **r78** | `arc-agent-r78` | **跑分中** | — | — | — | — | — | 10:52 起跑（原题 `c5bcec3102f5`、S1 `5690ba85cc86`、S2 `9efdcd4ea9de`、S3 `cea51026e4ec`、Sheet `232158cb3a41`），含 r76 两个崩点的修复 |
 | 保险 | `arc-agent-r33-insurance2` | ≈（7/200） | **9.77** | 0 | — | — | — | 榜单兜底 |
 
 ## 3. 关键标记逐日志统计（脚本生成）
@@ -68,11 +69,28 @@
 | r74 stage3 | 44K | **2** | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 2 | 0 | 131/141 |
 | r74 sheet | 24K | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 2 | 61/70 |
 
-r75 从未起跑（目录里只有 `README.txt`）；r76 五题 09:45 起跑、进行中，抓完立刻按同一格式补行。
+r75 从未起跑（目录里只有 `README.txt`）；r76 五题已抓齐，见下面那张新表。
 
-完整 **51 行**统计见 `arcbench/notes/_log-stats.md`（本表摘取关键行）。表里的数字不是估计值：
+完整 **56 行**统计见 `arcbench/notes/_log-stats.md`（本表摘取关键行）。表里的数字不是估计值：
 `python arcbench/runs/_log_stats.py` 会把 `arcbench/downloads/logs/r*日志/*.txt`
 与 `arcbench/runs/_r*_stdout.txt` 一起重算，改完日志重跑一遍即可。
+
+### r76 逐日志（脚本新增两列：`mwfn` = `requires a middleware function`，`typeerr` = `TypeError:` 次数）
+
+旧的列集只有 `crash`（`argument handler must be a function`），r76 的两种新崩法它一次也匹配不到，
+所以给 `_log_stats.py` 加了 `mwfn` / `typeerr` 两列并重算了全部 56 份日志：
+
+| 日志 | 大小 | crash | mwfn | typeerr | listen | seed | notfn | coverage |
+|---|---|---|---|---|---|---|---|---|
+| r76-1 github | 41K | 0 | 0 | 0 | **1** | **1** | 0 | 126/143 |
+| r76-1-1 Stage-1 | 37K | 0 | 0 | 0 | **1** | 0 | 0 | 138/178 |
+| **r76-1-2 Stage-2** | 53K | 0 | **2** | 1 | **0** | 0 | 0 | 150/172 |
+| r76-1-3 Stage-3 | 45K | 0 | 0 | 0 | **1** | **1** | 0 | 136/141 |
+| **r76-2 Sheet** | 29K | 0 | 0 | 1 | **0** | 0 | **1** | 58/70 |
+
+两处 `listen=0` 就是两个启动崩点（Stage-2 的 mount 丢了 handler、Sheet 的 `store.createWorksheet`
+没被导出），修复都在 r78；三处 `listen=1` 是"进程起来了但 0 分"（世界没真正建起来 / 接口未命中），
+属于 r79 之后的主攻方向。
 
 **这张表说明的五件事**
 

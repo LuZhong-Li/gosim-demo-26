@@ -94,18 +94,39 @@ STORE_DEFINITION_RES = (
     re.compile(r"\bmodule\.exports\.([A-Za-z_$][\w$]*)\s*="),
 )
 STORE_OBJECT_EXPORT_RE = re.compile(r"module\.exports\s*=\s*\{(.*?)\}", re.S)
+#: ``api.createWorksheet = function () {...}`` - how the agent's own
+#: compatibility filler (and plenty of generated code) attaches a method.
+STORE_FUNCTION_ASSIGN_RE = re.compile(
+    r"\b[A-Za-z_$][\w$]*\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:function\b|\()")
 
 
 def _store_definitions(store_text: str) -> set[str]:
-    defined: set[str] = set()
-    for pattern in STORE_DEFINITION_RES:
-        defined.update(pattern.findall(store_text))
+    """Names reachable through the store object.
+
+    ``module.exports = { a, b }`` is the public surface: a
+    ``function createWorksheet() {}`` that never appears there cannot be called
+    as ``store.createWorksheet()``. r73's Sheet run and r76's Sheet run both died
+    with ``TypeError: store.createWorksheet is not a function`` while this check
+    reported clean, because a bare declaration used to count as a definition.
+    """
+    exported: set[str] = set()
     match = STORE_OBJECT_EXPORT_RE.search(store_text)
     if match:
         for entry in re.split(r"[,\n]", match.group(1)):
             name = entry.split(":")[0].strip()
             if re.fullmatch(r"[A-Za-z_$][\w$]*", name):
-                defined.add(name)
+                exported.add(name)
+    exported.update(STORE_DEFINITION_RES[3].findall(store_text))
+    exported.update(STORE_DEFINITION_RES[4].findall(store_text))
+    exported.update(STORE_FUNCTION_ASSIGN_RE.findall(store_text))
+    if exported:
+        return exported
+
+    # No explicit export object (a class, a factory, `module.exports = store`):
+    # fall back to the loose scan and accept its false negatives.
+    defined: set[str] = set()
+    for pattern in STORE_DEFINITION_RES:
+        defined.update(pattern.findall(store_text))
     return {name for name in defined if name not in {"if", "for", "while", "switch", "catch"}}
 
 
