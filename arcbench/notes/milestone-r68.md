@@ -744,3 +744,47 @@ after : rc=0 Backend listening on 38868  （打补丁 → 正常起服务）
 
 > 注意：**每轮生成的应用是模型重新写的**，所以 r74 的 `pr.js:67` 不会原样出现在下一轮；
 > 这个修复针对的是"这一类崩点"，不是那一行代码。
+
+---
+
+## 10:15–10:25 r77 包打好（等 r76 归零就能直接上传）
+
+### 1. 一处数据更正：r76 没有跑 2 小时
+
+平台 run 页显示的是 **UTC**（`Started 2026/10/3 01:35:19`），换算到北京是 **09:35**；
+我在 10:18 复查时 r76 才跑了 **44 分钟**，与 r73/r74 的 40–60 分钟同一量级，
+"2h25m 未归零"是我把站点时间当成本地时间算错了。**当时不需要设超时阈值，也不需要 Cancel。**
+
+（同一时刻 `/running` 显示 **2 active**：`3d44ceb37119`(Stage-1) 与 `822270b65bf1`(原题)；
+Stage-2 `8a996fc02103`、Stage-3 `6bfd0c41405d`、Sheet `72c47d2cd72f` 已归零。）
+
+### 2. 本地断言全绿（打包前门禁）
+
+| 脚本 | 结果 |
+|---|---|
+| `_scratch_r69.py` | `ALL LOCAL ASSERTIONS PASSED`（播种 + 路由补挂 + entry 50875 bytes） |
+| `_scratch_r70_appuse.py` | `rc: 0 / out: loaded`，`arc: dropped 1 non-function middleware argument(s)` |
+| `_scratch_r73_frontend_serving.py` | BEFORE **404** → AFTER **200**（改读 4000 字节，`#root` 在 meta 之后） |
+| `_scratch_r73_collection_guard.py` | BEFORE `rc=1 typeof: undefined` → AFTER `rc=0 typeof: object / Object.values ok: 0 / find ok: function` |
+| `_scratch_r75_use_sweep.py` | `rc: 0`，两个模块共 3 处 `app.use()` 被类型过滤 |
+| `_scratch_r77_router_guard.py` | BEFORE `rc=1 TypeError reproduced` → AFTER `rc=0 Backend listening` |
+| `_scratch_r77_store_contract.py` | 3 个真实形态全部 `CAUGHT`，第 4 个（`../../store` 指向不存在的文件）按预期 clean |
+| `py_compile` | `arcbench/agent/**` 全部通过 |
+
+> 两个脚本原先失败是**探针自身的问题**，不是产品回归：collection 那个复用了上一次的工作目录
+> （守卫已存在 → 幂等返回空 → 断言失败），改成每次新建带时间戳目录；frontend serving 那个
+> 缺少 hoisted 依赖且断言只看 400 字节，改成从 `selftest-r71-ghstage1-served.zip` 解依赖 + 读 4000 字节。
+
+### 3. 打包结果（预检通过，待 r76 归零上传）
+
+- stage：`arcbench/runs/stage-r77-101749`（118 个文件 + 1 个空目录）
+- 包：`arcbench/dist/arc-agent-r77.zip`，**119 项 / 421.9 KB / sha256 `E7735E37…F4E6`**
+- 打包器：`arcbench/runs/_pack_agent_zip.py`（用 Python zipfile 复刻历史包结构：
+  根目录直放内容、正斜杠、空目录 `templates/scaffold/backend/src/database/` 也保留成目录项——
+  `Compress-Archive` 会把它丢掉，所以只用 Python 版）
+- 预检：`main.py` ✓｜`arcbench_agent_runtime/*` 7 项 ✓｜`templates/sheet/*` 24 项 ✓｜
+  `templates/scaffold/*` 69 项 ✓｜`.arc` 命中 **0** ✓｜
+  **与 r76 的条目名列表逐条 diff = 完全相同**（只有 `guard.py` / `main.py` 内容变化）
+- 内容核对：包内 `guard.py` 含 `def ensure_router_call_guard` + `ARC_ROUTER_GUARD_MODULE`
+  且与工作区文件哈希一致；包内 `main.py` 含 `from guard import ensure_router_call_guard`、
+  `router-call guard` 日志行、`account menu contract: skipped`
