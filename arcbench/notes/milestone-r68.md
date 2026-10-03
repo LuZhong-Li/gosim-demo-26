@@ -788,3 +788,76 @@ Stage-2 `8a996fc02103`、Stage-3 `6bfd0c41405d`、Sheet `72c47d2cd72f` 已归零
 - 内容核对：包内 `guard.py` 含 `def ensure_router_call_guard` + `ARC_ROUTER_GUARD_MODULE`
   且与工作区文件哈希一致；包内 `main.py` 含 `from guard import ensure_router_call_guard`、
   `router-call guard` 日志行、`account menu contract: skipped`
+
+---
+
+## 10:2x–10:35 r76 Stage-2 出分 0.0：两个新崩点 + r77 包作废、改出 r78
+
+### 1. r76 Stage-2 = 0.0（r73 同题 6.9），已抓到 stdout
+
+task 页的 Run history 表（平台时间戳是 UTC，`01:35:19` = 北京 09:35）：
+
+| 提交 | 时间 | Stage-2 分 | 状态 |
+|---|---|---|---|
+| **arc-agent-r76** | 2026/10/3 01:35 | **0.0** | FAILED |
+| arc-agent-r74 | 10/2 17:13 | 0.0 | FAILED |
+| arc-agent-r73 | 10/2 16:03 | **6.9** | FAILED |
+| arc-agent-r72 | 10/2 15:06 | 0.0 | FAILED |
+
+stdout 落盘 `arcbench/downloads/logs/r76日志/r76-1-2.txt`（443 行 / 54.7 KB，Duration 37m59s），
+关键标记：`argument handler` 0、`is not a function` 0、`Cannot read properties of null` 0、
+`ENOENT` 0、**`Backend listening` 0**（根本没起来）、`entry points now mount` 2、`exact-name coverage` 2。
+
+尾部原文（**新的崩点**）：
+
+```
+[template-app.stderr] arc: dropped 1 non-function middleware argument(s) instead of crashing
+[template-app.stderr] TypeError: app.use() requires a middleware function
+[template-app.stderr]     at Function.use (.../express/lib/application.js:213:11)
+[template-app.stderr]     at __arcUse (/workspace/template/backend/src/app.js:50:17)
+[template-app.stderr]     at Object.<anonymous> (/workspace/template/backend/src/app.js:299:1)
+[template-app.stderr]     at Object.<anonymous> (/workspace/template/backend/src/index.js:1:13)
+```
+
+即：**文本级 `__arcUse` 把 undefined 参数丢掉后只剩路径 `'/'`，仍去 `target.use('/')`** →
+express 抛 "requires a middleware function" → 进程 exit(1)。这不是 r74 的 `router.post`，是 `app.use` 这条链的
+**第二个失败模式**（丢参数 ≠ 跳过整条挂载）。同轮还有 `store.removeOrgMember()` 契约未闭合
+（`organizations.js:79`，`store contract still open`），但不是本次致命原因。
+
+### 2. r77 包作废（未上传）：shim 把**路径参数**也当 handler 过滤掉了
+
+写 r78 的探针时立刻暴露：r77 的 `guardRoutes` 对 `Router.prototype.<verb>` 无差别
+`args.filter(isHandler)`，于是 `router.get('/list', fn)` 变成 `router.get(fn)` → path-to-regexp
+拿函数源码当路径解析 → `PathError: Unexpected ( at index 0`。**任何一条正常路由都会失效。**
+因为 r77 从未上传，没有造成实际损失；已作废并改出 r78。
+
+- 修复：`guardRoutes` 先剥出「路径头」（string / RegExp / 纯 string|RegExp 数组），只对**剩余参数**做
+  handler 过滤，调用时 `head.concat(handlers)`；
+- 回归断言：`_scratch_r77_router_guard.py` 的探针里加了一条**合法路由**
+  `router.get('/live', (req,res)=>res.json({ok:true}))`，现在会断言 `GET /live` 真能返回 `{"ok":true}`
+  （没有这条断言，路径被吞掉也测不出来）。
+
+### 3. `__arcUse` 硬修（文本级，与运行期 shim 双保险）
+
+`ARC_USE_HELPER` 增加 `mountable` 判定：过滤后若没有任何可挂载中间件，直接返回不调用 `target.use(...)`，
+并打印 `arc: skipped a mount with no middleware left: ["/"]`。这修的是 r76 的原崩点；
+r77 那层运行期 shim 的 `hasMiddleware` 判定则是同类兜底。同时把 shim 注释里字面量
+`app.use()` 改写掉（`guard_app_use` 的全文扫描会扫到它并改写注释，噪声且无必要）。
+
+### 4. r78 包（预检通过，等 Stage-1/原题归零后上传）
+
+| 项 | 值 |
+|---|---|
+| 包 | `arcbench/dist/arc-agent-r78.zip` |
+| 大小 / 项数 | **422.4 KB / 119 项** |
+| sha256 | `FC2E683C3FA2A84976814495586006FA8013F8AF69ACCCD11F55966FF617177A` |
+| 条目 diff vs r76 | **0**（仅 `guard.py` / `main.py` 内容变化） |
+| 预检 | `main.py` ✓、`arcbench_agent_runtime/*` 7 ✓、`templates/sheet/*` 24 ✓、`templates/scaffold/*` 69 ✓、`.arc` **0** ✓ |
+| 内容 | 包内 `guard.py` 含 `ARC_ROUTER_GUARD_MODULE` + `isPath` + `mountable` 且与工作区哈希一致 |
+
+**8 个本地探针全绿**：`_scratch_r69` / `r70_appuse` / `r73_frontend_serving` / `r73_collection_guard` /
+`r75_use_sweep` / `r77_router_guard` / `r77_store_contract` / `r78_appuse_pathonly`，外加 `py_compile`。
+
+> 新增 `_scratch_r78_appuse_pathonly.py`：先用 **r76 时代的 `ARC_USE_HELPER` 副本**跑一遍
+> （`rc=1` + 复现 "requires a middleware function"），再用修好的 helper + 运行期 shim 跑一遍
+> （`rc=0` + `Backend listening`）——两头都有证据，而不是只证明"现在能跑"。

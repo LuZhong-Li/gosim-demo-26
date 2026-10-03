@@ -3802,6 +3802,21 @@ function __arcUse(target, ...middleware) {
     console.error('arc: dropped ' + (middleware.length - safe.length)
       + ' non-function middleware argument(s) instead of crashing');
   }
+  // A bare path is not a handler. Dropping the undefined argument still left
+  // express with nothing to mount, and it answers that with another exit(1):
+//   r76 Stage 2  TypeError: "requires a middleware function" from a mount that
+//                had lost its handler and kept only the path
+  //                at __arcUse (backend/src/app.js:50:17)
+  //                at Object.<anonymous> (backend/src/app.js:299:1)
+  // so a mount that lost its handler is skipped instead of being forwarded.
+  const mountable = safe.some((entry) => typeof entry === 'function'
+    || (Array.isArray(entry) && entry.length > 0)
+    || (entry && typeof entry === 'object' && typeof entry.handle === 'function'));
+  if (!mountable) {
+    console.error('arc: skipped a mount with no middleware left: '
+      + JSON.stringify(safe));
+    return target;
+  }
   return target.use(...safe);
 }
 '''
@@ -3909,20 +3924,36 @@ ARC_ROUTER_GUARD_MODULE = '''// --- router-call guard added by the ARC agent ---
     return typeof entry === 'object' && entry !== null && typeof entry.handle === 'function';
   }
 
+  function isPath(entry) {
+    if (typeof entry === 'string' || entry instanceof RegExp) return true;
+    // Express also accepts an array of paths for one registration.
+    return Array.isArray(entry) && entry.length > 0
+      && entry.every((item) => typeof item === 'string' || item instanceof RegExp);
+  }
+
   function guardRoutes(proto, label) {
     if (!proto) return;
     for (const method of METHODS) {
       const original = proto[method];
       if (typeof original !== 'function' || original[MARK]) continue;
       const guarded = function (...args) {
-        const handlers = args.filter(isHandler);
-        if (handlers.length !== args.length) {
-          console.error('arc: dropped ' + (args.length - handlers.length) + ' non-function '
+        // The first argument of a router/app registration is the path, not a
+        // handler: filtering it away turns `router.get('/list', fn)` into
+        // `router.get(fn)` and path-to-regexp blows up on the function source.
+        let head = [];
+        let rest = args;
+        if (args.length > 0 && isPath(args[0])) {
+          head = [args[0]];
+          rest = args.slice(1);
+        }
+        const handlers = rest.filter(isHandler);
+        if (handlers.length !== rest.length) {
+          console.error('arc: dropped ' + (rest.length - handlers.length) + ' non-function '
             + 'handler(s) from ' + label + '.' + method + '() instead of letting express throw');
         }
         // Registering nothing is strictly better than exit(1) while loading.
         if (handlers.length === 0) return this;
-        return original.apply(this, handlers);
+        return original.apply(this, head.concat(handlers));
       };
       guarded[MARK] = true;
       proto[method] = guarded;
@@ -3939,8 +3970,10 @@ ARC_ROUTER_GUARD_MODULE = '''// --- router-call guard added by the ARC agent ---
         console.error('arc: dropped ' + (args.length - safe.length) + ' non-function '
           + 'middleware argument(s) from ' + label + '.use() instead of letting express throw');
       }
-      // A bare path is not a middleware: express answers "app.use() requires a
-      // middleware function", which is the same exit(1) by another name.
+  // A bare path is not a middleware: express refuses it with its own
+  // "requires a middleware function" TypeError, the same exit(1) by another
+  // name. (Written without the literal call syntax so the app.use sweep in
+  // guard_app_use() does not rewrite this shim.)
       const hasMiddleware = safe.some(isMiddleware);
       if (!hasMiddleware) {
         if (safe.length) {
