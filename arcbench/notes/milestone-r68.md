@@ -1118,6 +1118,30 @@ TypeError: store.getAccountByUsernameOrEmail is not a function   @ auth.js:26
 r81 包已备好：`arcbench/dist/arc-agent-r81.zip`，**119 项 / 427.9 KB / sha256 `1E2F2621…C13C`**
 （含参数化 store 契约 + eager/Proxy 双保险），等保险五题归零即可上传。
 
+### 8. 保险复位结果 + r81 起跑（14:2x）
+
+保险包 `arc-agent-r33-insurance3` 五题跑完（约 20 分钟、**0 token / ￥0**，因为它是预置成品包）：
+
+| 项 | 值 |
+|---|---|
+| 合计 | **8.84 分 / 12-of-200（6.0%）** |
+| GitHub 原题 | **9.77 / 7.0%** |
+| Stage-1 | 0.00（保险包本身不覆盖这一题） |
+| 成本 | ￥0（0 token，2s 运行） |
+
+> 这比记录里的旧基线（5.66 / 8-of-200）更好，**榜单大盘已经从 r79/r80 的 0.00 拉回到 8.84**。
+> 保险包每轮只花 ~20 分钟、￥0，所以"迭代 → 归零 → 复位保险"这个循环的成本主要在迭代侧。
+
+r81 已上传并在 **14:2x 起跑**（snapshot #54）：
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `93b954418fa6` |
+| hackathon--github-stage-1 | `e77c932dfa7e` |
+| hackathon--github-stage-2 | `76b47d5abb24` |
+| hackathon--github-stage-3 | `0ef0b7e992ca` |
+| hackathon--sheet | `8746ce05f121` |
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
