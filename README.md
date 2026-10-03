@@ -8,6 +8,11 @@
 > [docs/plans/17-ARC-Bench方向校准与推进路线.md](docs/plans/17-ARC-Bench方向校准与推进路线.md)。
 > 下文「作品/提交物」相关表述保留为历史口径。
 
+> **ARC-Bench 子项目交接**：本仓库同时承载参赛工作区 `arcbench/`（提交物 `arcbench/agent/`）。
+> 接手请先读 **[arcbench/HANDOVER.md](arcbench/HANDOVER.md)**（平台契约、生成流水线与守卫、
+> 故障图鉴、平台操作手册、迭代方法论、当前状态与未决问题），笔记索引在
+> [arcbench/notes/README.md](arcbench/notes/README.md)。
+
 ## 分支策略
 
 - `main`：初赛冻结基线，存放正式提交物；只接收经过验证且不破坏 demo/trace 基线的变更。
