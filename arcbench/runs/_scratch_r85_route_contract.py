@@ -37,9 +37,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "agent"))
 
-from guard import REQUIRED_ENTRY_ROUTES, restore_entry_route_contract  # noqa: E402
+from guard import (  # noqa: E402
+    REQUIRED_ENTRY_ROUTES,
+    ensure_app_router,
+    restore_entry_route_contract,
+)
 
 TEMPLATE = ROOT / "agent" / "templates" / "scaffold"
+
+#: A real graded project: the full-task run whose official report reads
+#: expected=0 / unexpected=100, and whose frontend/src/App.tsx is the 286-byte
+#: bundler placeholder. It is the fixture that proves the guard against reality
+#: instead of against a shape we invented.
+REAL_PROJECT = (ROOT / "downloads" / "agent-packages"
+                / "a128c4309297-template.zip")
 
 #: r72's generated entry, reduced to the part that matters: a flat kebab table
 #: with a duplicate "/home" and no route that takes a parameter.
@@ -226,6 +237,54 @@ def main() -> int:
             failures.append("the restored HomePage carries no search control")
         if not any("restored pages" in line for line in changed):
             failures.append("the change report does not mention the page restore")
+
+        # ---------------------------------------------------------------- 6
+        # End to end against the REAL graded project, when it is on disk. This is
+        # the check that matters: our own fixtures can only prove the guard does
+        # what we meant, not that it fires on the shape the platform actually
+        # produced. Also asserts the restore SURVIVES the passes that run after it
+        # - ensure_app_router does touch the entry again (+16 generated routes on
+        # this project), so "the contract is still there afterwards" has to be an
+        # assertion rather than an assumption.
+        if not REAL_PROJECT.is_file():
+            print(f"[6] SKIP: {REAL_PROJECT.name} not on disk")
+        else:
+            import zipfile
+            project = tmp / "real-a128"
+            with zipfile.ZipFile(REAL_PROJECT) as archive:
+                members = [m for m in archive.namelist()
+                           if not m.startswith("template/node_modules/")]
+                archive.extractall(project, members=members)
+            entry = project / "template" / "frontend" / "src" / "App.tsx"
+            print(f"[6] real project entry: {entry.stat().st_size} bytes")
+            if entry.stat().st_size > 1000:
+                failures.append("the real fixture no longer holds the placeholder "
+                                f"entry ({entry.stat().st_size} bytes) - the fixture moved")
+            else:
+                real_note: list[str] = []
+                real_changed = restore_entry_route_contract(
+                    project / "template", TEMPLATE, real_note)
+                after = entry.read_text(encoding="utf-8")
+                present = [r for r in REQUIRED_ENTRY_ROUTES if r in after]
+                print(f"[6] restore -> {len(real_changed)} change group(s); "
+                      f"routes {len(present)}/{len(REQUIRED_ENTRY_ROUTES)}")
+                if len(present) != len(REQUIRED_ENTRY_ROUTES):
+                    failures.append(f"the guard did not repair the REAL project "
+                                    f"(routes present: {present})")
+                home = (project / "template" / "frontend" / "src" / "pages"
+                        / "HomePage.tsx").read_text(encoding="utf-8")
+                if 'aria-label="Search"' not in home:
+                    failures.append("the REAL project's HomePage still lacks the "
+                                    "searchbox the 17 specs wait on")
+                # Now replay the writer that runs before us in the pipeline.
+                ensure_app_router(project / "template")
+                survivor = [r for r in REQUIRED_ENTRY_ROUTES
+                            if r in entry.read_text(encoding="utf-8")]
+                print(f"[6] after ensure_app_router: routes {len(survivor)}/"
+                      f"{len(REQUIRED_ENTRY_ROUTES)} survive")
+                if len(survivor) != len(REQUIRED_ENTRY_ROUTES):
+                    failures.append("a later pass destroyed the restored contract: "
+                                    f"{survivor}")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
