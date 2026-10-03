@@ -69,6 +69,12 @@ def _rewrite_express_routes(text: str) -> tuple[str, int, int]:
         path = match.group(3)
         fixed, changed = REGEX_PARAM.subn(_regex_param_repl, path)
         regex_param += changed
+        # r79 Stage 1 died at startup on '/repos/:owner/:name/blob/:branch/*':
+        #   PathError: Missing parameter name at index 34
+        # path-to-regexp v8 wants the wildcard named, so a trailing '/*' becomes
+        # '/*splat' (the parameter is a splat, not a bare star).
+        fixed, trailing = re.subn(r"/\*(?![A-Za-z_])", "/*splat", fixed)
+        regex_param += trailing
         return f".{verb}({quote}{fixed}{quote}"
 
     out = ROUTE_PATH_RE.sub(route_repl, out)
@@ -4039,6 +4045,18 @@ ENTRY_REQUIRE_RE = re.compile(
     re.MULTILINE,
 )
 
+#: A top-level call of a seeding helper, e.g. ``seed(store);`` - r79's GitHub and
+#: Stage-3 runs both died inside that call (``at seed (seed.js:46)`` from
+#: ``index.js:35``), which wrapping the require() alone cannot catch.
+ENTRY_SEED_CALL_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<callee>[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)"
+    r"[ \t]*\((?P<args>[^;\n]*)\)[ \t]*;[ \t]*$",
+    re.MULTILINE,
+)
+SEED_CALL_NAME = re.compile(r"(?:seed|bootstrap|init|setup|migrate|populate|hydrate|fixture)",
+                            re.IGNORECASE)
+SEED_CALL_MARKER = "// arc: seed call made crash-safe"
+
 
 def _binding_names(binding: str) -> list[str]:
     """The variables a declaration binds, or [] when the pattern is too exotic."""
@@ -4077,52 +4095,82 @@ def guard_entry_requires(project_dir: Path) -> list[str]:
     if entry is None:
         return []
     body = _source_text(entry)
-    if not body or "__arcStubModule" in body:
+    if not body:
         return []
     app_file = _app_file(project_dir)
     changed = 0
 
-    def _replace(match: re.Match) -> str:
-        nonlocal changed
-        binding = match.group("binding")
-        expr = match.group("expr").strip()
-        specifier = re.search(r"require\(['\"]([^'\"]+)['\"]\)", expr)
-        if specifier is None:
-            return match.group(0)
-        if app_file is not None and specifier.group(1).startswith("."):
-            target = (entry.parent / specifier.group(1))
-            target = target.with_suffix(".js") if target.suffix != ".js" else target
-            try:
-                if target.resolve() == app_file.resolve():
-                    return match.group(0)
-            except OSError:
-                pass
-        names = _binding_names(binding)
-        if not names:
-            return match.group(0)
-        indent = match.group("indent")
-        declared = ", ".join(names)
-        assignment = expr if re.fullmatch(r"[A-Za-z_$][\w$]*", binding.strip()) \
-            else f"({binding.strip()} = {expr})"
-        stub = ", ".join(f"{name} = __arcStubModule()" for name in names)
-        changed += 1
-        return (
-            f"{indent}let {declared};\n"
-            f"{indent}try {{\n"
-            f"{indent}  {assignment};\n"
-            f"{indent}}} catch (arcRequireError) {{\n"
-            f"{indent}  console.error('arc: require({specifier.group(1)}) failed at import: '\n"
-            f"{indent}    + (arcRequireError && arcRequireError.message));\n"
-            f"{indent}  {stub};\n"
-            f"{indent}}}"
-        )
+    if "__arcStubModule" not in body:
+        def _replace(match: re.Match) -> str:
+            nonlocal changed
+            binding = match.group("binding")
+            expr = match.group("expr").strip()
+            specifier = re.search(r"require\(['\"]([^'\"]+)['\"]\)", expr)
+            if specifier is None:
+                return match.group(0)
+            if app_file is not None and specifier.group(1).startswith("."):
+                target = (entry.parent / specifier.group(1))
+                target = target.with_suffix(".js") if target.suffix != ".js" else target
+                try:
+                    if target.resolve() == app_file.resolve():
+                        return match.group(0)
+                except OSError:
+                    pass
+            names = _binding_names(binding)
+            if not names:
+                return match.group(0)
+            indent = match.group("indent")
+            declared = ", ".join(names)
+            assignment = expr if re.fullmatch(r"[A-Za-z_$][\w$]*", binding.strip()) \
+                else f"({binding.strip()} = {expr})"
+            stub = ", ".join(f"{name} = __arcStubModule()" for name in names)
+            changed += 1
+            return (
+                f"{indent}let {declared};\n"
+                f"{indent}try {{\n"
+                f"{indent}  {assignment};\n"
+                f"{indent}}} catch (arcRequireError) {{\n"
+                f"{indent}  console.error('arc: require({specifier.group(1)}) failed at import: '\n"
+                f"{indent}    + (arcRequireError && arcRequireError.message));\n"
+                f"{indent}  {stub};\n"
+                f"{indent}}}"
+            )
 
-    patched = ENTRY_REQUIRE_RE.sub(_replace, body)
+        body = ENTRY_REQUIRE_RE.sub(_replace, body)
+
+    # The call itself: r79's GitHub and Stage-3 runs crashed inside `seed(store)`
+    # at ``index.js:35``, and r76's Sheet run the same way at ``index.js:7``.
+    if SEED_CALL_MARKER not in body:
+        def _wrap_call(match: re.Match) -> str:
+            nonlocal changed
+            callee = match.group("callee")
+            if not SEED_CALL_NAME.search(callee):
+                return match.group(0)
+            indent = match.group("indent")
+            call = match.group(0).strip()
+            changed += 1
+            return (
+                f"{indent}try {{ {call} }}\n"
+                f"{indent}catch (arcSeedError) {{\n"
+                f"{indent}  {SEED_CALL_MARKER}\n"
+                f"{indent}  console.error('arc: {callee}() failed: '\n"
+                f"{indent}    + (arcSeedError && arcSeedError.message));\n"
+                f"{indent}}}"
+            )
+
+        body = ENTRY_SEED_CALL_RE.sub(_wrap_call, body)
+
+    patched = body
     if not changed:
         return []
-    lines = patched.splitlines(keepends=True)
-    insert_at = 1 if lines and lines[0].startswith("#!") else 0
-    patched = "".join(lines[:insert_at]) + ARC_STUB_MODULE_HELPER + "".join(lines[insert_at:])
+    # The wrapper text itself mentions __arcStubModule(), so the marker has to be
+    # the definition - otherwise the helper never gets inserted and the first
+    # failed require throws a ReferenceError instead.
+    if "function __arcStubModule" not in patched:
+        lines = patched.splitlines(keepends=True)
+        insert_at = 1 if lines and lines[0].startswith("#!") else 0
+        patched = ("".join(lines[:insert_at]) + ARC_STUB_MODULE_HELPER
+                   + "".join(lines[insert_at:]))
     if not _write_text(entry, patched):
         return []
     return [f"{_relative(project_dir, entry)}: {changed} require(s) made crash-safe"]

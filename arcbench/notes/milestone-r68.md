@@ -981,3 +981,46 @@ Stage-1/Stage-3 的共同点：**最后一次前端构建校验发生在 late pa
 | hackathon--github-stage-2 | `66cfdc438ebc` |
 | hackathon--github-stage-3 | `62b838522c12` |
 | hackathon--sheet | `70698d662be4` |
+
+---
+
+## 12:39–12:55 r79 全 0（回归）→ r80 已上传但**Run 按钮点不动，需要人工点一次**
+
+### 1. r79 结果：五题全 0（比 r78 的 1.59 更差）
+
+| 任务 | 分数 | 崩点（日志行号） |
+|---|---|---|
+| 原题 | 0.00 | `TypeError: Cannot read properties of undefined (reading 'findUserByUsername')` @ `seed.js:46` ← **`index.js:35`** |
+| Stage 1 | 0.00 | `PathError: Missing parameter name at index 34: /repos/:owner/:name/blob/:branch/*`（Express 5 通配符语法） |
+| Stage 2 | 0.00 | `world seed finished` ✓ 但 `listen=0`（播种完成后另一处仍在启动期抛错） |
+| Stage 3 | 0.00 | 同原题：`findUserByUsername` @ `seed.js:46` ← `index.js:35` |
+| Sheet | 0.00 | `TypeError: store.createWorksheet is not a function` @ **`app.js:67`**（这次是 app.js 自己调用，契约检查仍没覆盖） |
+
+**关键教训**：r79 的崩点不在 require 时，而在**入口调用 `seed()` 时**（`index.js:35` → `seed.js:46`）。
+我上一轮的 `guard_entry_requires()` 只包了 `require(...)`，所以 `reqFail` 一条都没有 —— 守卫形同虚设。
+另外三条前端构建闸门日志显示 `final frontend build: clean`，说明**构建闸门本身工作正常**
+（Stage-1 那次还触发了 `final frontend build 1 failed → 修复 → clean`）。
+
+### 2. r80 的两处修复（都带探针，11/11 全绿）
+
+1. **入口 `seed()` 调用也包 try/catch**（`ENTRY_SEED_CALL_RE`）：顶层对
+   `seed/bootstrap/init/setup/migrate/populate/hydrate/fixture` 这类名字的调用被包进 try/catch，
+   失败只打 `arc: seed() failed: …`。探针加了第二场景（r79 形态：调用期抛错），
+   同时修掉一个自己引入的 bug —— 之前用 `"__arcStubModule" not in body` 判断是否插入 helper，
+   而包装文本里就含这个字符串，导致 helper 从未插入（`ReferenceError`）。改成匹配 `function __arcStubModule`。
+2. **Express 5 通配符**：`/:branch/*` → `/:branch/*splat`（path-to-regexp v8 要求具名通配符），
+   探针 `_scratch_r80_wildcard.py`：before `rc=1`（复现 r79 Stage-1 的 `Missing parameter name`）→ after `rc=0` 且路由能应答。
+
+### 3. r80 包与当前阻塞
+
+- 包：`arcbench/dist/arc-agent-r80.zip`，**119 项 / 425.7 KB / sha256 `BAC52555…1934`**；
+- 上传成功：snapshot **#52**（History 51 → 52），任务页显示
+  `Latest saved submission · Ready to run · arc-agent-r80 · No task run is in progress`；
+- **但起跑不了**：`Run 5 remaining tasks`（历史页）与 `Run latest submission`（任务页，
+  包括 `getByRole("button", {name:/Run latest submission/i})`）都点了，页面始终停在 `Ready to run`，
+  `/running` 一直 0 active —— 与 r75/r76 那次"自动点击无效、需人工点一次"完全同型。
+  **需要人工点一次**（见给用户的通知）。
+
+> 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
+> 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
+> 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
