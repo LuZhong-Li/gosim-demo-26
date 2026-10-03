@@ -1427,3 +1427,20 @@ React mount 自动登录会**确定性地污染前置状态**（不是"收益不
 
 1. 先把保险包回档（`arc-agent-r33-insurance6`，snapshot #58，起跑五题）锁住 9.65；
 2. r85 只做三件事：捕获 rehearsal 子进程 stderr → 交给已有 repair turn → 仍然失败时兜底入口至少 `listen(3000)` 并挂上已生成的 router。
+
+### 补：两类 rehearsal 失败（逐条 grep 后的精确分布）
+
+（`Get-Content _r83_*_stdout.txt | Select-String 'rehearsal\] FAILED' | Sort -Unique`）
+
+| 日志 | 出现的失败 |
+|---|---|
+| github | `backend `npm start` exited early (rc=1)`、`frontend `npm run build` failed` |
+| stage1 | `frontend `npm run build` failed`、`backend `npm start` exited early (rc=0)` |
+| stage2 | **只有** `frontend `npm run build` failed` |
+| stage3 | `backend `npm start` exited early (rc=1)` |
+| sheet | `frontend `npm run build` failed`、`backend `npm start` exited early (rc=1)` |
+
+两点值得记：**(a)** rc=0 也算失败 —— 进程起来又自己退了（没 listen）；
+**(b)** `frontend npm run build failed` 是另一条独立的死因（github 日志尾部就是 rollup 的调用栈）。
+也就是说，这一轮发出去的包**同时**带着"后端起不来"和/或"前端构建失败"，0 分是必然。
+另外注意：`sign-up -> 400/401/500` 的五题计数**全为 0** —— 这不是"修好了"，而是**根本没有请求**（播种器没跑）。
