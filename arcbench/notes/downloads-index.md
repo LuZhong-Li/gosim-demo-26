@@ -1,7 +1,8 @@
 # 手工下载资料归档索引（`arcbench/downloads/`）
 
-来源：用户手动从 ARC-Bench 平台/群聊下载，2026-10-03 00:3x 整理进项目。
-**本目录被 `.gitignore` 的 `downloads/` 规则忽略**（58.7MB，不进 git）；本索引文件用于登记清单。
+来源：用户手动从 ARC-Bench 平台/群聊下载，2026-10-03 00:3x 整理进项目；
+2026-10-03 09:5x 增补 r73/r74 的补抓日志与 r75/r76 的说明目录（见 `logs/`）。
+**本目录被 `.gitignore` 的 `downloads/` 规则忽略**（约 60MB，不进 git）；本索引文件用于登记清单。
 
 ## 目录结构
 
@@ -9,7 +10,7 @@
 arcbench/downloads/
 ├── agent-packages/   17 个文件  12.8 MB   历史 agent 包 + 各 run 的工作区 zip
 ├── requirements/     40 个文件  19.8 MB   需求压缩包 + 解开的 hackathon--github / hackathon--sheet
-├── logs/             24 个文件   2.2 MB   r69–r72 逐 run 日志 + 官方群聊记录 + 问题清单
+├── logs/             39 个文件   3.4 MB   r69–r76 逐 run 日志 + 官方群聊记录 + 问题清单
 ├── runs/              9 个文件  23.9 MB   r71-project / r72-project（各 run 的 template.zip）
 └── notes/             3 个文件   0.0 MB   第三方诊断报告 / 规格文档 / 截图
 ```
@@ -42,7 +43,16 @@ arcbench/downloads/
 
 | 项 | 内容 |
 |---|---|
-| `r69日志/`、`r70日志/`、`r71日志/`、`r72日志/` | 每轮若干 `rNN-x.txt`（用户从 run 页复制的 Stdout） |
+| `r69日志/` … `r72日志/` | 每轮 5 份 `rNN-x.txt`（用户从 run 页复制的 Stdout），r70 多两份 stage3 续抓 | 
+| `r73日志/`、`r74日志/` | 每轮 5 份，**由我按同一命名补抓**（`_dump` 走 run 页 Stdout 标签），共 10 份、1.07 MB |
+| `r75日志/` | 只有 `README.txt`：包已上传但**从未起跑**（平台 Run 按钮拒绝自动点击），所以没有 stdout |
+| `r76日志/` | 起跑后补抓，格式同 r69–r74 |
+| `_write_probe.txt` | 排查"能否写入本目录"时留下的探针文件（0 字节），可忽略 |
+
+> **逐轮命名约定**（r69 起统一）：`rNN-1.txt` = GitHub 原题、`rNN-1-1/1-2/1-3.txt` = Stage 1/2/3、
+> `rNN-2.txt` = Sheet。抓取方式：run 页 → `Stdout` 标签（`button.doc-tab` 第 4 个）→ 复制全文。
+> 逐份关键标记统计见 `arcbench/notes/_log-stats.md`（脚本 `arcbench/runs/_log_stats.py`），
+> 总索引见 `arcbench/notes/logs-index-2026-10-03.md`。
 | `官方群聊天记录.txt` | 125KB，官方群聊全量（规则澄清、坑点、CLI 线索） |
 | `官方群聊天记录.cleaned.txt` | **清理版**：1904 行 → 保留 1639 行，移除 265 行（其中 226 行是纯闲聊：致谢/收到/表情/仅@人，39 行空行） |
 | `官方群聊天记录.removed-lines.txt` | 被移除的那 265 行原文（**没有任何内容真正丢失**） |
