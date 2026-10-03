@@ -39,6 +39,22 @@ Expand-Archive "<runid>-template.zip" -DestinationPath "<dir>" -Force
 因此守卫要两档都覆盖 —— r85 只做入口恢复（且只覆盖第一种的一半），
 r86 做"入口 + 它渲染的脚手架页面"恢复（两档都覆盖入口侧与页面侧）。
 
+### 守卫在真实产物上的端到端验证（r86，不是夹具）
+
+把 **`a128c4309297` 那份真实工程**（286 字节占位入口）喂给 r86 的守卫，实测：
+
+| 步骤 | 结果 |
+|---|---|
+| 恢复前的入口含几条要求路由 | **0/5** |
+| `restore_entry_route_contract` 是否触发 | **触发**（2 个 change group） |
+| 恢复内容 | `App.tsx` 路由契约 + **11 个页面**（`api/index.ts`、`AuthPage`、`ComparePage`、`HomePage`、`OrgPage`、`OrgsPage` …） |
+| 恢复后参数化路由 | **5/5** |
+| `HomePage` | 换回脚手架版，**`aria-label="Search"` 在场** → 17 条 searchbox 超时的前提被消除 |
+| 之后 `ensure_app_router` 再写入 16 条生成页面路由后 | 参数化路由 **仍 5/5 存活**（这条专门断言，因为"被后续 pass 静默冲掉"是最容易漏的回退） |
+
+> 这条是"**结论不是从夹具推出来的**"的凭据：夹具不在时探针会 SKIP 并说明，不会假装通过。
+> 对应提交 `9fca758`（拒绝诊断是 `a86d0eb`）。
+
 ## 判读阶梯（r85 出分后按这个走）
 
 `Select-String -Path arcbench\runs\_r85_*_stdout.txt -Pattern 'entry route contract'`
