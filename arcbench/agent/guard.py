@@ -2935,7 +2935,19 @@ async function __arcSeedRequest(request, auth, token) {
     }
     if (!response) continue;
     if ([404, 405, 501].includes(response.status)) continue;
-    console.log(`[arc-seed] ${method} ${candidate.path} -> ${response.status}`);
+    // A 4xx here used to be logged as a bare status, which left r80's
+    // "POST /auth/sign-up -> 400" unexplained: the seeder had found a route and
+    // the app had refused the payload, and nothing said why. Print the reason.
+    let detail = '';
+    if (response.status >= 400) {
+      try {
+        detail = (await response.clone().text()).replace(/\\s+/g, ' ').slice(0, 160);
+      } catch (error) {
+        detail = '';
+      }
+    }
+    console.log(`[arc-seed] ${method} ${candidate.path} -> ${response.status}`
+      + (detail ? ' | ' + detail : ''));
     return true;
   }
   console.log(`[arc-seed] no route answered for ${JSON.stringify((request.candidates || [{}])[0].path || '')}`);
