@@ -3813,23 +3813,36 @@ def guard_app_use(project_dir: Path) -> list[str]:
     app_file = _app_file(project_dir)
     if app_file is None:
         return []
-    body = _source_text(app_file)
-    if not body or "__arcUse" in body:
-        return []
-    created = APP_CREATE.search(body)
+    created = APP_CREATE.search(_source_text(app_file))
     if created is None:
         return []
     name = created.group("name")
     pattern = re.compile(APP_USE_CALL.pattern.replace("{name}", re.escape(name)))
-    calls = pattern.findall(body)
-    if not calls:
-        return []
-    rewritten = pattern.sub(f"__arcUse({name}, ", body)
-    patched = rewritten[:created.end()] + ARC_USE_HELPER + rewritten[created.end():]
-    if not _write_text(app_file, patched):
-        return []
-    relative = str(app_file.relative_to(project_dir)).replace(chr(92), "/")
-    return [f"{relative}: {len(calls)} app.use() call(s) type-checked"]
+    changed: list[str] = []
+    backend = project_dir / "backend"
+    for path in sorted(backend.rglob("*.js")):
+        if "node_modules" in path.parts:
+            continue
+        body = _source_text(path)
+        if not body or "__arcUse" in body:
+            continue
+        calls = pattern.findall(body)
+        if not calls:
+            continue
+        # r74 Stage 1 died on this again: the pass ran before the orphan-router
+        # mounts were injected, so the rewritten call sites were replaced by new
+        # unguarded ones. It now sweeps every backend module (idempotent thanks to
+        # the "__arcUse" marker) and runs again after every other pass.
+        rewritten = pattern.sub(f"__arcUse({name}, ", body)
+        if path == app_file:
+            rewritten = (rewritten[:created.end()] + ARC_USE_HELPER
+                         + rewritten[created.end():])
+        else:
+            rewritten = rewritten.rstrip() + ARC_USE_HELPER
+        if _write_text(path, rewritten):
+            relative = str(path.relative_to(project_dir)).replace(chr(92), "/")
+            changed.append(f"{relative}: {len(calls)} {name}.use() call(s) type-checked")
+    return changed
 
 
 #: Files that build the application or are mounted by the ARC guard itself; they
