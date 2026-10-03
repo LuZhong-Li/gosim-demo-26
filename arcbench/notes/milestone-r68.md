@@ -674,3 +674,21 @@ argument handler  0 | ENOENT 0 | is not a function 0 | Cannot read properties of
   `ArcMenuShell` 注入）。等待点击「Run 5 remaining tasks」。
 - 兜底：`arc-agent-r33-insurance2` = 7/200（原题 9.77）。
 - 截止：10/3 23:59（北京），剩约 14h。
+
+---
+
+## 09:45 解封：r76 已起跑（用户手动点了一次 Run）
+
+`/running` 确认 **5 active**，包 = `arc-agent-r76`（= r73 的稳妥行为 + `guard_app_use`
+全模块扫描修复；菜单包装注入已停用）。
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `822270b65bf1` |
+| hackathon--github-stage-1 | `3d44ceb37119` |
+| hackathon--github-stage-2 | `8a996fc02103` |
+| hackathon--github-stage-3 | `6bfd0c41405d` |
+| hackathon--sheet | `72c47d2cd72f` |
+
+同时产出日志总索引 `arcbench/notes/logs-index-2026-10-03.md` + 41 份日志的标记统计
+`arcbench/notes/_log-stats.md`（crash / listen / seed / notfn / nullread / enoent / coverage 逐轮）。
