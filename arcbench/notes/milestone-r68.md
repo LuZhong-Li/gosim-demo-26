@@ -661,3 +661,16 @@ argument handler  0 | ENOENT 0 | is not a function 0 | Cannot read properties of
 - 按最佳提交保护策略：已把 `arc-agent-r33.zip` 重新上传为
   **`arc-agent-r33-insurance2`** 并起跑五题（¥0），把榜单基线恢复到 5.66。
 - 预算：r74 花掉 ¥4.38，余量约 ¥335。
+
+---
+
+## 2026-10-03 09:3x 早晨状态（机器夜间休眠，期间未跑新轮）
+
+- 心跳自动化在夜间 19:35 UTC → 01:34 UTC 之间**没有触发**（机器休眠），所以夜里没有新轮次。
+- `arc-agent-r75`、`arc-agent-r76` 都已上传保存，但**都无法自动起跑**：
+  平台 Run 按钮对自动点击无反应（`Timed out running CDP command Input.dispatchMouseEvent`），
+  DOM click 在只读作用域不可用，raw CDP 被浏览器安全策略拒绝 → **需要人工点一次**。
+- 当前最新提交 = **`arc-agent-r76`**（= r73 行为 + app.use 扫描修复；已停用导致 r74 回落的
+  `ArcMenuShell` 注入）。等待点击「Run 5 remaining tasks」。
+- 兜底：`arc-agent-r33-insurance2` = 7/200（原题 9.77）。
+- 截止：10/3 23:59（北京），剩约 14h。
