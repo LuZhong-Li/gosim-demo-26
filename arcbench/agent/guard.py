@@ -2930,11 +2930,14 @@ function __arcSeedToken(payload) {
 
 async function __arcSeedFetch(path, method, body, token) {
   const port = process.env.PORT || __PORT__;
-  const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+  const init = {
     method,
     headers: __arcSeedHeaders(token, method),
-    body: JSON.stringify(body || {}),
-  });
+  };
+  // fetch() refuses a body on GET/HEAD ("Request with GET/HEAD method cannot
+  // have body"), which is exactly how the read-back verification first failed.
+  if (method !== 'GET' && method !== 'HEAD') init.body = JSON.stringify(body || {});
+  const response = await fetch(`http://127.0.0.1:${port}${path}`, init);
   return response;
 }
 
