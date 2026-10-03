@@ -473,3 +473,43 @@ P9 —— r76 的第三种失败形态：进程起来了，但世界没播种成
   2. 取 token 失败时不要只依赖响应体形状，允许「cookie/session 建立成功」也算成功；
   3. 播种失败时把原因写进一行结构化日志（状态码 + 路径 + 响应体前 120 字符），
      免得下一轮还要靠猜。
+
+---- 追加：r76 原题日志把根因链补全了（arcbench/downloads/logs/r76日志/r76-1.txt）----
+
+按时间顺序抓到的关键日志：
+
+    02:09:18 [arc-agent]  the suite signs in as alice-dev; the rehearsal will verify that sign-in works
+    02:09:18 [arc-agent]  sign-in store not seeded:
+                          ['backend/src/app.js: unsupported password hashing',
+                           'backend/src/auth.js: unsupported password hashing']
+    02:10:14 [rehearsal]  seeded sign-in probe: the seeded account signs in
+    02:10:42 [arc-seed]   could not sign in; the world seed runs unauthenticated from here
+    02:10:42 [arc-seed]   POST /api/orgs/acme-demo/members -> 401   (x6)
+    02:10:42 [arc-seed]   POST /api/repos -> 401                   (x7)
+
+即：
+  (a) 生成期**没能把种子账号写进应用自己的用户表** —— 应用用了 agent 复现不了的密码哈希
+      （`unsupported password hashing`），所以应用自带的登录路由永远验不过这个账号；
+  (b) agent 的兜底是 `arc-seed-auth.js`（挂在生成路由**之前**），它对**种子凭据**单独应答，
+      返回一个合成 token `arc-seed-token`；rehearsal 探针证明这条路是通的；
+  (c) 但正式启动时播种器仍然 "could not sign in"，随后所有要鉴权的播种请求都是 401。
+
+两个互斥假设（用 r78 的日志判定 —— 它跑的还是修复前的这条链路）：
+  **H1 —— 播种器没走到注入路由**：候选路径/挂载顺序/端口对不上；
+  **H2 —— 走到了但 token 不被应用接受**：合成 token 过不了应用自己的鉴权中间件。
+
+判定规则（r78 出分后第一件事）：
+  日志里出现 `[arc-seed] signed in as ... via <path>`  → H2（token 被拒）；
+  仍然只有 `could not sign in`                        → H1（没走到路由）。
+
+H1 的修法（低风险、可本地断言）：
+  * `SEED_AUTH_PATHS` 增加**专用路径** `/__arc_seed__/login`（不可能与生成路由撞车），
+    并把它放在 `world_seed_payload()` 的 login 候选**第一位** —— 注入模块本来就注册它，
+    于是"路径对不上"被结构性消除；
+  * `__arcSeedSignIn` 每轮尝试都打 `[arc-seed] login <path> -> <status>`（现在静默重试 10 轮）。
+
+H2 的修法（同样低风险）：
+  * 注入**密钥头旁路**中间件：带 `x-arc-seed-token: <每次运行随机>` 的请求视为已登录
+    （填 `req.user` / `req.session.user` / `res.locals.user` / `req.auth`，并让
+    `req.isAuthenticated()` 返回 true）；评测用例自己发的请求不带这个头，
+    因此"未登录不得访问"这类反向断言不受影响。
