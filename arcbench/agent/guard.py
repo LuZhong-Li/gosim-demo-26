@@ -2954,10 +2954,48 @@ async function __arcSeedRequest(request, auth, token) {
     }
     console.log(`[arc-seed] ${method} ${candidate.path} -> ${response.status}`
       + (detail ? ' | ' + detail : ''));
+    await __arcSeedVerify(candidate, auth ? token : null);
     return true;
   }
   console.log(`[arc-seed] no route answered for ${JSON.stringify((request.candidates || [{}])[0].path || '')}`);
   return false;
+}
+
+// A 2xx from a generated route is not proof that anything was stored: the store
+// may be missing the writer, in which case the call is a silent no-op (the ARC
+// store stub logs "arc-store: missing writer ..."). Reading the collection back
+// right after the write is the only way to tell "seeded" from "ignored" without
+// another evaluation run, so every successful write is followed by a GET on the
+// same path.
+async function __arcSeedVerify(candidate, token) {
+  const method = candidate.method || 'POST';
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return;
+  const path = candidate.path;
+  try {
+    const response = await __arcSeedFetch(path, 'GET', null, token);
+    if (!response) {
+      console.log(`[arc-seed] verify ${path} -> no response`);
+      return;
+    }
+    let size = null;
+    try {
+      const payload = await response.json();
+      if (Array.isArray(payload)) {
+        size = payload.length;
+      } else if (payload && typeof payload === 'object') {
+        for (const key of ['items', 'data', 'results', 'records', 'entries', 'value', 'rows']) {
+          if (Array.isArray(payload[key])) { size = payload[key].length; break; }
+        }
+      }
+    } catch (error) {
+      size = null;
+    }
+    console.log(`[arc-seed] verify ${path} -> ${response.status}`
+      + (size === null ? '' : ` items=${size}`)
+      + (size === 0 ? ' (the write did not persist)' : ''));
+  } catch (error) {
+    console.log(`[arc-seed] verify ${path} failed: ${error && error.message}`);
+  }
 }
 
 async function __arcSeedPhase(phase, token) {
@@ -4395,11 +4433,31 @@ ARC_STORE_STUB = '''
     if (COLLECTION.test(prop)) return [];
     if (/^(list|all)/i.test(prop) || /(List|All)$/.test(prop)) return () => [];
     if (/^(get|find|lookup|read|load|fetch)/i.test(prop)) return () => undefined;
-    if (/^(is|has|can|should|was|are)/.test(prop)) return () => true;
-    if (/^(create|add|insert|update|patch|set|save|delete|remove|reset|clear)/i.test(prop)) {
-      return () => undefined;
+    // Predicates fail closed: answering `true` for an authorisation question
+    // ("isTokenValid", "hasPermission", "canEdit") lets the suite's negative
+    // scenarios through, which is the one direction that costs points for sure.
+    if (/^(is|has|can|should|was|are)/.test(prop)) {
+      return () => {
+        __arcWarn(prop, 'predicate');
+        return false;
+      };
     }
-    return () => undefined;
+    // Writes stay no-ops (throwing here would take the request down and score the
+    // same zero), but they are now LOUD: a seeder that answers 201 while nothing
+    // is stored used to look like success in the platform log.
+    const write = /^(create|add|insert|update|patch|set|save|delete|remove|reset|clear)/i
+      .test(prop);
+    return () => {
+      __arcWarn(prop, write ? 'writer' : 'method');
+      return undefined;
+    };
+  }
+  const __arcWarned = new Set();
+  function __arcWarn(prop, kind) {
+    if (__arcWarned.has(prop)) return;
+    __arcWarned.add(prop);
+    console.error('arc-store: missing ' + kind + ' `' + prop + '` - this store does not '
+      + 'implement it, so the call was ignored');
   }
   module.exports = new Proxy(api, {
     get(target, prop, receiver) {
