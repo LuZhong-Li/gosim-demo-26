@@ -1016,10 +1016,21 @@ Stage-1/Stage-3 的共同点：**最后一次前端构建校验发生在 late pa
 - 包：`arcbench/dist/arc-agent-r80.zip`，**119 项 / 425.7 KB / sha256 `BAC52555…1934`**；
 - 上传成功：snapshot **#52**（History 51 → 52），任务页显示
   `Latest saved submission · Ready to run · arc-agent-r80 · No task run is in progress`；
-- **但起跑不了**：`Run 5 remaining tasks`（历史页）与 `Run latest submission`（任务页，
+- 起跑一开始连续失败：`Run 5 remaining tasks`（历史页）与 `Run latest submission`（任务页，
   包括 `getByRole("button", {name:/Run latest submission/i})`）都点了，页面始终停在 `Ready to run`，
-  `/running` 一直 0 active —— 与 r75/r76 那次"自动点击无效、需人工点一次"完全同型。
-  **需要人工点一次**（见给用户的通知）。
+  `/running` 一直 0 active —— 与 r75/r76 那次"自动点击无效"同型；
+- **12:50:36 重试成功**（同一次 `getByRole` 点击，距离首次尝试约 5 分钟）→ **5 active**：
+
+| 任务 | run id |
+|---|---|
+| hackathon--github | `6c93ecc06f5d` |
+| hackathon--github-stage-1 | `0ffb301d995f` |
+| hackathon--github-stage-2 | `b8ce1c1bf302` |
+| hackathon--github-stage-3 | `492c70e647e1` |
+| hackathon--sheet | `93a8e07fb0f4` |
+
+> 结论：Run 按钮在提交刚保存后的几分钟内会"假死"（点击无副作用），**等 3–5 分钟再点即可**，
+> 不必立刻叫人工；人工介入只在连续多次重试（≥3 次、间隔 5 分钟）都无效时才需要。
 
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
