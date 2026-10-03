@@ -68,7 +68,10 @@ D:\gosim-demo-26\
 * **平台不给我们 spec**：日志里是 `[tests] no published specs mounted; building from the requirement text`
   —— 200 条用例的断言/选择器/种子值我们一条都看不到，只能靠需求原文里"引号内的名字"倒推。
 * **平台只给一个总分** `test pass (x/200)`；stdout 在评测开始前就截断（最后一行通常是 `world seed finished`）。
-  run 工作区里**没有** `.arc/playwright-report.json`（已核实三处），所以逐条结果只能靠自测站。
+  **（2026-10-03 更正）** 官方逐条报告**是存在的**：在 run/提交产物 zip 里的
+  `template/.arc/playwright-report.json`（**在 `template/` 子目录下，不在 zip 根**）。
+  早前"run 工作区里没有它（已核实三处）"这句**是错的** —— 当时只翻了 run 页 File 树与 stdout，
+  没解开产物 zip；这条错误结论让 r79–r83 四轮都在盲修。详见 §14.6。
 * run 页时间戳是 **UTC**，北京时间 = +8。
 * 每题独立生成、独立评测；同一任务同时只能有一个 run。
 
