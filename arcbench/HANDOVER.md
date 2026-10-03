@@ -711,6 +711,18 @@ Dockerfile                 FROM node:20-bookworm + CMD ["node","/app/backend/src
 打包时 **含 `frontend/dist`、不含 `frontend/node_modules`**（对照：B3 = 696 项 / 2.45 MB，
 B4 = 696 项 / 2.56 MB，B5b = 696 项 / 2.56 MB）。
 
+**打包前的语法闸（新，必跑）**：TSX 语法错 = **保证 0 分**（平台 build 失败 → 没有 dist →
+用例一条不跑），而检查成本几乎为零。用**真实 esbuild**（Vite 本身在用的那个）解析
+`agent/templates/**` 下所有 ts/js：
+
+```powershell
+& $py arcbench/runs/_scratch_r87_tsx_parse.py     # 69 个模板文件，全绿才打包
+```
+
+它自己会在 `runs/**` 里找现成的 esbuild（pnpm store 里就有），**找不到就 FAIL 而不是假通过**。
+这条闸是 r87 手改 `App.tsx` / `AuthPage.tsx` 之后加的：当时第一版把 `/* */` 注释放进了 JSX
+**标签的属性列表**里——有的解析器接受、有的不接受，正是这类"只会在平台炸"的写法。
+
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
 > 它是**兜底的成品**，不是打包模板；不要照它改打包器，也不要试图"修好"它。
