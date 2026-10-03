@@ -255,3 +255,17 @@ demo/output/web-workbook.xlsx
 /arcbench/**/docker-output/
 /arcbench/**/playwright-report/
 /arcbench/**/test-results/
+
+# ==== ARC-Bench 交接：探针 / 打包器 / 保险包必须跟着仓库走 ====
+# runs/ 仍然是中间产物目录，但白名单里的这几个文件是"过程与验证"的一部分，
+# 没有它们，新克隆的人既跑不了断言也复现不了包（见 arcbench/HANDOVER.md §13）。
+!/arcbench/runs/
+/arcbench/runs/*
+!/arcbench/runs/_scratch_r*.py
+!/arcbench/runs/_pack_agent_zip.py
+!/arcbench/runs/_log_stats.py
+
+# dist/ 被顶部的全局 dist/ 规则挡住；这里只放行唯一有分的保险包。
+!/arcbench/dist/
+/arcbench/dist/*
+!/arcbench/dist/arc-agent-r33.zip
