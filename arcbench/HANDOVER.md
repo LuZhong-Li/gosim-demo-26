@@ -244,6 +244,7 @@ robocopy "arcbench\agent" $stage /E /XD node_modules dist __pycache__ .venv .git
 | 想看什么 | 看哪份 |
 |---|---|
 | 完整时间线（每轮干了什么、分数、run-id、证据） | `arcbench/notes/milestone-r68.md`（77 KB，最全） |
+| 按轮次组织的叙事版交接稿（逐轮成绩表 + 根因→修复→commit + "最重要的教训"） | `arcbench/notes/HANDOVER-2026-10-03.md` |
 | 逐轮运行记录 | `arcbench/notes/run-log-2026-10-01.md`（74 KB） |
 | 未解决问题清单（含代码片段） | `arcbench/notes/open-issues-2026-10-02.md` / `.txt` |
 | 日志总索引 + 51~56 份日志的标记统计 | `arcbench/notes/logs-index-2026-10-03.md`、`_log-stats.md` |
