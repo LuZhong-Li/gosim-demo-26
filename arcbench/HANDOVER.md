@@ -659,7 +659,16 @@ Header 仍提供跳转入口，用例仍能用 `getByRole('link', {name:'Sign in
 **坑 1：`robocopy` 会跟穿符号链接，把 pnpm 的 `node_modules` 毁掉。**
 复制一份工作副本后，`frontend/node_modules` 从 **8,783 个文件膨胀到 33,249**（`.pnpm/` 里的
 symlink 被展开成实体），构建随即 `ERR_MODULE_NOT_FOUND`。
-**修法：复制时排除 `node_modules`，到目标目录重新 `pnpm install`**，不要指望 robocopy 带过来。
+**修法：复制时排除 `frontend/node_modules`，到目标目录重新 `pnpm install`**，不要指望 robocopy 带过来。
+
+> ⚠️ **例外（2026-10-03 20:0x 补）：`/XD node_modules` 是"按名字"排除，会把
+> `backend/node_modules` 一起排掉**（实测第一版 B5 只剩 104 项、`backend/node_modules` 缺失，
+> 容器里后端没有 express 就起不来）。自测包**必须**带 `backend/node_modules`（它是扁平安装，
+> 复制是安全的）。所以要用**具体路径**排除，只排 frontend 那份：
+>
+> ```powershell
+> robocopy $src $dst /E /XD "$src\frontend\node_modules" /NFL /NDL /NJH /NJS /NP
+> ```
 
 **坑 2：pnpm 在无 TTY 时拒绝清空 `node_modules`。**
 报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，提示设 `CI=true`。设了之后就通过。
@@ -671,10 +680,11 @@ $bin = "C:\Users\HW\.cache\codex-runtimes\codex-primary-runtime\dependencies\nod
 $py  = "C:\Users\HW\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $env:PATH = "$bin;" + $env:PATH
 
-# 1) 复制工作副本，排除 node_modules（坑 1）
-robocopy $src $dst /E /XD node_modules /NFL /NDL /NJH /NJS /NP
+# 1) 复制工作副本：只排除 frontend 的 node_modules（坑 1 + 例外）
+#    注意用完整路径，不要用裸 /XD node_modules
+robocopy $src $dst /E /XD "$src\frontend\node_modules" /NFL /NDL /NJH /NJS /NP
 
-# 2) 在目标目录重新安装（坑 2：必须 CI=true）
+# 2) 在目标目录重新安装 frontend 依赖（坑 2：必须 CI=true）
 $env:CI = "true"
 cd "$dst\frontend"; pnpm install
 
@@ -689,13 +699,17 @@ node node_modules/vite/bin/vite.js build
 
 ```
 frontend/dist/index.html   frontend/ 里预构建产物
-backend/node_modules       backend/  自带依赖
+backend/node_modules       backend/  自带依赖  ← 用裸 /XD node_modules 时这条最容易漏
 requirements/              平台模板的一部分
 Dockerfile                 FROM node:20-bookworm + CMD ["node","/app/backend/src/index.js"]
 ```
 
+四项**每次都要用 `Test-Path` 实测**，不要凭"上次是好的"推断：2026-10-03 20:0x 的第一版 B5
+就是因为裸 `/XD node_modules` 把 backend 那份排掉，包从 696 项掉到 **104 项**，
+靠这四项自检才发现。
+
 打包时 **含 `frontend/dist`、不含 `frontend/node_modules`**（对照：B3 = 696 项 / 2.45 MB，
-B4 = 696 项 / 2.56 MB）。
+B4 = 696 项 / 2.56 MB，B5b = 696 项 / 2.56 MB）。
 
 > 注：入库的保险包 `arc-agent-r33.zip` 是**早期约定的包**（142 项，内含预置成品应用），
 > 与现在"通用脚手架 + 运行时生成"这条线的 119 项包不是同一种东西 ——
