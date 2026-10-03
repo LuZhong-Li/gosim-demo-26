@@ -1050,6 +1050,28 @@ Stage-1/Stage-3 的共同点：**最后一次前端构建校验发生在 late pa
 > 这三处（入口调用守卫、Express 5 通配符、参数化 store 契约）合起来进 r81；r80 包里只有前两处。
 > 本地门禁现在是 **12/12** + `py_compile`。
 
+### 5. r80 中间结果（13:40 读数，原题/Stage-1 仍在跑）
+
+| 任务 | 分数 | 日志关键行 |
+|---|---|---|
+| Stage-2 | 0.00 | `final frontend build 1 failed`（闸门触发了）→ 无 listen/seed，仍在启动期失败 |
+| Stage-3 | 0.00 | **`Backend listening` ✓**、`arc: seed() failed: Cannot read properties of undefined (reading 'findUserBy…')` |
+| Sheet | 0.00 | **`Backend listening` ✓**、`arc: seed() failed: Cannot read properties of undefined (reading 'findWorkbo…')` |
+| 原题 / Stage-1 | running | — |
+
+**这是本轮最重要的结论**：调用期 `seed()` 守卫**确实生效**了 —— Stage-3 与 Sheet 的进程不再 exit(1)，
+而是在 `arc: seed() failed: …` 之后继续 `app.listen()`（r79/78 里这两个任务连端口都没绑上）。
+但分数依旧是 0.00，因为**世界没被播种**：评测场景的 GIVEN 依赖预置的账号/组织/仓库，
+store 是空的 → 场景第一步就失败。
+
+Stage-3 还暴露了下一个环：`TypeError: Cannot read properties of undefined (reading 'find')` @ `org.js:22`
+（`findOrg` 在路由参数回调里读一个不存在的集合）→ 空世界下的**运行时 500**。
+
+=> r81 的主攻从"防崩溃"转为"让世界真的建起来"：
+   ① 参数化 store 契约（已写好，能补齐 `findWorkbook`/`createWorksheet` 这类缺失方法）；
+   ② P9 的播种认证链路（H1/H2 判定 + 专用 seed 登录路径）；
+   ③ 空世界下的运行时兜底（路由里 `collection().find` 之类的读操作降级为空数组，而不是 500）。
+
 > 排行榜风险：r79（0.00）刚把最新提交从 r78 的 0.80 拉低，而 r80 未运行同样按 0 计。
 > 一旦 r80 能跑起来：若有分 → 继续 r81（P9 播种认证 + Sheet 契约）；若仍 0 →
 > 立刻把 `arc-agent-r33-insurance2` 重新上传为最新提交并起跑，把榜单拉回 7/200 基线。
